@@ -1,32 +1,97 @@
+const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 
-const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
-
 app.get('/', (req, res) => res.send('Bot funcionando'));
-app.listen(port, () => console.log(`Servidor web activo en puerto ${port}`));
+app.listen(port, () => console.log(`Servidor web activo en puerto \${port}`));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const players = new Map();
 
+const MAX_HP = 100;
+const MAX_ENERGY = 10;
+const MAX_LIVES = 3;
+const ENERGY_RECHARGE_MS = 5 * 60 * 1000; // 1 energía cada 5 min
+
+// Zonas, tiempos de viaje en segundos y sus enemigos específicos
+const DUNGEONS = {
+  bosque: {
+    name: '🌲 Bosque Umbrío',
+    cost: 1,
+    travelSec: 10,
+    enemies: [
+      { name: 'Duende Ladrón', minDmg: 5, maxDmg: 12, minGold: 6, maxGold: 14 },
+      { name: 'Lobo Salvaje', minDmg: 10, maxDmg: 18, minGold: 10, maxGold: 20 }
+    ]
+  },
+  cripta: {
+    name: '🪦 Cripta Abandonada',
+    cost: 2,
+    travelSec: 20,
+    enemies: [
+      { name: 'Esqueleto Guerrero', minDmg: 15, maxDmg: 28, minGold: 18, maxGold: 32 },
+      { name: 'Necrófago', minDmg: 22, maxDmg: 35, minGold: 25, maxGold: 45 }
+    ]
+  },
+  dragon: {
+    name: '🌋 Guarida del Dragón',
+    cost: 3,
+    travelSec: 35,
+    enemies: [
+      { name: 'Cría de Dragón', minDmg: 30, maxDmg: 50, minGold: 50, maxGold: 85 },
+      { name: 'Dragón de Magma', minDmg: 45, maxDmg: 75, minGold: 80, maxGold: 140 }
+    ]
+  }
+};
+
 function getPlayer(id, name) {
   if (!players.has(id)) {
-    players.set(id, { name, hp: 100, maxHp: 100, gold: 0, level: 1 });
+    players.set(id, {
+      name,
+      hp: MAX_HP,
+      gold: 0,
+      lives: MAX_LIVES,
+      energy: MAX_ENERGY,
+      lastEnergyUpdate: Date.now(),
+      onMissionUntil: 0
+    });
   }
-  return players.get(id);
+
+  const p = players.get(id);
+  rechargeEnergy(p);
+  return p;
 }
 
-function mainMenu(player) {
-  const text = `⚔️ *Aventurero:* ${player.name}\n` +
-               `❤️ *Vida:* ${player.hp}/${player.maxHp}\n` +
-               `💰 *Oro:* ${player.gold}\n` +
-               `⭐ *Nivel:* ${player.level}\n\n` +
+function rechargeEnergy(p) {
+  const now = Date.now();
+  const timePassed = now - p.lastEnergyUpdate;
+
+  if (p.energy < MAX_ENERGY && timePassed >= ENERGY_RECHARGE_MS) {
+    const gained = Math.floor(timePassed / ENERGY_RECHARGE_MS);
+    p.energy = Math.min(MAX_ENERGY, p.energy + gained);
+    p.lastEnergyUpdate = now - (timePassed % ENERGY_RECHARGE_MS);
+  }
+}
+
+function sanitize(text) {
+  return String(text || '').replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+}
+
+function getStatusView(player) {
+  rechargeEnergy(player);
+  const cleanName = sanitize(player.name);
+
+  const text = `⚔️ *Aventurero:* ${cleanName}\n` +
+               `❤️‍🩹 *Vidas:* ${player.lives}/${MAX_LIVES}\n` +
+               `❤️ *Salud:* ${player.hp}/${MAX_HP}\n` +
+               `⚡ *Energía:* ${player.energy}/${MAX_ENERGY}\n` +
+               `💰 *Oro:* ${player.gold}\n\n` +
                `¿Qué decides hacer?`;
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🌲 Explorar Mazmorra', 'explore')],
-    [Markup.button.callback('🏕️ Descansar (+25 Vida)', 'rest')],
+    [Markup.button.callback('🗺️ Elegir Expedición', 'menu_dungeons')],
+    [Markup.button.callback('🏕️ Descansar (+30 Salud)', 'rest')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ]);
 
@@ -35,75 +100,142 @@ function mainMenu(player) {
 
 bot.start((ctx) => {
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
-  const menu = mainMenu(player);
-  return ctx.replyWithMarkdown(menu.text, menu.keyboard);
+  const view = getStatusView(player);
+  return ctx.replyWithMarkdownV2(view.text, view.keyboard);
 });
 
 bot.action('status', async (ctx) => {
   await ctx.answerCbQuery();
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
-  const menu = mainMenu(player);
-  return ctx.editMessageText(menu.text, { parse_mode: 'Markdown', ...menu.keyboard });
+  const view = getStatusView(player);
+  return ctx.editMessageText(view.text, { parse_mode: 'MarkdownV2', ...view.keyboard });
+});
+
+bot.action('menu_dungeons', async (ctx) => {
+  await ctx.answerCbQuery();
+  const text = `🗺️ *Elige tu destino de exploración:*\n\n` +
+               `🌲 *Bosque Umbrío* \\(Fácil\\) — Cuesta 1 ⚡ — Viaje: 10s\n` +
+               `🪦 *Cripta Abandonada* \\(Medio\\) — Cuesta 2 ⚡ — Viaje: 20s\n` +
+               `🌋 *Guarida del Dragón* \\(Difícil\\) — Cuesta 3 ⚡ — Viaje: 35s`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🌲 Explorar Bosque (10s)', 'go_bosque')],
+    [Markup.button.callback('🪦 Explorar Cripta (20s)', 'go_cripta')],
+    [Markup.button.callback('🌋 Explorar Dragón (35s)', 'go_dragon')],
+    [Markup.button.callback('⬅️ Volver', 'status')]
+  ]);
+
+  return ctx.editMessageText(text, { parse_mode: 'MarkdownV2', ...keyboard });
 });
 
 bot.action('rest', async (ctx) => {
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.hp >= player.maxHp) {
-    await ctx.answerCbQuery('¡Tu vida ya está al máximo!');
+
+  if (Date.now() < player.onMissionUntil) {
+    await ctx.answerCbQuery('Estás de viaje en una expedición.');
     return;
   }
-  player.hp = Math.min(player.maxHp, player.hp + 25);
-  await ctx.answerCbQuery('Te has recuperado un poco.');
-  const menu = mainMenu(player);
-  return ctx.editMessageText(menu.text, { parse_mode: 'Markdown', ...menu.keyboard });
+
+  if (player.hp >= MAX_HP) {
+    await ctx.answerCbQuery('Tu salud ya está al máximo (100 HP).');
+    return;
+  }
+
+  if (player.energy < 1) {
+    await ctx.answerCbQuery('⚡ No tienes energía para descansar.');
+    return;
+  }
+
+  player.energy -= 1;
+  player.hp = Math.min(MAX_HP, player.hp + 30);
+  await ctx.answerCbQuery('Descansaste y recuperaste 30 HP.');
+
+  const view = getStatusView(player);
+  return ctx.editMessageText(view.text, { parse_mode: 'MarkdownV2', ...view.keyboard });
 });
 
-bot.action('explore', async (ctx) => {
+async function startExpedition(ctx, dungeonKey) {
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
+  const dungeon = DUNGEONS[dungeonKey];
 
-  if (player.hp <= 10) {
-    await ctx.answerCbQuery('⚠️ Tienes muy poca vida. ¡Descansa primero!');
+  if (Date.now() < player.onMissionUntil) {
+    const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
+    await ctx.answerCbQuery(`Ya estás en camino. Faltan ${remaining}s.`);
     return;
   }
 
-  await ctx.answerCbQuery();
-  const roll = Math.random();
-
-  if (roll < 0.45) {
-    const goldFound = Math.floor(Math.random() * 15) + 5;
-    player.gold += goldFound;
-    return ctx.editMessageText(
-      `💎 ¡Encontraste un cofre oculto con *${goldFound} monedas de oro*!`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver', 'status')]])
-      }
-    );
-  } else if (roll < 0.85) {
-    const damage = Math.floor(Math.random() * 15) + 10;
-    player.hp = Math.max(1, player.hp - damage);
-    return ctx.editMessageText(
-      `👺 ¡Un trasgo te atacó por la espalda y te quitó *${damage} puntos de vida*!`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver', 'status')]])
-      }
-    );
-  } else {
-    player.level += 1;
-    player.maxHp += 10;
-    player.hp = player.maxHp;
-    return ctx.editMessageText(
-      `✨ ¡Derrotaste a un mini-jefe y subiste a *Nivel ${player.level}*! Tu vida aumentó y se restauró por completo.`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver', 'status')]])
-      }
-    );
+  if (player.lives <= 0) {
+    await ctx.answerCbQuery('💀 Te has quedado sin vidas.');
+    return;
   }
-});
 
-bot.launch();
+  if (player.hp < 15) {
+    await ctx.answerCbQuery('⚠️ Salud muy baja. Descansa antes de viajar.');
+    return;
+  }
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+  if (player.energy < dungeon.cost) {
+    await ctx.answerCbQuery(`⚡ Necesitas ${dungeon.cost} de energía.`);
+    return;
+  }
+
+  player.energy -= dungeon.cost;
+  player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
+  await ctx.answerCbQuery();
+
+  const departText = `🚶 *Marchando hacia:* ${sanitize(dungeon.name)}\n\n` +
+                     `⏳ Llegarás en *${dungeon.travelSec} segundos*\\. El bot te avisará cuando ocurra el encuentro\\.`;
+
+  await ctx.editMessageText(departText, {
+    parse_mode: 'MarkdownV2',
+    ...Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]])
+  });
+
+  setTimeout(async () => {
+    player.onMissionUntil = 0;
+    const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
+    const roll = Math.random();
+
+    let resultMsg = '';
+
+    if (roll < 0.35) {
+      // Encuentra cofre sin pelea
+      const gold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
+      player.gold += gold;
+      resultMsg = `📦 *¡Expedición finalizada en ${sanitize(dungeon.name)}\\!*\n\n` +
+                  `Evitaste peligros y hallaste un tesoro con *${gold} de oro*\\.`;
+    } else {
+      // Combate contra el enemigo
+      const dmg = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
+      const gold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
+      player.hp -= dmg;
+      player.gold += gold;
+
+      if (player.hp <= 0) {
+        player.lives -= 1;
+        player.hp = MAX_HP;
+        resultMsg = `⚔️ *Encuentro en ${sanitize(dungeon.name)}:*\n\n` +
+                    `Fuiste abatido por un *${sanitize(enemy.name)}* \\(recibiste *${dmg} de daño*\\)\\.\n` +
+                    `💀 Perdiste *1 vida*\\. Te quedan *${player.lives} vidas* y tu salud se reinició a 100\\.`;
+      } else {
+        resultMsg = `⚔️ *Encuentro en ${sanitize(dungeon.name)}:*\n\n` +
+                    `Derrotaste a un *${sanitize(enemy.name)}*\\.\n` +
+                    `💥 Sufriste *${dmg} de daño* \\(Salud restante: *${player.hp}/100*\\)\\.\n` +
+                    `💰 Obtuviste *${gold} monedas de oro*\\.`;
+      }
+    }
+
+    try {
+      await ctx.telegram.sendMessage(ctx.from.id, resultMsg, {
+        parse_mode: 'MarkdownV2',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }, dungeon.travelSec * 1000);
+}
+
+bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
+bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
+bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
