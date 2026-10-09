@@ -5,13 +5,29 @@ const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY } = require('./playerModel');
 
+// Iniciar servidor web para Render
 startServer();
 
+// Conectar base de datos
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Base de datos MongoDB conectada'))
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// Manejador global de errores para evitar que peticiones viejas o caídas de red tumben el proceso
+bot.catch((err, ctx) => {
+  console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
+});
+
+// Función auxiliar para responder botones evitando el error 400 de timeout
+async function safeAnswerCb(ctx, text) {
+  try {
+    await ctx.answerCbQuery(text);
+  } catch (err) {
+    // Si la consulta expiró en Telegram, se ignora de forma segura
+  }
+}
 
 function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
@@ -44,79 +60,99 @@ function getStatusView(player) {
 }
 
 bot.start(async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const view = getStatusView(player);
-  return ctx.reply(view.text, view.keyboard);
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const view = getStatusView(player);
+    return await ctx.reply(view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en /start:', err);
+  }
 });
 
 bot.action('status', async (ctx) => {
-  await ctx.answerCbQuery();
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const view = getStatusView(player);
-  return ctx.editMessageText(view.text, view.keyboard);
+  await safeAnswerCb(ctx);
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const view = getStatusView(player);
+    return await ctx.editMessageText(view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en status:', err);
+  }
 });
 
 bot.action('menu_stats', async (ctx) => {
-  await ctx.answerCbQuery();
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  await safeAnswerCb(ctx);
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-  const text = `📈 Distribución de Atributos:\n\n` +
-               `Puntos Disponibles: ${player.statPoints}\n` +
-               `💪 Fuerza: ${player.strength} (Aumenta el botín y daño)\n` +
-               `❤️ Salud Máxima: ${player.maxHp}/${MAX_BASE_HP}\n\n` +
-               `Elige dónde asignar tus puntos:`;
+    const text = `📈 Distribución de Atributos:\n\n` +
+                 `Puntos Disponibles: ${player.statPoints}\n` +
+                 `💪 Fuerza: ${player.strength} (Aumenta el botín y reduce daño recibido)\n` +
+                 `❤️ Salud Máxima: ${player.maxHp}/${MAX_BASE_HP}\n\n` +
+                 `Elige dónde asignar tus puntos:`;
 
-  const buttons = [];
-  if (player.statPoints > 0) {
-    buttons.push([Markup.button.callback('💪 +1 Fuerza', 'add_str')]);
-    if (player.maxHp < MAX_BASE_HP) {
-      buttons.push([Markup.button.callback('❤️ +5 Salud Máxima', 'add_hp')]);
+    const buttons = [];
+    if (player.statPoints > 0) {
+      buttons.push([Markup.button.callback('💪 +1 Fuerza', 'add_str')]);
+      if (player.maxHp < MAX_BASE_HP) {
+        buttons.push([Markup.button.callback('❤️ +5 Salud Máxima', 'add_hp')]);
+      }
     }
-  }
-  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-  return ctx.editMessageText(text, Markup.inlineKeyboard(buttons));
+    return await ctx.editMessageText(text, Markup.inlineKeyboard(buttons));
+  } catch (err) {
+    console.error('Error en menu_stats:', err);
+  }
 });
 
 bot.action('add_str', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) {
-    await ctx.answerCbQuery('No tienes puntos disponibles.');
-    return;
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (player.statPoints <= 0) {
+      await safeAnswerCb(ctx, 'No tienes puntos disponibles.');
+      return;
+    }
+
+    player.statPoints -= 1;
+    player.strength += 1;
+    await player.save();
+    await safeAnswerCb(ctx, '+1 Fuerza asignado');
+
+    const view = getStatusView(player);
+    return await ctx.editMessageText(view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en add_str:', err);
   }
-
-  player.statPoints -= 1;
-  player.strength += 1;
-  await player.save();
-  await ctx.answerCbQuery('+1 Fuerza asignado');
-
-  const view = getStatusView(player);
-  return ctx.editMessageText(view.text, view.keyboard);
 });
 
 bot.action('add_hp', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) {
-    await ctx.answerCbQuery('No tienes puntos disponibles.');
-    return;
-  }
-  if (player.maxHp >= MAX_BASE_HP) {
-    await ctx.answerCbQuery('Ya alcanzaste el tope de 100 HP base.');
-    return;
-  }
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (player.statPoints <= 0) {
+      await safeAnswerCb(ctx, 'No tienes puntos disponibles.');
+      return;
+    }
+    if (player.maxHp >= MAX_BASE_HP) {
+      await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.');
+      return;
+    }
 
-  player.statPoints -= 1;
-  player.maxHp = Math.min(MAX_BASE_HP, player.maxHp + 5);
-  player.hp = Math.min(player.maxHp, player.hp + 5);
-  await player.save();
-  await ctx.answerCbQuery('+5 Salud Máxima asignado');
+    player.statPoints -= 1;
+    player.maxHp = Math.min(MAX_BASE_HP, player.maxHp + 5);
+    player.hp = Math.min(player.maxHp, player.hp + 5);
+    await player.save();
+    await safeAnswerCb(ctx, '+5 Salud Máxima asignado');
 
-  const view = getStatusView(player);
-  return ctx.editMessageText(view.text, view.keyboard);
+    const view = getStatusView(player);
+    return await ctx.editMessageText(view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en add_hp:', err);
+  }
 });
 
 bot.action('menu_dungeons', async (ctx) => {
-  await ctx.answerCbQuery();
+  await safeAnswerCb(ctx);
   const text = `🗺️ Elige tu destino de exploración:\n\n` +
                `🌲 Bosque Umbrío (Fácil) — Cuesta 1 ⚡ — Viaje: 10s\n` +
                `🪦 Cripta Abandonada (Medio) — Cuesta 2 ⚡ — Viaje: 20s\n` +
@@ -129,134 +165,149 @@ bot.action('menu_dungeons', async (ctx) => {
     [Markup.button.callback('⬅️ Volver', 'status')]
   ]);
 
-  return ctx.editMessageText(text, keyboard);
+  try {
+    return await ctx.editMessageText(text, keyboard);
+  } catch (err) {
+    console.error('Error en menu_dungeons:', err);
+  }
 });
 
 bot.action('rest', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-  if (Date.now() < player.onMissionUntil) {
-    await ctx.answerCbQuery('Estás de viaje en una expedición.');
-    return;
+    if (Date.now() < player.onMissionUntil) {
+      await safeAnswerCb(ctx, 'Estás de viaje en una expedición.');
+      return;
+    }
+
+    if (player.hp >= player.maxHp) {
+      await safeAnswerCb(ctx, `Tu salud ya está al máximo (${player.maxHp} HP).`);
+      return;
+    }
+
+    if (player.energy < 1) {
+      await safeAnswerCb(ctx, '⚡ No tienes energía para descansar.');
+      return;
+    }
+
+    const healAmount = Math.ceil(player.maxHp * 0.30);
+    player.energy -= 1;
+    player.hp = Math.min(player.maxHp, player.hp + healAmount);
+    await player.save();
+    await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`);
+
+    const view = getStatusView(player);
+    return await ctx.editMessageText(view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en rest:', err);
   }
-
-  if (player.hp >= player.maxHp) {
-    await ctx.answerCbQuery(`Tu salud ya está al máximo (${player.maxHp} HP).`);
-    return;
-  }
-
-  if (player.energy < 1) {
-    await ctx.answerCbQuery('⚡ No tienes energía para descansar.');
-    return;
-  }
-
-  // Calcula el 30% de la salud máxima del jugador (redondeado hacia arriba)
-  const healAmount = Math.ceil(player.maxHp * 0.30);
-
-  player.energy -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + healAmount);
-  await player.save();
-  await ctx.answerCbQuery(`Descansaste y recuperaste ${healAmount} HP (+30%).`);
-
-  const view = getStatusView(player);
-  return ctx.editMessageText(view.text, view.keyboard);
 });
 
 async function startExpedition(ctx, dungeonKey) {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const dungeon = DUNGEONS[dungeonKey];
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const dungeon = DUNGEONS[dungeonKey];
 
-  if (Date.now() < player.onMissionUntil) {
-    const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
-    await ctx.answerCbQuery(`Ya estás en camino. Faltan ${remaining}s.`);
-    return;
-  }
+    if (Date.now() < player.onMissionUntil) {
+      const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
+      await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`);
+      return;
+    }
 
-  if (player.hp <= 0) {
-    await ctx.answerCbQuery('💀 Estás sin salud. Descansa en el campamento.');
-    return;
-  }
+    if (player.hp <= 0) {
+      await safeAnswerCb(ctx, '💀 Estás sin salud. Descansa en el campamento.');
+      return;
+    }
 
-  if (player.energy < dungeon.cost) {
-    await ctx.answerCbQuery(`⚡ Necesitas ${dungeon.cost} de energía.`);
-    return;
-  }
+    if (player.energy < dungeon.cost) {
+      await safeAnswerCb(ctx, `⚡ Necesitas ${dungeon.cost} de energía.`);
+      return;
+    }
 
-  player.energy -= dungeon.cost;
-  player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
-  await player.save();
-  await ctx.answerCbQuery();
+    player.energy -= dungeon.cost;
+    player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
+    await player.save();
+    await safeAnswerCb(ctx);
 
-  const departText = `🚶 Marchando hacia: ${dungeon.name}\n\n` +
-                     `⏳ Llegarás en ${dungeon.travelSec} segundos. El bot te avisará cuando ocurra el encuentro.`;
+    const departText = `🚶 Marchando hacia: ${dungeon.name}\n\n` +
+                       `⏳ Llegarás en ${dungeon.travelSec} segundos. El bot te avisará cuando ocurra el encuentro.`;
 
-  await ctx.editMessageText(departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
+    await ctx.editMessageText(departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
 
-  setTimeout(async () => {
-    const p = await Player.findOne({ userId: ctx.from.id });
-    if (!p) return;
+    setTimeout(async () => {
+      try {
+        const p = await Player.findOne({ userId: ctx.from.id });
+        if (!p) return;
 
-    p.onMissionUntil = 0;
-    const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
-    const roll = Math.random();
+        p.onMissionUntil = 0;
+        const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
+        const roll = Math.random();
 
-    let resultMsg = '';
+        let resultMsg = '';
 
-    if (roll < 0.30) {
-      const bonusGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
-      const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
-      p.gold += bonusGold;
-      p.addExp(expGained);
+        if (roll < 0.30) {
+          const bonusGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+          const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+          p.gold += bonusGold;
+          p.addExp(expGained);
 
-      resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
-                  `Evitaste peligros y hallaste un tesoro.\n` +
-                  `💰 Oro: +${bonusGold}\n` +
-                  `🔮 EXP: +${expGained}`;
-    } else {
-      const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
-      const goldGained = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
-      const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+          resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
+                      `Evitaste peligros y hallaste un tesoro.\n` +
+                      `💰 Oro: +${bonusGold}\n` +
+                      `🔮 EXP: +${expGained}`;
+        } else {
+          const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
+          const goldGained = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+          const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
 
-      p.hp = Math.max(0, p.hp - dmg);
+          p.hp = Math.max(0, p.hp - dmg);
 
-      if (p.hp === 0) {
-        const lostExp = p.applyDeathPenalty();
-        resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                    `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
-                    `💀 Caíste inconsciente.\n` +
-                    `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
-                    `Vuelve al campamento y descansa para restaurar tu salud.`;
-      } else {
-        p.gold += goldGained;
-        p.addExp(expGained);
-        resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                    `Derrotaste a un ${enemy.name}.\n` +
-                    `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
-                    `💰 Oro: +${goldGained}\n` +
-                    `🔮 EXP: +${expGained}`;
+          if (p.hp === 0) {
+            const lostExp = p.applyDeathPenalty();
+            resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                        `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
+                        `💀 Caíste inconsciente.\n` +
+                        `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
+                        `Vuelve al campamento y descansa para restaurar tu salud.`;
+          } else {
+            p.gold += goldGained;
+            p.addExp(expGained);
+            resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                        `Derrotaste a un ${enemy.name}.\n` +
+                        `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
+                        `💰 Oro: +${goldGained}\n` +
+                        `🔮 EXP: +${expGained}`;
+          }
+        }
+
+        await p.save();
+
+        await ctx.telegram.sendMessage(
+          ctx.from.id,
+          resultMsg,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+        );
+      } catch (err) {
+        console.error('Error al resolver la expedición:', err);
       }
-    }
+    }, dungeon.travelSec * 1000);
 
-    await p.save();
-
-    try {
-      await ctx.telegram.sendMessage(
-        ctx.from.id,
-        resultMsg,
-        Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
-      );
-    } catch (e) {
-      console.error('Error enviando mensaje de expedición:', e);
-    }
-  }, dungeon.travelSec * 1000);
+  } catch (err) {
+    console.error('Error al iniciar expedición:', err);
+  }
 }
 
 bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-bot.launch().then(() => console.log('Bot conectado con éxito a Telegram'));
+// Iniciar conexión con Telegram
+bot.launch()
+  .then(() => console.log('✅ Bot conectado con éxito a Telegram'))
+  .catch((err) => console.error('Error al lanzar Telegraf:', err.message));
 
+// Detención limpia
 const safeStop = (signal) => {
   try {
     bot.stop(signal);
