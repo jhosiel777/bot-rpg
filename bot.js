@@ -154,8 +154,13 @@ bot.action('menu_shop', async (ctx) => {
 });
 
 bot.action(/^buy_(.+)\$/, async (ctx) => {
+  console.log('--- EVENTO COMPRA DETECTADO ---');
+  console.log('Match recibido:', ctx.match);
+
   const itemId = ctx.match[1];
   const item = ITEMS[itemId];
+
+  console.log('Item buscado:', itemId, 'Encontrado:', !!item);
 
   if (!item) {
     return await safeAnswerCb(ctx, '❌ Objeto no encontrado.', true);
@@ -163,20 +168,21 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
 
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    console.log(`Jugador: ${player.name} | Oro actual: ${player.gold} | Costo: ${item.cost}`);
 
     if (player.gold < item.cost) {
       return await safeAnswerCb(ctx, `❌ Oro insuficiente (cuesta ${item.cost}g).`, true);
     }
 
-    // Cobrar y añadir ítem
     player.gold -= item.cost;
     player[item.field] = (player[item.field] || 0) + 1;
-    await player.save();
 
-    // Responder una única vez con confirmación en ventana emergente
+    console.log('Guardando jugador en MongoDB...');
+    await player.save();
+    console.log('¡Guardado con éxito!');
+
     await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
 
-    // Reconstruir texto de la tienda con oro actualizado
     let text = `🛒 *Tienda del Aventurero*\n` +
                `💰 Tu Oro: ${player.gold}\n\n` +
                `Objetos disponibles para compra:\n\n`;
@@ -191,8 +197,8 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
-    console.error('Error procesando compra:', err);
-    await safeAnswerCb(ctx, 'Ocurrió un error al procesar la compra.');
+    console.error('ERROR CRÍTICO EN COMPRA:', err);
+    await safeAnswerCb(ctx, 'Error interno al procesar compra.', true);
   }
 });
 
@@ -229,8 +235,6 @@ bot.action('menu_inv', async (ctx) => {
 });
 
 bot.action(/^use_(.+)\$/, async (ctx) => {
-  await safeAnswerCb(ctx);
-
   const itemId = ctx.match[1];
   const item = ITEMS[itemId];
   if (!item) return;
@@ -239,22 +243,19 @@ bot.action(/^use_(.+)\$/, async (ctx) => {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     if (!player[item.field] || player[item.field] <= 0) {
-      await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
-      return;
+      return await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
     }
 
     if (item.type === 'hp') {
       if (player.hp >= player.maxHp) {
-        await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
-        return;
+        return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
       }
       player[item.field] -= 1;
       player.hp = Math.min(player.maxHp, player.hp + item.value);
       await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
     } else if (item.type === 'energy') {
       if (player.energy >= MAX_ENERGY) {
-        await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
-        return;
+        return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
       }
       player[item.field] -= 1;
       player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
@@ -293,27 +294,23 @@ bot.action(/^use_(.+)\$/, async (ctx) => {
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
-    return;
+    return await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
   }
 
   try {
     const player = await getPlayer(userId, ctx.from.first_name);
 
     if (Date.now() < player.onMissionUntil) {
-      await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
-      return;
+      return await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
     }
 
     if (player.hp >= player.maxHp) {
-      await safeAnswerCb(ctx, `Tu salud ya está al máximo (${player.maxHp} HP).`, true);
-      return;
+      return await safeAnswerCb(ctx, `Tu salud ya está al máximo (${player.maxHp} HP).`, true);
     }
 
     const secLeft = getRestTimeRemaining(player);
     if (secLeft > 0) {
-      await safeAnswerCb(ctx, `⏳ Debes esperar ${formatSeconds(secLeft)} para volver a descansar.`, true);
-      return;
+      return await safeAnswerCb(ctx, `⏳ Debes esperar ${formatSeconds(secLeft)} para volver a descansar.`, true);
     }
 
     const healAmount = Math.ceil(player.maxHp * 0.30);
@@ -360,8 +357,7 @@ bot.action('add_str', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     if (player.statPoints <= 0) {
-      await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
-      return;
+      return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
     }
 
     player.statPoints -= 1;
@@ -380,12 +376,10 @@ bot.action('add_hp', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     if (player.statPoints <= 0) {
-      await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
-      return;
+      return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
     }
     if (player.maxHp >= MAX_BASE_HP) {
-      await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.', true);
-      return;
+      return await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.', true);
     }
 
     player.statPoints -= 1;
@@ -404,8 +398,7 @@ bot.action('add_hp', async (ctx) => {
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Ya estás en una expedición.', true);
-    return;
+    return await safeAnswerCb(ctx, 'Ya estás en una expedición.', true);
   }
 
   await safeAnswerCb(ctx);
@@ -428,8 +421,7 @@ async function startExpedition(ctx, dungeonKey) {
   const userId = ctx.from.id;
 
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Ya tienes una expedición en curso.', true);
-    return;
+    return await safeAnswerCb(ctx, 'Ya tienes una expedición en curso.', true);
   }
 
   try {
@@ -438,18 +430,15 @@ async function startExpedition(ctx, dungeonKey) {
 
     if (Date.now() < player.onMissionUntil) {
       const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
-      await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`, true);
-      return;
+      return await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`, true);
     }
 
     if (player.hp <= 0) {
-      await safeAnswerCb(ctx, '💀 Estás sin salud. Descansa o usa una poción.', true);
-      return;
+      return await safeAnswerCb(ctx, '💀 Estás sin salud. Descansa o usa una poción.', true);
     }
 
     if (player.energy < dungeon.cost) {
-      await safeAnswerCb(ctx, `⚡ Necesitas ${dungeon.cost} de energía.`, true);
-      return;
+      return await safeAnswerCb(ctx, `⚡ Necesitas ${dungeon.cost} de energía.`, true);
     }
 
     activeExpeditions.add(userId);
