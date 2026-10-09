@@ -2,7 +2,6 @@ const { Player } = require('./playerModel');
 
 async function getRankingText(currentUserId) {
   try {
-    // Obtenemos los 10 mejores jugadores ordenados por nivel, exp y oro
     const topPlayers = await Player.find({})
       .sort({ level: -1, exp: -1, gold: -1 })
       .limit(10)
@@ -17,13 +16,11 @@ async function getRankingText(currentUserId) {
 
     topPlayers.forEach((p, idx) => {
       const icon = medals[idx] || `*#\${idx + 1}*`;
-      // Limpiar caracteres reservados de markdown en el nombre
       const cleanName = (p.name || 'Aventurero').replace(/[_*[\]()~`>#+-=|{}.!]/g, ' ');
       text += `${icon} *${cleanName}*\n` +
               `   ⭐ Nivel: ${p.level} | 🔮 EXP: ${p.exp} | 💰 Oro: ${p.gold}\n\n`;
     });
 
-    // Buscar la posición del jugador actual si no quedó en el top 10
     const inTop = topPlayers.some((p) => p.userId === currentUserId);
     if (!inTop) {
       const currentPlayer = await Player.findOne({ userId: currentUserId }).lean();
