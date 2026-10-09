@@ -31,7 +31,7 @@ function getStatusView(player) {
 
   const buttons = [
     [Markup.button.callback('🗺️ Elegir Expedición', 'menu_dungeons')],
-    [Markup.button.callback('🏕️ Descansar (+30 Salud)', 'rest')]
+    [Markup.button.callback('🏕️ Descansar (+30% Salud)', 'rest')]
   ];
 
   if (player.statPoints > 0) {
