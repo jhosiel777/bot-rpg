@@ -1,5 +1,12 @@
 const { Telegraf, Markup } = require('telegraf');
 
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => res.send('Bot funcionando'));
+app.listen(port, () => console.log(`Servidor web activo en puerto ${port}`));
+
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const players = new Map();
 
