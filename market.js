@@ -27,11 +27,11 @@ async function getMarketView(currentUserId) {
   }
 
   let text = '🏪 *Mercado Global P2P*\n\n' +
-             'Comisión del 8% retenida tras la venta.\n\n' +
+             'Comisión del 8% retenida al vendedor tras la venta.\n\n' +
              '*Tablón de ofertas:*\n\n';
 
   listings.forEach((it, idx) => {
-    const isMine = it.sellerId === currentUserId;
+    const isMine = String(it.sellerId) === String(currentUserId);
     const tag = isMine ? ' *(Tuya)*' : '';
     text += `${idx + 1}. ${it.itemName} — 💰 ${it.price}g${tag}\n` +
             `   Vendedor: ${it.sellerName}\n\n`;
@@ -92,15 +92,15 @@ async function createListing(userId, userName, itemId, price) {
 
 async function buyListing(listingId, buyerId) {
   const buyer = await Player.findOne({ userId: buyerId });
-  if (!buyer) return { success: false, msg: 'Jugador no encontrado.' };
+  if (!buyer) return { success: false, msg: '❌ Jugador no encontrado.' };
 
   const listing = await MarketListing.findById(listingId);
   if (!listing) {
-    return { success: false, msg: 'Esta oferta ya no existe o fue comprada por otro jugador.' };
+    return { success: false, msg: '❌ Esta oferta ya no existe o ya fue comprada.' };
   }
 
-  if (listing.sellerId === buyerId) {
-    return { success: false, msg: 'No puedes comprar tu propia oferta. Usa el botón cancelar para recuperarla.' };
+  if (String(listing.sellerId) === String(buyerId)) {
+    return { success: false, msg: '⚠️ No puedes comprar tu propia oferta. Usa el botón "❌ Cancelar".' };
   }
 
   if (buyer.gold < listing.price) {
@@ -109,13 +109,12 @@ async function buyListing(listingId, buyerId) {
 
   const item = ITEMS[listing.itemId];
   if (!item) {
-    return { success: false, msg: 'Error de integridad del objeto.' };
+    return { success: false, msg: '❌ Objeto no válido.' };
   }
 
-  // Eliminación atómica final
   const deletedListing = await MarketListing.findByIdAndDelete(listingId);
   if (!deletedListing) {
-    return { success: false, msg: 'Esta oferta acaba de ser adquirida por otro usuario.' };
+    return { success: false, msg: '❌ Oferta ya adquirida por otro jugador.' };
   }
 
   const sellerProfit = Math.floor(listing.price * (1 - MARKET_FEE));
@@ -135,14 +134,15 @@ async function buyListing(listingId, buyerId) {
     sellerId: listing.sellerId,
     sellerProfit,
     price: listing.price,
-    itemName: listing.itemName
+    itemName: listing.itemName,
+    msg: `✅ Compraste 1x ${listing.itemName} por ${listing.price}g.`
   };
 }
 
 async function cancelListing(listingId, sellerId) {
   const listing = await MarketListing.findOneAndDelete({ _id: listingId, sellerId });
   if (!listing) {
-    return { success: false, msg: 'No se encontró la oferta o ya fue procesada.' };
+    return { success: false, msg: '❌ No se encontró la oferta o ya fue procesada.' };
   }
 
   const item = ITEMS[listing.itemId];
