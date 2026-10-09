@@ -687,6 +687,7 @@ bot.action('menu_dungeons', async (ctx) => {
 
   await safeAnswerCb(ctx);
   const text = `🗺️ Elige tu destino de exploración:\n\n` +
+               `💀 Si tu vida cae a 0 quedas noqueado por 2 horas:\n\n` +
                `🌲 Bosque Umbrío (Fácil) — Cuesta 1 ⚡ — Viaje: 10s\n` +
                `🪦 Cripta Abandonada (Medio) — Cuesta 2 ⚡ — Viaje: 20s\n` +
                `🌋 Guarida del Dragón (Difícil) — Cuesta 3 ⚡ — Viaje: 35s`;
