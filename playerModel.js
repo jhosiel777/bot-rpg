@@ -1,18 +1,62 @@
 const mongoose = require('mongoose');
 
-const MAX_HP = 100;
+const BASE_START_HP = 50;
+const MAX_BASE_HP = 100;
 const MAX_ENERGY = 10;
 const ENERGY_RECHARGE_MS = 5 * 60 * 1000;
 
 const playerSchema = new mongoose.Schema({
   userId: { type: Number, required: true, unique: true },
   name: { type: String, default: 'Aventurero' },
-  hp: { type: Number, default: MAX_HP },
+  level: { type: Number, default: 1 },
+  exp: { type: Number, default: 0 },
+  statPoints: { type: Number, default: 0 },
+  strength: { type: Number, default: 0 },
+  maxHp: { type: Number, default: BASE_START_HP },
+  hp: { type: Number, default: BASE_START_HP },
   gold: { type: Number, default: 0 },
   energy: { type: Number, default: MAX_ENERGY },
   lastEnergyUpdate: { type: Number, default: () => Date.now() },
   onMissionUntil: { type: Number, default: 0 }
 });
+
+function getRequiredExp(level) {
+  return Math.round(100 * Math.pow(level, 1.5));
+}
+
+playerSchema.methods.addExp = function(amount) {
+  this.exp += amount;
+  let req = getRequiredExp(this.level);
+
+  while (this.exp >= req) {
+    this.exp -= req;
+    this.level += 1;
+    this.statPoints += 2;
+    req = getRequiredExp(this.level);
+  }
+};
+
+playerSchema.methods.applyDeathPenalty = function() {
+  const penalty = Math.round(getRequiredExp(this.level) * (0.35 + Math.random() * 0.15));
+  this.exp -= penalty;
+
+  while (this.exp < 0 && this.level > 1) {
+    this.level -= 1;
+    if (this.statPoints >= 2) {
+      this.statPoints -= 2;
+    } else {
+      this.statPoints = 0;
+    }
+    const prevReq = getRequiredExp(this.level);
+    this.exp += prevReq;
+  }
+
+  if (this.exp < 0) {
+    this.exp = 0;
+  }
+
+  return penalty;
+};
 
 const Player = mongoose.model('Player', playerSchema);
 
@@ -21,7 +65,9 @@ async function getPlayer(userId, name) {
   if (!player) {
     player = await Player.create({
       userId,
-      name: name || 'Aventurero'
+      name: name || 'Aventurero',
+      hp: BASE_START_HP,
+      maxHp: BASE_START_HP
     });
   }
 
@@ -40,6 +86,7 @@ async function getPlayer(userId, name) {
 module.exports = {
   Player,
   getPlayer,
-  MAX_HP,
+  getRequiredExp,
+  MAX_BASE_HP,
   MAX_ENERGY
 };
