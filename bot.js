@@ -5,6 +5,13 @@ const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
 const { getRankingText } = require('./ranking');
+const {
+  getMarketView,
+  createListing,
+  buyListing,
+  cancelListing,
+  getMarketLimitsHelp
+} = require('./market');
 const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY, REST_COOLDOWN_MS } = require('./playerModel');
 
 startServer();
@@ -89,7 +96,10 @@ function getStatusView(player) {
       Markup.button.callback('🛒 Tienda', 'menu_shop'),
       Markup.button.callback('🎒 Inventario', 'menu_inv')
     ],
-    [Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')]
+    [
+      Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
+      Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
+    ]
   ];
 
   if (player.statPoints > 0) {
@@ -120,7 +130,7 @@ bot.start(async (ctx) => {
   }
 });
 
-// Comandos de texto directos /top y /ranking
+// Comandos de texto
 bot.command(['top', 'ranking'], async (ctx) => {
   try {
     const text = await getRankingText(ctx.from.id);
@@ -131,6 +141,30 @@ bot.command(['top', 'ranking'], async (ctx) => {
   } catch (err) {
     console.error('Error en comando /top:', err);
   }
+});
+
+bot.command('limites', async (ctx) => {
+  return await ctx.reply(getMarketLimitsHelp(), { parse_mode: 'Markdown' });
+});
+
+bot.command('vender', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 3) {
+    return await ctx.reply(
+      '⚠️ Formato incorrecto.\nUso: `/vender <id_objeto> <precio>`\n\n' + getMarketLimitsHelp(),
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  const itemId = parts[1].toLowerCase();
+  const price = parseInt(parts[2], 10);
+
+  if (isNaN(price) || price <= 0) {
+    return await ctx.reply('❌ El precio debe ser un número entero mayor a 0.');
+  }
+
+  const res = await createListing(ctx.from.id, ctx.from.first_name, itemId, price);
+  return await ctx.reply(res.msg, { parse_mode: 'Markdown' });
 });
 
 bot.action('status', async (ctx) => {
@@ -145,7 +179,60 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Vista de Ranking por botón
+// Mercado P2P
+async function renderMarket(ctx) {
+  const { text, listings } = await getMarketView(ctx.from.id);
+  const buttons = [];
+
+  listings.forEach((item, idx) => {
+    if (item.sellerId === ctx.from.id) {
+      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${item._id}`)]);
+    } else {
+      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${item._id}`)]);
+    }
+  });
+
+  buttons.push([Markup.button.callback('🔄 Actualizar Mercado', 'menu_market')]);
+  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action('menu_market', async (ctx) => {
+  await safeAnswerCb(ctx);
+  await renderMarket(ctx);
+});
+
+bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
+  const listingId = ctx.match[1];
+  const res = await buyListing(listingId, ctx.from.id);
+
+  if (!res.success) {
+    await safeAnswerCb(ctx, res.msg, true);
+    return await renderMarket(ctx);
+  }
+
+  await safeAnswerCb(ctx, `✅ Compraste ${res.itemName} por ${res.price}g`, true);
+
+  try {
+    await ctx.telegram.sendMessage(
+      res.sellerId,
+      `💰 ¡Tu oferta de *${res.itemName}* fue vendida en el mercado!\nRecibiste *+${res.sellerProfit}g* (después del 8% de comisión).`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (e) {}
+
+  return await renderMarket(ctx);
+});
+
+bot.action(/^mkt_del_(.+)\$/, async (ctx) => {
+  const listingId = ctx.match[1];
+  const res = await cancelListing(listingId, ctx.from.id);
+  await safeAnswerCb(ctx, res.msg, true);
+  return await renderMarket(ctx);
+});
+
+// Ranking
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -160,7 +247,7 @@ bot.action('menu_ranking', async (ctx) => {
   }
 });
 
-// Menú Tienda
+// Tienda NPC
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -184,7 +271,6 @@ bot.action('menu_shop', async (ctx) => {
   }
 });
 
-// Compra directa por ID
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`buy_${item.id}`, async (ctx) => {
@@ -221,7 +307,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Menú Inventario
+// Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -254,7 +340,6 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
-// Uso directo de objetos
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`use_${item.id}`, async (ctx) => {
@@ -311,7 +396,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Descanso (cooldown de 5 minutos)
+// Descanso
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -348,7 +433,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Puntos de atributo
+// Puntos de Atributo
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -417,7 +502,7 @@ bot.action('add_hp', async (ctx) => {
   }
 });
 
-// Menú Mazmorras
+// Expediciones
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
