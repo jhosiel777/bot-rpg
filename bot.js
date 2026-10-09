@@ -4,7 +4,7 @@ const { Telegraf, Markup } = require('telegraf');
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot funcionando'));
-app.listen(port, () => console.log(`Servidor web activo en puerto \${port}`));
+app.listen(port, () => console.log(`Servidor activo en puerto ${port}`));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const players = new Map();
@@ -14,7 +14,6 @@ const MAX_ENERGY = 10;
 const MAX_LIVES = 3;
 const ENERGY_RECHARGE_MS = 5 * 60 * 1000; // 1 energía cada 5 min
 
-// Zonas, tiempos de viaje en segundos y sus enemigos específicos
 const DUNGEONS = {
   bosque: {
     name: '🌲 Bosque Umbrío',
@@ -48,7 +47,7 @@ const DUNGEONS = {
 function getPlayer(id, name) {
   if (!players.has(id)) {
     players.set(id, {
-      name,
+      name: name || 'Aventurero',
       hp: MAX_HP,
       gold: 0,
       lives: MAX_LIVES,
@@ -74,19 +73,14 @@ function rechargeEnergy(p) {
   }
 }
 
-function sanitize(text) {
-  return String(text || '').replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
-}
-
 function getStatusView(player) {
   rechargeEnergy(player);
-  const cleanName = sanitize(player.name);
 
-  const text = `⚔️ *Aventurero:* ${cleanName}\n` +
-               `❤️‍🩹 *Vidas:* ${player.lives}/${MAX_LIVES}\n` +
-               `❤️ *Salud:* ${player.hp}/${MAX_HP}\n` +
-               `⚡ *Energía:* ${player.energy}/${MAX_ENERGY}\n` +
-               `💰 *Oro:* ${player.gold}\n\n` +
+  const text = `⚔️ Aventurero: ${player.name}\n` +
+               `❤️‍🩹 Vidas: ${player.lives}/${MAX_LIVES}\n` +
+               `❤️ Salud: ${player.hp}/${MAX_HP}\n` +
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
+               `💰 Oro: ${player.gold}\n\n` +
                `¿Qué decides hacer?`;
 
   const keyboard = Markup.inlineKeyboard([
@@ -101,22 +95,22 @@ function getStatusView(player) {
 bot.start((ctx) => {
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
   const view = getStatusView(player);
-  return ctx.replyWithMarkdownV2(view.text, view.keyboard);
+  return ctx.reply(view.text, view.keyboard);
 });
 
 bot.action('status', async (ctx) => {
   await ctx.answerCbQuery();
   const player = getPlayer(ctx.from.id, ctx.from.first_name);
   const view = getStatusView(player);
-  return ctx.editMessageText(view.text, { parse_mode: 'MarkdownV2', ...view.keyboard });
+  return ctx.editMessageText(view.text, view.keyboard);
 });
 
 bot.action('menu_dungeons', async (ctx) => {
   await ctx.answerCbQuery();
-  const text = `🗺️ *Elige tu destino de exploración:*\n\n` +
-               `🌲 *Bosque Umbrío* \\(Fácil\\) — Cuesta 1 ⚡ — Viaje: 10s\n` +
-               `🪦 *Cripta Abandonada* \\(Medio\\) — Cuesta 2 ⚡ — Viaje: 20s\n` +
-               `🌋 *Guarida del Dragón* \\(Difícil\\) — Cuesta 3 ⚡ — Viaje: 35s`;
+  const text = `🗺️ Elige tu destino de exploración:\n\n` +
+               `🌲 Bosque Umbrío (Fácil) — Cuesta 1 ⚡ — Viaje: 10s\n` +
+               `🪦 Cripta Abandonada (Medio) — Cuesta 2 ⚡ — Viaje: 20s\n` +
+               `🌋 Guarida del Dragón (Difícil) — Cuesta 3 ⚡ — Viaje: 35s`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Explorar Bosque (10s)', 'go_bosque')],
@@ -125,7 +119,7 @@ bot.action('menu_dungeons', async (ctx) => {
     [Markup.button.callback('⬅️ Volver', 'status')]
   ]);
 
-  return ctx.editMessageText(text, { parse_mode: 'MarkdownV2', ...keyboard });
+  return ctx.editMessageText(text, keyboard);
 });
 
 bot.action('rest', async (ctx) => {
@@ -151,7 +145,7 @@ bot.action('rest', async (ctx) => {
   await ctx.answerCbQuery('Descansaste y recuperaste 30 HP.');
 
   const view = getStatusView(player);
-  return ctx.editMessageText(view.text, { parse_mode: 'MarkdownV2', ...view.keyboard });
+  return ctx.editMessageText(view.text, view.keyboard);
 });
 
 async function startExpedition(ctx, dungeonKey) {
@@ -183,13 +177,10 @@ async function startExpedition(ctx, dungeonKey) {
   player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
   await ctx.answerCbQuery();
 
-  const departText = `🚶 *Marchando hacia:* ${sanitize(dungeon.name)}\n\n` +
-                     `⏳ Llegarás en *${dungeon.travelSec} segundos*\\. El bot te avisará cuando ocurra el encuentro\\.`;
+  const departText = `🚶 Marchando hacia: ${dungeon.name}\n\n` +
+                     `⏳ Llegarás en ${dungeon.travelSec} segundos. El bot te avisará cuando ocurra el encuentro.`;
 
-  await ctx.editMessageText(departText, {
-    parse_mode: 'MarkdownV2',
-    ...Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]])
-  });
+  await ctx.editMessageText(departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
 
   setTimeout(async () => {
     player.onMissionUntil = 0;
@@ -199,13 +190,11 @@ async function startExpedition(ctx, dungeonKey) {
     let resultMsg = '';
 
     if (roll < 0.35) {
-      // Encuentra cofre sin pelea
       const gold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
       player.gold += gold;
-      resultMsg = `📦 *¡Expedición finalizada en ${sanitize(dungeon.name)}\\!*\n\n` +
-                  `Evitaste peligros y hallaste un tesoro con *${gold} de oro*\\.`;
+      resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
+                  `Evitaste peligros y hallaste un tesoro con ${gold} monedas de oro.`;
     } else {
-      // Combate contra el enemigo
       const dmg = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
       const gold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
       player.hp -= dmg;
@@ -214,24 +203,21 @@ async function startExpedition(ctx, dungeonKey) {
       if (player.hp <= 0) {
         player.lives -= 1;
         player.hp = MAX_HP;
-        resultMsg = `⚔️ *Encuentro en ${sanitize(dungeon.name)}:*\n\n` +
-                    `Fuiste abatido por un *${sanitize(enemy.name)}* \\(recibiste *${dmg} de daño*\\)\\.\n` +
-                    `💀 Perdiste *1 vida*\\. Te quedan *${player.lives} vidas* y tu salud se reinició a 100\\.`;
+        resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                    `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
+                    `💀 Perdiste 1 vida. Te quedan ${player.lives} vidas y tu salud se restableció a 100.`;
       } else {
-        resultMsg = `⚔️ *Encuentro en ${sanitize(dungeon.name)}:*\n\n` +
-                    `Derrotaste a un *${sanitize(enemy.name)}*\\.\n` +
-                    `💥 Sufriste *${dmg} de daño* \\(Salud restante: *${player.hp}/100*\\)\\.\n` +
-                    `💰 Obtuviste *${gold} monedas de oro*\\.`;
+        resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                    `Derrotaste a un ${enemy.name}.\n` +
+                    `💥 Sufriste ${dmg} de daño (Salud restante: ${player.hp}/100).\n` +
+                    `💰 Obtuviste ${gold} monedas de oro.`;
       }
     }
 
     try {
-      await ctx.telegram.sendMessage(ctx.from.id, resultMsg, {
-        parse_mode: 'MarkdownV2',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
-      });
+      await ctx.telegram.sendMessage(ctx.from.id, resultMsg, Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]]));
     } catch (e) {
-      console.error(e);
+      console.error('Error enviando mensaje de expedición:', e);
     }
   }, dungeon.travelSec * 1000);
 }
@@ -239,3 +225,9 @@ async function startExpedition(ctx, dungeonKey) {
 bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
+
+// Iniciar bot
+bot.launch().then(() => console.log('Bot conectado con éxito a Telegram'));
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
