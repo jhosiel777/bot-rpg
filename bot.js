@@ -21,10 +21,24 @@ bot.catch((err, ctx) => {
   console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
 });
 
-async function safeAnswerCb(ctx, text) {
+async function safeAnswerCb(ctx, text, showAlert = false) {
   try {
-    await ctx.answerCbQuery(text);
+    if (text) {
+      await ctx.answerCbQuery(text, { show_alert: showAlert });
+    } else {
+      await ctx.answerCbQuery();
+    }
   } catch (err) {}
+}
+
+async function safeEditMessage(ctx, text, extra = {}) {
+  try {
+    return await ctx.editMessageText(text, extra);
+  } catch (err) {
+    if (!err.description?.includes('message is not modified')) {
+      console.error('Error al editar mensaje:', err.message);
+    }
+  }
 }
 
 function getRestTimeRemaining(player) {
@@ -110,13 +124,12 @@ bot.action('status', async (ctx) => {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
     lastUserMessages.set(ctx.from.id, ctx.callbackQuery.message.message_id);
-    return await ctx.editMessageText(view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en status:', err);
   }
 });
 
-// Menú Tienda
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -127,24 +140,20 @@ bot.action('menu_shop', async (ctx) => {
                `Objetos disponibles para compra:\n\n`;
 
     const buttons = [];
-
     for (const key in ITEMS) {
       const item = ITEMS[key];
       text += `• ${item.name} — 💰 ${item.cost} oro\n  _${item.desc}_\n\n`;
       buttons.push([Markup.button.callback(`Comprar ${item.name} (${item.cost}g)`, `buy_${item.id}`)]);
     }
-
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en menu_shop:', err);
   }
 });
 
-// Comprar objetos
 bot.action(/^buy_(.+)\$/, async (ctx) => {
-  // 1. Responder de inmediato para quitar el reloj de carga en Telegram
   await safeAnswerCb(ctx);
 
   const itemId = ctx.match[1];
@@ -155,18 +164,16 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     if (player.gold < item.cost) {
-      await safeAnswerCb(ctx, `❌ Oro insuficiente. Cuesta ${item.cost} oro.`);
+      await safeAnswerCb(ctx, `❌ Oro insuficiente (${item.cost}g necesario).`, true);
       return;
     }
 
-    // Descontar oro y sumar objeto
     player.gold -= item.cost;
     player[item.field] = (player[item.field] || 0) + 1;
     await player.save();
 
-    await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`);
+    await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
 
-    // Reconstruir vista de la tienda con datos actualizados
     let text = `🛒 *Tienda del Aventurero*\n` +
                `💰 Tu Oro: ${player.gold}\n\n` +
                `Objetos disponibles para compra:\n\n`;
@@ -179,17 +186,12 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    try {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-    } catch (editErr) {
-      // Si el texto es idéntico Telegram arroja error, lo ignoramos de forma segura
-    }
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
-    console.error('Error en compra:', err);
+    console.error('Error en buy action:', err);
   }
 });
 
-// Menú Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -214,17 +216,17 @@ bot.action('menu_inv', async (ctx) => {
     if (player.potionsEnergy > 0) {
       buttons.push([Markup.button.callback('⚡ Usar Elixir (+1 ⚡)', 'use_potion_energy')]);
     }
-
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en menu_inv:', err);
   }
 });
 
-// Usar objetos
 bot.action(/^use_(.+)\$/, async (ctx) => {
+  await safeAnswerCb(ctx);
+
   const itemId = ctx.match[1];
   const item = ITEMS[itemId];
   if (!item) return;
@@ -233,31 +235,30 @@ bot.action(/^use_(.+)\$/, async (ctx) => {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     if (!player[item.field] || player[item.field] <= 0) {
-      await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.');
+      await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
       return;
     }
 
     if (item.type === 'hp') {
       if (player.hp >= player.maxHp) {
-        await safeAnswerCb(ctx, 'Tu salud ya está al máximo.');
+        await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
         return;
       }
       player[item.field] -= 1;
       player.hp = Math.min(player.maxHp, player.hp + item.value);
-      await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`);
+      await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
     } else if (item.type === 'energy') {
       if (player.energy >= MAX_ENERGY) {
-        await safeAnswerCb(ctx, 'Tu energía ya está al máximo.');
+        await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
         return;
       }
       player[item.field] -= 1;
       player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
-      await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`);
+      await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`, true);
     }
 
     await player.save();
 
-    // Refrescar inventario
     let text = `🎒 *Mochila de Aventurero*\n\n` +
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
                `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
@@ -279,17 +280,16 @@ bot.action(/^use_(.+)\$/, async (ctx) => {
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error al usar objeto:', err);
   }
 });
 
-// Descansar con cooldown de 5 min (sin costo de energía)
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Estás de viaje en una expedición.');
+    await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
     return;
   }
 
@@ -297,18 +297,18 @@ bot.action('rest', async (ctx) => {
     const player = await getPlayer(userId, ctx.from.first_name);
 
     if (Date.now() < player.onMissionUntil) {
-      await safeAnswerCb(ctx, 'Estás de viaje en una expedición.');
+      await safeAnswerCb(ctx, 'Estás de viaje en una expedición.', true);
       return;
     }
 
     if (player.hp >= player.maxHp) {
-      await safeAnswerCb(ctx, `Tu salud ya está al máximo (${player.maxHp} HP).`);
+      await safeAnswerCb(ctx, `Tu salud ya está al máximo (${player.maxHp} HP).`, true);
       return;
     }
 
     const secLeft = getRestTimeRemaining(player);
     if (secLeft > 0) {
-      await safeAnswerCb(ctx, `⏳ Debes esperar ${formatSeconds(secLeft)} para volver a descansar.`);
+      await safeAnswerCb(ctx, `⏳ Debes esperar ${formatSeconds(secLeft)} para volver a descansar.`, true);
       return;
     }
 
@@ -317,10 +317,10 @@ bot.action('rest', async (ctx) => {
     player.lastRestTime = Date.now();
     await player.save();
 
-    await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`);
+    await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`, true);
 
     const view = getStatusView(player);
-    return await ctx.editMessageText(view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en rest:', err);
   }
@@ -346,7 +346,7 @@ bot.action('menu_stats', async (ctx) => {
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await ctx.editMessageText(text, Markup.inlineKeyboard(buttons));
+    return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
   } catch (err) {
     console.error('Error en menu_stats:', err);
   }
@@ -356,7 +356,7 @@ bot.action('add_str', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     if (player.statPoints <= 0) {
-      await safeAnswerCb(ctx, 'No tienes puntos disponibles.');
+      await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
       return;
     }
 
@@ -366,7 +366,7 @@ bot.action('add_str', async (ctx) => {
     await safeAnswerCb(ctx, '+1 Fuerza asignado');
 
     const view = getStatusView(player);
-    return await ctx.editMessageText(view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en add_str:', err);
   }
@@ -376,11 +376,11 @@ bot.action('add_hp', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     if (player.statPoints <= 0) {
-      await safeAnswerCb(ctx, 'No tienes puntos disponibles.');
+      await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
       return;
     }
     if (player.maxHp >= MAX_BASE_HP) {
-      await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.');
+      await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.', true);
       return;
     }
 
@@ -391,7 +391,7 @@ bot.action('add_hp', async (ctx) => {
     await safeAnswerCb(ctx, '+5 Salud Máxima asignado');
 
     const view = getStatusView(player);
-    return await ctx.editMessageText(view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en add_hp:', err);
   }
@@ -400,7 +400,7 @@ bot.action('add_hp', async (ctx) => {
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Ya estás en una expedición.');
+    await safeAnswerCb(ctx, 'Ya estás en una expedición.', true);
     return;
   }
 
@@ -417,18 +417,14 @@ bot.action('menu_dungeons', async (ctx) => {
     [Markup.button.callback('⬅️ Volver', 'status')]
   ]);
 
-  try {
-    return await ctx.editMessageText(text, keyboard);
-  } catch (err) {
-    console.error('Error en menu_dungeons:', err);
-  }
+  return await safeEditMessage(ctx, text, keyboard);
 });
 
 async function startExpedition(ctx, dungeonKey) {
   const userId = ctx.from.id;
 
   if (activeExpeditions.has(userId)) {
-    await safeAnswerCb(ctx, 'Ya tienes una expedición en curso.');
+    await safeAnswerCb(ctx, 'Ya tienes una expedición en curso.', true);
     return;
   }
 
@@ -438,17 +434,17 @@ async function startExpedition(ctx, dungeonKey) {
 
     if (Date.now() < player.onMissionUntil) {
       const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
-      await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`);
+      await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`, true);
       return;
     }
 
     if (player.hp <= 0) {
-      await safeAnswerCb(ctx, '💀 Estás sin salud. Descansa o usa una poción.');
+      await safeAnswerCb(ctx, '💀 Estás sin salud. Descansa o usa una poción.', true);
       return;
     }
 
     if (player.energy < dungeon.cost) {
-      await safeAnswerCb(ctx, `⚡ Necesitas ${dungeon.cost} de energía.`);
+      await safeAnswerCb(ctx, `⚡ Necesitas ${dungeon.cost} de energía.`, true);
       return;
     }
 
@@ -462,7 +458,7 @@ async function startExpedition(ctx, dungeonKey) {
     const departText = `🚶 Marchando hacia: ${dungeon.name}\n\n` +
                        `⏳ Llegarás en ${dungeon.travelSec} segundos. El bot te avisará cuando ocurra el encuentro.`;
 
-    await ctx.editMessageText(departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
+    await safeEditMessage(ctx, departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
 
     setTimeout(async () => {
       try {
