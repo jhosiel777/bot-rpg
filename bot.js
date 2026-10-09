@@ -68,6 +68,14 @@ function formatSeconds(sec) {
   return `${m}m ${s < 10 ? '0' : ''}${s}s`;
 }
 
+function formatHoursMinutes(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+
 function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
@@ -78,6 +86,12 @@ function getStatusView(player) {
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
              `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
              `💰 Oro: ${player.gold}\n\n`;
+
+  // Comprobar penalización de noqueo
+  if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
+    const koSecLeft = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
+    text += `💀 *Estado:* Inconsciente (Recuperación en: ${formatHoursMinutes(koSecLeft)})\n`;
+  }
 
   if (restSecLeft > 0) {
     text += `⏳ Próximo descanso en: ${formatSeconds(restSecLeft)}\n`;
@@ -118,8 +132,8 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Acepta /start en minúsculas, mayúsculas o comando /menu
-bot.hears(/^\/(start|menu)$/i, async (ctx) => {
+// Handler general para iniciar o abrir menú (/start, /Start, /menu)
+async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
     pendingMarketSales.delete(userId);
@@ -134,27 +148,21 @@ bot.hears(/^\/(start|menu)$/i, async (ctx) => {
     const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
 
-    // Envía el teclado persistente abajo
+    // Asegura el teclado fijo en móviles
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
 
-    // Envía el panel principal
+    // Panel interactivo principal
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en start/menu:', err);
   }
-});
+}
 
-// Mantener compatibilidad directa con el botón Iniciar nativo de Telegram
-bot.start(async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const view = getStatusView(player);
-  await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
-  const sent = await ctx.reply(view.text, view.keyboard);
-  lastUserMessages.set(ctx.from.id, sent.message_id);
-});
+bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
+bot.start(handleStartMenu);
 
-// Botones inferiores
+// Botones inferiores fijos
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
@@ -415,21 +423,6 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
-// Ranking
-bot.action('menu_ranking', async (ctx) => {
-  await safeAnswerCb(ctx);
-  try {
-    const text = await getRankingText(ctx.from.id);
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
-      [Markup.button.callback('⬅️ Volver', 'status')]
-    ]);
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
-  } catch (err) {
-    console.error('Error en menu_ranking:', err);
-  }
-});
-
 // Tienda NPC
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
@@ -616,7 +609,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Puntos de Atributo
+// Atributos
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -719,6 +712,16 @@ async function startExpedition(ctx, dungeonKey) {
     const player = await getPlayer(userId, ctx.from.first_name);
     const dungeon = DUNGEONS[dungeonKey];
 
+    // Validación de noqueo (2 horas)
+    if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
+      const remainingSec = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
+      return await safeAnswerCb(
+        ctx,
+        `💀 Sigues inconsciente. Espera ${formatHoursMinutes(remainingSec)} para volver a explorar.`,
+        true
+      );
+    }
+
     if (Date.now() < player.onMissionUntil) {
       const remaining = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
       return await safeAnswerCb(ctx, `Ya estás en camino. Faltan ${remaining}s.`, true);
@@ -773,11 +776,15 @@ async function startExpedition(ctx, dungeonKey) {
 
             if (p.hp === 0) {
               const lostExp = p.applyDeathPenalty();
+              const KNOCKOUT_MS = 2 * 60 * 60 * 1000; // 2 horas
+              p.knockedOutUntil = Date.now() + KNOCKOUT_MS;
+
               resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
                           `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
-                          `💀 Caíste inconsciente.\n` +
+                          `💀 ¡Has quedado inconsciente!\n` +
+                          `⏳ No podrás ir a expediciones durante las próximas 2 horas.\n` +
                           `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
-                          `Vuelve al campamento para descansar o usa una poción desde tu inventario.`;
+                          `Descansa en el campamento o usa pociones para reponer tu salud.`;
             } else {
               p.gold += goldGained;
               p.addExp(expGained);
@@ -815,7 +822,7 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-// Manejo seguro de inicio con reintentos para mitigar el 409 en Render
+// Reintentos de conexión para evitar el conflicto 409 durante despliegues en Render
 async function startBotWithRetry(retries = 5, delayMs = 4000) {
   try {
     await bot.telegram.deleteWebhook({ drop_pending_updates: true });
