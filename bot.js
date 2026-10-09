@@ -10,7 +10,7 @@ const {
   createListing,
   buyListing,
   cancelListing,
-  getMarketLimitsHelp
+  getItemBounds
 } = require('./market');
 const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY, REST_COOLDOWN_MS } = require('./playerModel');
 
@@ -24,6 +24,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
+const pendingMarketSales = new Map(); // Guarda el ítem que el usuario está por vender
 
 bot.catch((err, ctx) => {
   console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
@@ -114,6 +115,8 @@ function getStatusView(player) {
 bot.start(async (ctx) => {
   try {
     const userId = ctx.from.id;
+    pendingMarketSales.delete(userId);
+
     const oldMsgId = lastUserMessages.get(userId);
     if (oldMsgId) {
       try {
@@ -130,7 +133,6 @@ bot.start(async (ctx) => {
   }
 });
 
-// Comandos de texto
 bot.command(['top', 'ranking'], async (ctx) => {
   try {
     const text = await getRankingText(ctx.from.id);
@@ -143,32 +145,9 @@ bot.command(['top', 'ranking'], async (ctx) => {
   }
 });
 
-bot.command('limites', async (ctx) => {
-  return await ctx.reply(getMarketLimitsHelp(), { parse_mode: 'Markdown' });
-});
-
-bot.command('vender', async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  if (parts.length < 3) {
-    return await ctx.reply(
-      '⚠️ Formato incorrecto.\nUso: `/vender <id_objeto> <precio>`\n\n' + getMarketLimitsHelp(),
-      { parse_mode: 'Markdown' }
-    );
-  }
-
-  const itemId = parts[1].toLowerCase();
-  const price = parseInt(parts[2], 10);
-
-  if (isNaN(price) || price <= 0) {
-    return await ctx.reply('❌ El precio debe ser un número entero mayor a 0.');
-  }
-
-  const res = await createListing(ctx.from.id, ctx.from.first_name, itemId, price);
-  return await ctx.reply(res.msg, { parse_mode: 'Markdown' });
-});
-
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
+  pendingMarketSales.delete(ctx.from.id);
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
@@ -179,7 +158,7 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Mercado P2P
+// Mercado: Tablón
 async function renderMarket(ctx) {
   const { text, listings } = await getMarketView(ctx.from.id);
   const buttons = [];
@@ -192,15 +171,111 @@ async function renderMarket(ctx) {
     }
   });
 
-  buttons.push([Markup.button.callback('🔄 Actualizar Mercado', 'menu_market')]);
-  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+  buttons.push([Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+  buttons.push([
+    Markup.button.callback('🔄 Actualizar', 'menu_market'),
+    Markup.button.callback('⬅️ Volver', 'status')
+  ]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
 bot.action('menu_market', async (ctx) => {
   await safeAnswerCb(ctx);
+  pendingMarketSales.delete(ctx.from.id);
   await renderMarket(ctx);
+});
+
+// Mercado: Menú para elegir qué ítem vender
+bot.action('mkt_sell_menu', async (ctx) => {
+  await safeAnswerCb(ctx);
+  pendingMarketSales.delete(ctx.from.id);
+
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const buttons = [];
+
+    for (const key in ITEMS) {
+      const it = ITEMS[key];
+      const count = player[it.field] || 0;
+      if (count > 0) {
+        buttons.push([Markup.button.callback(`${it.name} (x${count})`, `mkt_prep_${it.id}`)]);
+      }
+    }
+
+    if (!buttons.length) {
+      return await safeEditMessage(
+        ctx,
+        '📦 *Publicar en el Mercado*\n\nNo tienes ningún objeto disponible en tu inventario para vender.',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]])
+        }
+      );
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Cancelar', 'menu_market')]);
+
+    const text = '📦 *Publicar en el Mercado*\n\nSelecciona el objeto que deseas poner a la venta:';
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en mkt_sell_menu:', err);
+  }
+});
+
+// Mercado: Seleccionó un ítem para vender
+Object.keys(ITEMS).forEach((key) => {
+  const item = ITEMS[key];
+  bot.action(`mkt_prep_${item.id}`, async (ctx) => {
+    await safeAnswerCb(ctx);
+
+    const bounds = getItemBounds(item.id);
+    pendingMarketSales.set(ctx.from.id, item.id);
+
+    const text = `📦 *Vender: ${item.name}*\n\n` +
+                 `• Precio base en tienda: ${item.cost}g\n` +
+                 `• Rango permitido: *${bounds.minPrice}g* a *${bounds.maxPrice}g*\n` +
+                 `• Comisión de mercado: 8%\n\n` +
+                 `💬 *Escribe en el chat el precio en oro* que deseas asignarle:`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('⬅️ Cancelar', 'mkt_sell_menu')]
+    ]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+  });
+});
+
+// Mercado: Capturar el número escrito en el chat para fijar el precio
+bot.on('text', async (ctx, next) => {
+  const userId = ctx.from.id;
+  const itemId = pendingMarketSales.get(userId);
+
+  if (!itemId) {
+    return next();
+  }
+
+  const price = parseInt(ctx.message.text.trim(), 10);
+
+  if (isNaN(price) || price <= 0) {
+    return await ctx.reply('⚠️ Por favor escribe un número válido para el precio.');
+  }
+
+  const res = await createListing(userId, ctx.from.first_name, itemId, price);
+
+  if (!res.success) {
+    return await ctx.reply(res.msg, { parse_mode: 'Markdown' });
+  }
+
+  pendingMarketSales.delete(userId);
+
+  return await ctx.reply(res.msg, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('🏪 Ver Mercado', 'menu_market')],
+      [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
+    ])
+  });
 });
 
 bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
