@@ -158,14 +158,16 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Mercado: Tablón
+// Mercado: Renderizado del Tablón
 async function renderMarket(ctx) {
   const { text, listings } = await getMarketView(ctx.from.id);
   const buttons = [];
 
   listings.forEach((item, idx) => {
-    const idStr = item._id.toString();
-    if (item.sellerId === ctx.from.id) {
+    const idStr = String(item._id);
+    const isMine = String(item.sellerId) === String(ctx.from.id);
+
+    if (isMine) {
       buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
     } else {
       buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
@@ -187,7 +189,7 @@ bot.action('menu_market', async (ctx) => {
   await renderMarket(ctx);
 });
 
-// Mercado: Selección de ítem a vender
+// Mercado: Selección de ítem
 bot.action('mkt_sell_menu', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -224,7 +226,7 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 });
 
-// Mercado: Preparar venta
+// Mercado: Preparar publicación
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
@@ -247,7 +249,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Mercado: Escuchar texto para el precio
+// Mercado: Escuchar precio escrito en texto
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
   const itemId = pendingMarketSales.get(userId);
@@ -279,40 +281,45 @@ bot.on('text', async (ctx, next) => {
   });
 });
 
-// Comprar oferta en mercado
+// Mercado: Compra
 bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
-  await safeAnswerCb(ctx);
-  const listingId = ctx.match[1];
-  const res = await buyListing(listingId, ctx.from.id);
+  try {
+    const listingId = ctx.match[1];
+    const res = await buyListing(listingId, ctx.from.id);
 
-  if (!res.success) {
+    await safeAnswerCb(ctx, res.msg, true);
+
+    if (res.success) {
+      try {
+        await ctx.telegram.sendMessage(
+          res.sellerId,
+          `💰 ¡Tu oferta de *${res.itemName}* fue vendida en el mercado!\nRecibiste *+${res.sellerProfit}g* (8% comisión aplicada).`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (e) {}
+    }
+
+    return await renderMarket(ctx);
+  } catch (err) {
+    console.error('Error procesando mkt_buy:', err);
+    await safeAnswerCb(ctx, 'Error al procesar la compra.', true);
+  }
+});
+
+// Mercado: Cancelación
+bot.action(/^mkt_del_(.+)\$/, async (ctx) => {
+  try {
+    const listingId = ctx.match[1];
+    const res = await cancelListing(listingId, ctx.from.id);
     await safeAnswerCb(ctx, res.msg, true);
     return await renderMarket(ctx);
+  } catch (err) {
+    console.error('Error procesando mkt_del:', err);
+    await safeAnswerCb(ctx, 'Error al cancelar la oferta.', true);
   }
-
-  await safeAnswerCb(ctx, `✅ Compraste ${res.itemName} por ${res.price}g`, true);
-
-  try {
-    await ctx.telegram.sendMessage(
-      res.sellerId,
-      `💰 ¡Tu oferta de *${res.itemName}* fue vendida en el mercado!\nRecibiste *+${res.sellerProfit}g* (después del 8% de comisión).`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch (e) {}
-
-  return await renderMarket(ctx);
 });
 
-// Cancelar propia oferta
-bot.action(/^mkt_del_(.+)\$/, async (ctx) => {
-  await safeAnswerCb(ctx);
-  const listingId = ctx.match[1];
-  const res = await cancelListing(listingId, ctx.from.id);
-  await safeAnswerCb(ctx, res.msg, true);
-  return await renderMarket(ctx);
-});
-
-// Salón de la Fama
+// Ranking
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
