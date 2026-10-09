@@ -1,87 +1,19 @@
-const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 const mongoose = require('mongoose');
 
-const app = express();
-const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot funcionando'));
-app.listen(port, () => console.log(`Servidor activo en puerto ${port}`));
+const startServer = require('./server');
+const DUNGEONS = require('./dungeons');
+const { Player, getPlayer, MAX_HP, MAX_ENERGY } = require('./playerModel');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// Iniciar servidor web para Render
+startServer();
 
-// Conexión a MongoDB
+// Conectar base de datos
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Base de datos MongoDB conectada'))
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
-// Esquema del jugador en la nube
-const playerSchema = new mongoose.Schema({
-  userId: { type: Number, required: true, unique: true },
-  name: { type: String, default: 'Aventurero' },
-  hp: { type: Number, default: 100 },
-  gold: { type: Number, default: 0 },
-  energy: { type: Number, default: 10 },
-  lastEnergyUpdate: { type: Number, default: () => Date.now() },
-  onMissionUntil: { type: Number, default: 0 }
-});
-
-const Player = mongoose.model('Player', playerSchema);
-
-const MAX_HP = 100;
-const MAX_ENERGY = 10;
-const ENERGY_RECHARGE_MS = 5 * 60 * 1000; // 1 energía cada 5 min
-
-const DUNGEONS = {
-  bosque: {
-    name: '🌲 Bosque Umbrío',
-    cost: 1,
-    travelSec: 10,
-    enemies: [
-      { name: 'Duende Ladrón', minDmg: 5, maxDmg: 12, minGold: 6, maxGold: 14 },
-      { name: 'Lobo Salvaje', minDmg: 10, maxDmg: 18, minGold: 10, maxGold: 20 }
-    ]
-  },
-  cripta: {
-    name: '🪦 Cripta Abandonada',
-    cost: 2,
-    travelSec: 20,
-    enemies: [
-      { name: 'Esqueleto Guerrero', minDmg: 15, maxDmg: 28, minGold: 18, maxGold: 32 },
-      { name: 'Necrófago', minDmg: 22, maxDmg: 35, minGold: 25, maxGold: 45 }
-    ]
-  },
-  dragon: {
-    name: '🌋 Guarida del Dragón',
-    cost: 3,
-    travelSec: 35,
-    enemies: [
-      { name: 'Cría de Dragón', minDmg: 30, maxDmg: 50, minGold: 50, maxGold: 85 },
-      { name: 'Dragón de Magma', minDmg: 45, maxDmg: 75, minGold: 80, maxGold: 140 }
-    ]
-  }
-};
-
-async function getPlayer(userId, name) {
-  let player = await Player.findOne({ userId });
-  if (!player) {
-    player = await Player.create({
-      userId,
-      name: name || 'Aventurero'
-    });
-  }
-
-  // Recargar energía si pasó el tiempo
-  const now = Date.now();
-  const timePassed = now - player.lastEnergyUpdate;
-  if (player.energy < MAX_ENERGY && timePassed >= ENERGY_RECHARGE_MS) {
-    const gained = Math.floor(timePassed / ENERGY_RECHARGE_MS);
-    player.energy = Math.min(MAX_ENERGY, player.energy + gained);
-    player.lastEnergyUpdate = now - (timePassed % ENERGY_RECHARGE_MS);
-    await player.save();
-  }
-
-  return player;
-}
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
 function getStatusView(player) {
   const text = `⚔️ Aventurero: ${player.name}\n` +
@@ -233,15 +165,15 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
+// Iniciar bot
 bot.launch().then(() => console.log('Bot conectado con éxito a Telegram'));
 
-const stopBot = (signal) => {
+// Cierre controlado sin arrojar errores
+const safeStop = (signal) => {
   try {
     bot.stop(signal);
-  } catch (e) {
-    // Evita que lance el error si ya no estaba activo
-  }
+  } catch (e) {}
 };
 
-process.once('SIGINT', () => stopBot('SIGINT'));
-process.once('SIGTERM', () => stopBot('SIGTERM'));
+process.once('SIGINT', () => safeStop('SIGINT'));
+process.once('SIGTERM', () => safeStop('SIGTERM'));
