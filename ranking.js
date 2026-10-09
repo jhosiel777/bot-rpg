@@ -15,20 +15,20 @@ async function getRankingText(currentUserId) {
     let text = '🏆 *Salón de la Fama — Top Aventureros*\n\n';
 
     topPlayers.forEach((p, idx) => {
-      const icon = medals[idx] || `*#\${idx + 1}*`;
+      const icon = medals[idx] || ('*#' + (idx + 1) + '*');
       const cleanName = (p.name || 'Aventurero').replace(/[_*[\]()~`>#+-=|{}.!]/g, ' ');
-      text += `${icon} *${cleanName}*\n` +
-              `   ⭐ Nivel: ${p.level} | 🔮 EXP: ${p.exp} | 💰 Oro: ${p.gold}\n\n`;
+      text += icon + ' *' + cleanName + '*\n' +
+              '   ⭐ Nivel: ' + p.level + ' | 🔮 EXP: ' + p.exp + ' | 💰 Oro: ' + p.gold + '\n\n';
     });
 
     const inTop = topPlayers.some((p) => p.userId === currentUserId);
     if (!inTop) {
       const currentPlayer = await Player.findOne({ userId: currentUserId }).lean();
       if (currentPlayer) {
-        const higherCount = await Player.countDocuments({ level: { \$gt: currentPlayer.level } });
+        const higherCount = await Player.countDocuments({ level: { $gt: currentPlayer.level } });
         const myRank = higherCount + 1;
-        text += `──────────────────\n` +
-                `📍 *Tu Posición:* #${myRank} (Nivel ${currentPlayer.level} | ${currentPlayer.gold}g)\n`;
+        text += '──────────────────\n' +
+                '📍 *Tu Posición:* #' + myRank + ' (Nivel ' + currentPlayer.level + ' | ' + currentPlayer.gold + 'g)\n';
       }
     }
 
