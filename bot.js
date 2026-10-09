@@ -24,7 +24,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
-const pendingMarketSales = new Map(); // Guarda el ítem que el usuario está por vender
+const pendingMarketSales = new Map();
 
 bot.catch((err, ctx) => {
   console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
@@ -164,10 +164,11 @@ async function renderMarket(ctx) {
   const buttons = [];
 
   listings.forEach((item, idx) => {
+    const idStr = item._id.toString();
     if (item.sellerId === ctx.from.id) {
-      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${item._id}`)]);
+      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
     } else {
-      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${item._id}`)]);
+      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
     }
   });
 
@@ -186,7 +187,7 @@ bot.action('menu_market', async (ctx) => {
   await renderMarket(ctx);
 });
 
-// Mercado: Menú para elegir qué ítem vender
+// Mercado: Selección de ítem a vender
 bot.action('mkt_sell_menu', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -223,7 +224,7 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 });
 
-// Mercado: Seleccionó un ítem para vender
+// Mercado: Preparar venta
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
@@ -246,7 +247,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Mercado: Capturar el número escrito en el chat para fijar el precio
+// Mercado: Escuchar texto para el precio
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
   const itemId = pendingMarketSales.get(userId);
@@ -258,7 +259,7 @@ bot.on('text', async (ctx, next) => {
   const price = parseInt(ctx.message.text.trim(), 10);
 
   if (isNaN(price) || price <= 0) {
-    return await ctx.reply('⚠️ Por favor escribe un número válido para el precio.');
+    return await ctx.reply('⚠️ Por favor escribe solo un número entero positivo para el precio.');
   }
 
   const res = await createListing(userId, ctx.from.first_name, itemId, price);
@@ -278,7 +279,9 @@ bot.on('text', async (ctx, next) => {
   });
 });
 
+// Comprar oferta en mercado
 bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
+  await safeAnswerCb(ctx);
   const listingId = ctx.match[1];
   const res = await buyListing(listingId, ctx.from.id);
 
@@ -300,14 +303,16 @@ bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
   return await renderMarket(ctx);
 });
 
+// Cancelar propia oferta
 bot.action(/^mkt_del_(.+)\$/, async (ctx) => {
+  await safeAnswerCb(ctx);
   const listingId = ctx.match[1];
   const res = await cancelListing(listingId, ctx.from.id);
   await safeAnswerCb(ctx, res.msg, true);
   return await renderMarket(ctx);
 });
 
-// Ranking
+// Salón de la Fama
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
