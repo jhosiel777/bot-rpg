@@ -118,7 +118,8 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-bot.start(async (ctx) => {
+// Acepta /start en minúsculas, mayúsculas o comando /menu
+bot.hears(/^\/(start|menu)$/i, async (ctx) => {
   try {
     const userId = ctx.from.id;
     pendingMarketSales.delete(userId);
@@ -133,15 +134,24 @@ bot.start(async (ctx) => {
     const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
 
-    // Registra el teclado inferior en el teléfono
-    await ctx.reply('⚔️ ¡Bienvenido al campamento, aventurero!', MAIN_BOTTOM_KEYBOARD);
+    // Envía el teclado persistente abajo
+    await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
 
-    // Muestra el panel con los botones interactivos
+    // Envía el panel principal
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
-    console.error('Error en /start:', err);
+    console.error('Error en start/menu:', err);
   }
+});
+
+// Mantener compatibilidad directa con el botón Iniciar nativo de Telegram
+bot.start(async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const view = getStatusView(player);
+  await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
+  const sent = await ctx.reply(view.text, view.keyboard);
+  lastUserMessages.set(ctx.from.id, sent.message_id);
 });
 
 // Botones inferiores
