@@ -24,6 +24,8 @@ const playerSchema = new mongoose.Schema({
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
   potionsEnergy: { type: Number, default: 0 }
+  // Noqueo
+   knockedOutUntil: { type: Number, default: 0 }
 });
 
 function getRequiredExp(level) {
