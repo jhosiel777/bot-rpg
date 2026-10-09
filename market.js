@@ -2,10 +2,9 @@ const { MarketListing } = require('./marketModel');
 const { Player } = require('./playerModel');
 const ITEMS = require('./shop');
 
-const MARKET_FEE = 0.08; // 8% de comisión
-const MAX_LISTINGS_PER_USER = 2; // Máximo 2 ofertas activas por usuario
+const MARKET_FEE = 0.08;
+const MAX_LISTINGS_PER_USER = 2;
 
-// Función dinámica: calcula los límites usando shop.js en tiempo real
 function getItemBounds(itemId) {
   const item = ITEMS[itemId];
   if (!item) return null;
@@ -15,20 +14,6 @@ function getItemBounds(itemId) {
   return { item, minPrice, maxPrice };
 }
 
-// Resumen de límites de todos los objetos para informar al usuario
-function getMarketLimitsHelp() {
-  let help = '📋 *Límites de precios permitidos (±50% de la tienda):*\n\n';
-  for (const key in ITEMS) {
-    const { item, minPrice, maxPrice } = getItemBounds(key);
-    help += `• *\${item.name}* (ID: \`${item.id}\`)\n` +
-            `  Precio tienda: \${item.cost}g | Rango: *${minPrice}g* a *${maxPrice}g*\n\n`;
-  }
-  help += `📌 *Uso:* \`/vender <id_objeto> <precio>\`\n` +
-          `_Ejemplo:_ \`/vender potion_small 40\``;
-  return help;
-}
-
-// Vista de las ofertas activas en el mercado
 async function getMarketView(currentUserId) {
   const listings = await MarketListing.find({}).sort({ createdAt: -1 }).limit(10).lean();
 
@@ -36,9 +21,7 @@ async function getMarketView(currentUserId) {
     return {
       text: '🏪 *Mercado Global P2P*\n\n' +
             'No hay ofertas activas en este momento.\n\n' +
-            '💡 Para publicar un objeto usa:\n' +
-            '`/vender <id_objeto> <precio>`\n' +
-            'O escribe `/limites` para ver los rangos permitidos.',
+            'Usa el botón de abajo para poner uno de tus objetos en venta.',
       listings: []
     };
   }
@@ -50,23 +33,17 @@ async function getMarketView(currentUserId) {
   listings.forEach((it, idx) => {
     const isMine = it.sellerId === currentUserId;
     const tag = isMine ? ' *(Tuya)*' : '';
-    text += `${idx + 1}.${it.itemName} — 💰 ${it.price}g${tag}\n` +
-            `   Vendedor: \${it.sellerName}\n\n`;
+    text += `${idx + 1}. ${it.itemName} — 💰 ${it.price}g${tag}\n` +
+            `   Vendedor: ${it.sellerName}\n\n`;
   });
-
-  text += `💡 Usa \`/vender\` o \`/limites\` para publicar.`;
 
   return { text, listings };
 }
 
-// Publicar un objeto en el mercado
 async function createListing(userId, userName, itemId, price) {
   const bounds = getItemBounds(itemId);
   if (!bounds) {
-    return {
-      success: false,
-      msg: `❌ Objeto no válido.\n\n\${getMarketLimitsHelp()}`
-    };
+    return { success: false, msg: '❌ Objeto no válido.' };
   }
 
   const { item, minPrice, maxPrice } = bounds;
@@ -74,8 +51,8 @@ async function createListing(userId, userName, itemId, price) {
   if (price < minPrice || price > maxPrice) {
     return {
       success: false,
-      msg: `❌ Precio fuera de rango para *\${item.name}*.\n` +
-           `El precio permitido va desde *\${minPrice}g* hasta *${maxPrice}g* (Tienda:${item.cost}g).`
+      msg: '❌ *Precio fuera de rango para ' + item.name + '*\n' +
+           'El precio permitido debe estar entre *' + minPrice + 'g* y *' + maxPrice + 'g*.'
     };
   }
 
@@ -83,16 +60,15 @@ async function createListing(userId, userName, itemId, price) {
   if (activeCount >= MAX_LISTINGS_PER_USER) {
     return {
       success: false,
-      msg: `❌ Límite alcanzado: solo puedes tener un máximo de \${MAX_LISTINGS_PER_USER} ofertas activas.`
+      msg: '❌ Límite alcanzado: solo puedes tener un máximo de ' + MAX_LISTINGS_PER_USER + ' ofertas activas.'
     };
   }
 
   const player = await Player.findOne({ userId });
   if (!player || (player[item.field] || 0) <= 0) {
-    return { success: false, msg: `❌ No tienes \${item.name} en tu inventario.` };
+    return { success: false, msg: '❌ No tienes ' + item.name + ' en tu inventario.' };
   }
 
-  // Depósito en custodia: retira el ítem inmediatamente
   player[item.field] -= 1;
   await player.save();
 
@@ -109,12 +85,11 @@ async function createListing(userId, userName, itemId, price) {
   const netProfit = Math.floor(price * (1 - MARKET_FEE));
   return {
     success: true,
-    msg: `✅ Publicaste 1x *${item.name}* por *${price}g*.\n` +
-         `Recibirás *\${netProfit}g* cuando alguien lo compre (8% comisión aplicada).`
+    msg: '✅ Publicaste 1x *' + item.name + '* por *' + price + 'g*.\n' +
+         'Recibirás *' + netProfit + 'g* cuando alguien lo compre (8% comisión aplicada).'
   };
 }
 
-// Comprar una oferta de forma atómica
 async function buyListing(listingId, buyerId) {
   const buyer = await Player.findOne({ userId: buyerId });
   if (!buyer) return { success: false, msg: 'Jugador no encontrado.' };
@@ -126,12 +101,12 @@ async function buyListing(listingId, buyerId) {
 
   if (listing.sellerId === buyerId) {
     await MarketListing.create(listing);
-    return { success: false, msg: 'No puedes comprar tu propia oferta. Cancélala si quieres recuperarla.' };
+    return { success: false, msg: 'No puedes comprar tu propia oferta. Puedes cancelarla para recuperarla.' };
   }
 
   if (buyer.gold < listing.price) {
     await MarketListing.create(listing);
-    return { success: false, msg: `❌ Oro insuficiente. Cuesta ${listing.price}g y tienes${buyer.gold}g.` };
+    return { success: false, msg: '❌ Oro insuficiente. Cuesta ' + listing.price + 'g y tienes ' + buyer.gold + 'g.' };
   }
 
   const item = ITEMS[listing.itemId];
@@ -161,7 +136,6 @@ async function buyListing(listingId, buyerId) {
   };
 }
 
-// Cancelar una oferta y devolver el ítem
 async function cancelListing(listingId, sellerId) {
   const listing = await MarketListing.findOneAndDelete({ _id: listingId, sellerId });
   if (!listing) {
@@ -175,7 +149,7 @@ async function cancelListing(listingId, sellerId) {
     await player.save();
   }
 
-  return { success: true, msg: `✅ Oferta cancelada. Recuperaste 1x \${listing.itemName}.` };
+  return { success: true, msg: '✅ Oferta cancelada. Recuperaste 1x ' + listing.itemName + '.' };
 }
 
 module.exports = {
@@ -183,6 +157,5 @@ module.exports = {
   createListing,
   buyListing,
   cancelListing,
-  getMarketLimitsHelp,
   getItemBounds
 };
