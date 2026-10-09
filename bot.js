@@ -150,10 +150,13 @@ bot.action('rest', async (ctx) => {
     return;
   }
 
+  // Calcula el 30% de la salud máxima del jugador (redondeado hacia arriba)
+  const healAmount = Math.ceil(player.maxHp * 0.30);
+
   player.energy -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + 30);
+  player.hp = Math.min(player.maxHp, player.hp + healAmount);
   await player.save();
-  await ctx.answerCbQuery('Descansaste y recuperaste 30 HP.');
+  await ctx.answerCbQuery(`Descansaste y recuperaste ${healAmount} HP (+30%).`);
 
   const view = getStatusView(player);
   return ctx.editMessageText(view.text, view.keyboard);
