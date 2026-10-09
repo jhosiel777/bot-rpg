@@ -21,14 +21,14 @@ async function getMarketView(currentUserId) {
     return {
       text: '🏪 *Mercado Global P2P*\n\n' +
             'No hay ofertas activas en este momento.\n\n' +
-            'Usa el botón de abajo para poner uno de tus objetos en venta.',
+            'Toca el botón *📦 Publicar un Objeto* para poner algo a la venta.',
       listings: []
     };
   }
 
   let text = '🏪 *Mercado Global P2P*\n\n' +
-             'Comisión del 8% deducida al vendedor tras la venta.\n\n' +
-             '*Ofertas disponibles en el tablón:*\n\n';
+             'Comisión del 8% retenida tras la venta.\n\n' +
+             '*Tablón de ofertas:*\n\n';
 
   listings.forEach((it, idx) => {
     const isMine = it.sellerId === currentUserId;
@@ -51,8 +51,8 @@ async function createListing(userId, userName, itemId, price) {
   if (price < minPrice || price > maxPrice) {
     return {
       success: false,
-      msg: '❌ *Precio fuera de rango para ' + item.name + '*\n' +
-           'El precio permitido debe estar entre *' + minPrice + 'g* y *' + maxPrice + 'g*.'
+      msg: `❌ *Precio fuera de rango para ${item.name}*\n` +
+           `El precio permitido debe estar entre *${minPrice}g* y *${maxPrice}g*.`
     };
   }
 
@@ -60,13 +60,13 @@ async function createListing(userId, userName, itemId, price) {
   if (activeCount >= MAX_LISTINGS_PER_USER) {
     return {
       success: false,
-      msg: '❌ Límite alcanzado: solo puedes tener un máximo de ' + MAX_LISTINGS_PER_USER + ' ofertas activas.'
+      msg: `❌ Límite alcanzado: solo puedes tener un máximo de ${MAX_LISTINGS_PER_USER} ofertas activas.`
     };
   }
 
   const player = await Player.findOne({ userId });
   if (!player || (player[item.field] || 0) <= 0) {
-    return { success: false, msg: '❌ No tienes ' + item.name + ' en tu inventario.' };
+    return { success: false, msg: `❌ No tienes ${item.name} en tu inventario.` };
   }
 
   player[item.field] -= 1;
@@ -85,8 +85,8 @@ async function createListing(userId, userName, itemId, price) {
   const netProfit = Math.floor(price * (1 - MARKET_FEE));
   return {
     success: true,
-    msg: '✅ Publicaste 1x *' + item.name + '* por *' + price + 'g*.\n' +
-         'Recibirás *' + netProfit + 'g* cuando alguien lo compre (8% comisión aplicada).'
+    msg: `✅ Publicaste 1x *${item.name}* por *${price}g*.\n` +
+         `Recibirás *${netProfit}g* cuando alguien lo compre (8% comisión aplicada).`
   };
 }
 
@@ -94,25 +94,28 @@ async function buyListing(listingId, buyerId) {
   const buyer = await Player.findOne({ userId: buyerId });
   if (!buyer) return { success: false, msg: 'Jugador no encontrado.' };
 
-  const listing = await MarketListing.findByIdAndDelete(listingId);
+  const listing = await MarketListing.findById(listingId);
   if (!listing) {
-    return { success: false, msg: 'Esta oferta ya no está disponible o fue comprada.' };
+    return { success: false, msg: 'Esta oferta ya no existe o fue comprada por otro jugador.' };
   }
 
   if (listing.sellerId === buyerId) {
-    await MarketListing.create(listing);
-    return { success: false, msg: 'No puedes comprar tu propia oferta. Puedes cancelarla para recuperarla.' };
+    return { success: false, msg: 'No puedes comprar tu propia oferta. Usa el botón cancelar para recuperarla.' };
   }
 
   if (buyer.gold < listing.price) {
-    await MarketListing.create(listing);
-    return { success: false, msg: '❌ Oro insuficiente. Cuesta ' + listing.price + 'g y tienes ' + buyer.gold + 'g.' };
+    return { success: false, msg: `❌ Oro insuficiente. Cuesta ${listing.price}g y tienes ${buyer.gold}g.` };
   }
 
   const item = ITEMS[listing.itemId];
   if (!item) {
-    await MarketListing.create(listing);
     return { success: false, msg: 'Error de integridad del objeto.' };
+  }
+
+  // Eliminación atómica final
+  const deletedListing = await MarketListing.findByIdAndDelete(listingId);
+  if (!deletedListing) {
+    return { success: false, msg: 'Esta oferta acaba de ser adquirida por otro usuario.' };
   }
 
   const sellerProfit = Math.floor(listing.price * (1 - MARKET_FEE));
@@ -149,7 +152,7 @@ async function cancelListing(listingId, sellerId) {
     await player.save();
   }
 
-  return { success: true, msg: '✅ Oferta cancelada. Recuperaste 1x ' + listing.itemName + '.' };
+  return { success: true, msg: `✅ Oferta cancelada. Recuperaste 1x ${listing.itemName}.` };
 }
 
 module.exports = {
