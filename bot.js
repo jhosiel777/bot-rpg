@@ -5,28 +5,27 @@ const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY } = require('./playerModel');
 
-// Iniciar servidor web para Render
 startServer();
 
-// Conectar base de datos
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Base de datos MongoDB conectada'))
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Manejador global de errores para evitar que peticiones viejas o caídas de red tumben el proceso
+// Bloqueo en memoria para evitar expediciones simultáneas por usuario
+const activeExpeditions = new Set();
+// Registro del último mensaje interactivo para evitar menús duplicados
+const lastUserMessages = new Map();
+
 bot.catch((err, ctx) => {
   console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
 });
 
-// Función auxiliar para responder botones evitando el error 400 de timeout
 async function safeAnswerCb(ctx, text) {
   try {
     await ctx.answerCbQuery(text);
-  } catch (err) {
-    // Si la consulta expiró en Telegram, se ignora de forma segura
-  }
+  } catch (err) {}
 }
 
 function getStatusView(player) {
@@ -61,9 +60,20 @@ function getStatusView(player) {
 
 bot.start(async (ctx) => {
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const userId = ctx.from.id;
+
+    // Si ya había un menú anterior, intentamos eliminarlo para que solo exista uno
+    const oldMsgId = lastUserMessages.get(userId);
+    if (oldMsgId) {
+      try {
+        await ctx.telegram.deleteMessage(userId, oldMsgId);
+      } catch (e) {}
+    }
+
+    const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
-    return await ctx.reply(view.text, view.keyboard);
+    const sent = await ctx.reply(view.text, view.keyboard);
+    lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en /start:', err);
   }
@@ -74,6 +84,7 @@ bot.action('status', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
+    lastUserMessages.set(ctx.from.id, ctx.callbackQuery.message.message_id);
     return await ctx.editMessageText(view.text, view.keyboard);
   } catch (err) {
     console.error('Error en status:', err);
@@ -152,6 +163,12 @@ bot.action('add_hp', async (ctx) => {
 });
 
 bot.action('menu_dungeons', async (ctx) => {
+  const userId = ctx.from.id;
+  if (activeExpeditions.has(userId)) {
+    await safeAnswerCb(ctx, 'Ya estás en una expedición.');
+    return;
+  }
+
   await safeAnswerCb(ctx);
   const text = `🗺️ Elige tu destino de exploración:\n\n` +
                `🌲 Bosque Umbrío (Fácil) — Cuesta 1 ⚡ — Viaje: 10s\n` +
@@ -173,8 +190,14 @@ bot.action('menu_dungeons', async (ctx) => {
 });
 
 bot.action('rest', async (ctx) => {
+  const userId = ctx.from.id;
+  if (activeExpeditions.has(userId)) {
+    await safeAnswerCb(ctx, 'Estás de viaje en una expedición.');
+    return;
+  }
+
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const player = await getPlayer(userId, ctx.from.first_name);
 
     if (Date.now() < player.onMissionUntil) {
       await safeAnswerCb(ctx, 'Estás de viaje en una expedición.');
@@ -205,8 +228,16 @@ bot.action('rest', async (ctx) => {
 });
 
 async function startExpedition(ctx, dungeonKey) {
+  const userId = ctx.from.id;
+
+  // Bloqueo inmediato en memoria contra doble pulsación
+  if (activeExpeditions.has(userId)) {
+    await safeAnswerCb(ctx, 'Ya tienes una expedición en curso.');
+    return;
+  }
+
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const player = await getPlayer(userId, ctx.from.first_name);
     const dungeon = DUNGEONS[dungeonKey];
 
     if (Date.now() < player.onMissionUntil) {
@@ -225,6 +256,9 @@ async function startExpedition(ctx, dungeonKey) {
       return;
     }
 
+    // Activar bloqueo
+    activeExpeditions.add(userId);
+
     player.energy -= dungeon.cost;
     player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
     await player.save();
@@ -233,67 +267,73 @@ async function startExpedition(ctx, dungeonKey) {
     const departText = `🚶 Marchando hacia: ${dungeon.name}\n\n` +
                        `⏳ Llegarás en ${dungeon.travelSec} segundos. El bot te avisará cuando ocurra el encuentro.`;
 
+    // Se reemplaza el menú actual quitando opciones de viaje para evitar clicks repetidos
     await ctx.editMessageText(departText, Markup.inlineKeyboard([[Markup.button.callback('🔄 Ver Estado', 'status')]]));
 
     setTimeout(async () => {
       try {
-        const p = await Player.findOne({ userId: ctx.from.id });
-        if (!p) return;
+        const p = await Player.findOne({ userId });
+        if (p) {
+          p.onMissionUntil = 0;
+          const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
+          const roll = Math.random();
 
-        p.onMissionUntil = 0;
-        const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
-        const roll = Math.random();
+          let resultMsg = '';
 
-        let resultMsg = '';
-
-        if (roll < 0.30) {
-          const bonusGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
-          const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
-          p.gold += bonusGold;
-          p.addExp(expGained);
-
-          resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
-                      `Evitaste peligros y hallaste un tesoro.\n` +
-                      `💰 Oro: +${bonusGold}\n` +
-                      `🔮 EXP: +${expGained}`;
-        } else {
-          const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
-          const goldGained = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
-          const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
-
-          p.hp = Math.max(0, p.hp - dmg);
-
-          if (p.hp === 0) {
-            const lostExp = p.applyDeathPenalty();
-            resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                        `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
-                        `💀 Caíste inconsciente.\n` +
-                        `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
-                        `Vuelve al campamento y descansa para restaurar tu salud.`;
-          } else {
-            p.gold += goldGained;
+          if (roll < 0.30) {
+            const bonusGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+            const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+            p.gold += bonusGold;
             p.addExp(expGained);
-            resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                        `Derrotaste a un ${enemy.name}.\n` +
-                        `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
-                        `💰 Oro: +${goldGained}\n` +
+
+            resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
+                        `Evitaste peligros y hallaste un tesoro.\n` +
+                        `💰 Oro: +${bonusGold}\n` +
                         `🔮 EXP: +${expGained}`;
+          } else {
+            const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
+            const goldGained = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+            const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+
+            p.hp = Math.max(0, p.hp - dmg);
+
+            if (p.hp === 0) {
+              const lostExp = p.applyDeathPenalty();
+              resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                          `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
+                          `💀 Caíste inconsciente.\n` +
+                          `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
+                          `Vuelve al campamento y descansa para restaurar tu salud.`;
+            } else {
+              p.gold += goldGained;
+              p.addExp(expGained);
+              resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                          `Derrotaste a un ${enemy.name}.\n` +
+                          `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
+                          `💰 Oro: +${goldGained}\n` +
+                          `🔮 EXP: +${expGained}`;
+            }
           }
+
+          await p.save();
+
+          const sent = await ctx.telegram.sendMessage(
+            userId,
+            resultMsg,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+          );
+          lastUserMessages.set(userId, sent.message_id);
         }
-
-        await p.save();
-
-        await ctx.telegram.sendMessage(
-          ctx.from.id,
-          resultMsg,
-          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
-        );
       } catch (err) {
         console.error('Error al resolver la expedición:', err);
+      } finally {
+        // Liberar bloqueo al terminar
+        activeExpeditions.delete(userId);
       }
     }, dungeon.travelSec * 1000);
 
   } catch (err) {
+    activeExpeditions.delete(userId);
     console.error('Error al iniciar expedición:', err);
   }
 }
@@ -302,12 +342,10 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-// Iniciar conexión con Telegram
 bot.launch()
   .then(() => console.log('✅ Bot conectado con éxito a Telegram'))
   .catch((err) => console.error('Error al lanzar Telegraf:', err.message));
 
-// Detención limpia
 const safeStop = (signal) => {
   try {
     bot.stop(signal);
