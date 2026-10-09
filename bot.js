@@ -154,26 +154,29 @@ bot.action('menu_shop', async (ctx) => {
 });
 
 bot.action(/^buy_(.+)\$/, async (ctx) => {
-  await safeAnswerCb(ctx);
-
   const itemId = ctx.match[1];
   const item = ITEMS[itemId];
-  if (!item) return;
+
+  if (!item) {
+    return await safeAnswerCb(ctx, '❌ Objeto no encontrado.', true);
+  }
 
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     if (player.gold < item.cost) {
-      await safeAnswerCb(ctx, `❌ Oro insuficiente (${item.cost}g necesario).`, true);
-      return;
+      return await safeAnswerCb(ctx, `❌ Oro insuficiente (cuesta ${item.cost}g).`, true);
     }
 
+    // Cobrar y añadir ítem
     player.gold -= item.cost;
     player[item.field] = (player[item.field] || 0) + 1;
     await player.save();
 
+    // Responder una única vez con confirmación en ventana emergente
     await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
 
+    // Reconstruir texto de la tienda con oro actualizado
     let text = `🛒 *Tienda del Aventurero*\n` +
                `💰 Tu Oro: ${player.gold}\n\n` +
                `Objetos disponibles para compra:\n\n`;
@@ -188,7 +191,8 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
-    console.error('Error en buy action:', err);
+    console.error('Error procesando compra:', err);
+    await safeAnswerCb(ctx, 'Ocurrió un error al procesar la compra.');
   }
 });
 
