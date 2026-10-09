@@ -26,7 +26,7 @@ const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 
-// Teclado persistente inferior
+// Menú persistente inferior
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '🎒 Inventario'],
   ['🏪 Mercado P2P', '🏆 Salón de la Fama']
@@ -133,17 +133,18 @@ bot.start(async (ctx) => {
     const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
 
-    const sent = await ctx.reply(view.text, {
-      ...view.keyboard,
-      ...MAIN_BOTTOM_KEYBOARD
-    });
+    // Registra el teclado inferior en el teléfono
+    await ctx.reply('⚔️ ¡Bienvenido al campamento, aventurero!', MAIN_BOTTOM_KEYBOARD);
+
+    // Muestra el panel con los botones interactivos
+    const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en /start:', err);
   }
 });
 
-// Respuestas a botones del teclado inferior
+// Botones inferiores
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
@@ -404,7 +405,7 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
-// Salón de la Fama
+// Ranking
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -495,9 +496,15 @@ bot.action('menu_inv', async (ctx) => {
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
-    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    if (player.potionsSmall > 0) {
+      buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+    }
+    if (player.potionsMedium > 0) {
+      buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    }
+    if (player.potionsEnergy > 0) {
+      buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -544,9 +551,15 @@ Object.keys(ITEMS).forEach((key) => {
                  `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
-      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-      if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+      if (player.potionsSmall > 0) {
+        buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+      }
+      if (player.potionsMedium > 0) {
+        buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+      }
+      if (player.potionsEnergy > 0) {
+        buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+      }
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
       return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -792,9 +805,23 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log('✅ Bot conectado con éxito a Telegram'))
-  .catch((err) => console.error('Error al lanzar Telegraf:', err.message));
+// Manejo seguro de inicio con reintentos para mitigar el 409 en Render
+async function startBotWithRetry(retries = 5, delayMs = 4000) {
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    await bot.launch({ dropPendingUpdates: true });
+    console.log('✅ Bot conectado con éxito a Telegram');
+  } catch (err) {
+    if (err.response?.error_code === 409 && retries > 0) {
+      console.log(`⚠️ Conflicto 409 temporal durante el deploy. Reintentando en ${delayMs / 1000}s... (Intentos restantes: ${retries})`);
+      setTimeout(() => startBotWithRetry(retries - 1, delayMs), delayMs);
+    } else {
+      console.error('Error al lanzar Telegraf:', err.message);
+    }
+  }
+}
+
+startBotWithRetry();
 
 const safeStop = (signal) => {
   try {
