@@ -100,11 +100,11 @@ async function buyListing(listingId, buyerId) {
   }
 
   if (String(listing.sellerId) === String(buyerId)) {
-    return { success: false, msg: '⚠️ No puedes comprar tu propia oferta. Usa el botón "❌ Cancelar".' };
+    return { success: false, msg: '⚠️ No puedes comprar tu propia oferta. Usa "❌ Cancelar".' };
   }
 
   if (buyer.gold < listing.price) {
-    return { success: false, msg: `❌ Oro insuficiente. Cuesta ${listing.price}g y tienes ${buyer.gold}g.` };
+    return { success: false, msg: `❌ Oro insuficiente. Cuesta ${listing.price}g (tienes ${buyer.gold}g).` };
   }
 
   const item = ITEMS[listing.itemId];
@@ -112,8 +112,8 @@ async function buyListing(listingId, buyerId) {
     return { success: false, msg: '❌ Objeto no válido.' };
   }
 
-  const deletedListing = await MarketListing.findByIdAndDelete(listingId);
-  if (!deletedListing) {
+  const deleted = await MarketListing.findByIdAndDelete(listingId);
+  if (!deleted) {
     return { success: false, msg: '❌ Oferta ya adquirida por otro jugador.' };
   }
 
@@ -140,10 +140,16 @@ async function buyListing(listingId, buyerId) {
 }
 
 async function cancelListing(listingId, sellerId) {
-  const listing = await MarketListing.findOneAndDelete({ _id: listingId, sellerId });
+  const listing = await MarketListing.findOne({ _id: listingId });
   if (!listing) {
-    return { success: false, msg: '❌ No se encontró la oferta o ya fue procesada.' };
+    return { success: false, msg: '❌ No se encontró la oferta.' };
   }
+
+  if (String(listing.sellerId) !== String(sellerId)) {
+    return { success: false, msg: '❌ Esta oferta no te pertenece.' };
+  }
+
+  await MarketListing.findByIdAndDelete(listingId);
 
   const item = ITEMS[listing.itemId];
   const player = await Player.findOne({ userId: sellerId });
