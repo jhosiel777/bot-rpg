@@ -158,7 +158,7 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Mercado: Renderizado del Tablón
+// Mercado
 async function renderMarket(ctx) {
   const { text, listings } = await getMarketView(ctx.from.id);
   const buttons = [];
@@ -189,7 +189,6 @@ bot.action('menu_market', async (ctx) => {
   await renderMarket(ctx);
 });
 
-// Mercado: Selección de ítem
 bot.action('mkt_sell_menu', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -226,7 +225,6 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 });
 
-// Mercado: Preparar publicación
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
@@ -249,7 +247,6 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Mercado: Escuchar precio escrito en texto
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
   const itemId = pendingMarketSales.get(userId);
@@ -281,8 +278,8 @@ bot.on('text', async (ctx, next) => {
   });
 });
 
-// Mercado: Compra
-bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
+// Comprar (captura segura de callback_data)
+bot.action(/mkt_buy_(.+)/, async (ctx) => {
   try {
     const listingId = ctx.match[1];
     const res = await buyListing(listingId, ctx.from.id);
@@ -301,20 +298,20 @@ bot.action(/^mkt_buy_(.+)\$/, async (ctx) => {
 
     return await renderMarket(ctx);
   } catch (err) {
-    console.error('Error procesando mkt_buy:', err);
+    console.error('Error en mkt_buy:', err);
     await safeAnswerCb(ctx, 'Error al procesar la compra.', true);
   }
 });
 
-// Mercado: Cancelación
-bot.action(/^mkt_del_(.+)\$/, async (ctx) => {
+// Cancelar (captura segura de callback_data)
+bot.action(/mkt_del_(.+)/, async (ctx) => {
   try {
     const listingId = ctx.match[1];
     const res = await cancelListing(listingId, ctx.from.id);
     await safeAnswerCb(ctx, res.msg, true);
     return await renderMarket(ctx);
   } catch (err) {
-    console.error('Error procesando mkt_del:', err);
+    console.error('Error en mkt_del:', err);
     await safeAnswerCb(ctx, 'Error al cancelar la oferta.', true);
   }
 });
@@ -520,7 +517,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Puntos de Atributo
+// Atributos
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -703,7 +700,7 @@ async function startExpedition(ctx, dungeonKey) {
           lastUserMessages.set(userId, sent.message_id);
         }
       } catch (err) {
-        console.error('Error al resolver la expedición:', err);
+        console.error('Error al resolver expedición:', err);
       } finally {
         activeExpeditions.delete(userId);
       }
@@ -719,7 +716,8 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-bot.launch()
+// Evitar doble instancia local / reinicio
+bot.launch({ dropPendingUpdates: true })
   .then(() => console.log('✅ Bot conectado con éxito a Telegram'))
   .catch((err) => console.error('Error al lanzar Telegraf:', err.message));
 
