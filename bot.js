@@ -26,6 +26,12 @@ const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 
+// Teclado persistente inferior
+const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
+  ['⚔️ Estado', '🎒 Inventario'],
+  ['🏪 Mercado P2P', '🏆 Salón de la Fama']
+]).resize();
+
 bot.catch((err, ctx) => {
   console.error(`Error controlado en actualización (${ctx?.updateType}):`, err.message);
 });
@@ -126,10 +132,94 @@ bot.start(async (ctx) => {
 
     const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
-    const sent = await ctx.reply(view.text, view.keyboard);
+
+    const sent = await ctx.reply(view.text, {
+      ...view.keyboard,
+      ...MAIN_BOTTOM_KEYBOARD
+    });
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en /start:', err);
+  }
+});
+
+// Respuestas a botones del teclado inferior
+bot.hears('⚔️ Estado', async (ctx) => {
+  try {
+    pendingMarketSales.delete(ctx.from.id);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const view = getStatusView(player);
+    const sent = await ctx.reply(view.text, view.keyboard);
+    lastUserMessages.set(ctx.from.id, sent.message_id);
+  } catch (err) {
+    console.error('Error en botón Estado:', err);
+  }
+});
+
+bot.hears('🎒 Inventario', async (ctx) => {
+  try {
+    pendingMarketSales.delete(ctx.from.id);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    let text = `🎒 *Mochila de Aventurero*\n\n` +
+               `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+               `*Objetos:*\n` +
+               `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
+               `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
+               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+               `Toca un botón para consumir un objeto:`;
+
+    const buttons = [];
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+    await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en botón Inventario:', err);
+  }
+});
+
+bot.hears('🏪 Mercado P2P', async (ctx) => {
+  try {
+    pendingMarketSales.delete(ctx.from.id);
+    const { text, listings } = await getMarketView(ctx.from.id);
+    const buttons = [];
+
+    listings.forEach((item, idx) => {
+      const idStr = String(item._id);
+      const isMine = String(item.sellerId) === String(ctx.from.id);
+      if (isMine) {
+        buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
+      } else {
+        buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+      }
+    });
+
+    buttons.push([Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+    buttons.push([
+      Markup.button.callback('🔄 Actualizar', 'menu_market'),
+      Markup.button.callback('⬅️ Volver', 'status')
+    ]);
+
+    await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en botón Mercado P2P:', err);
+  }
+});
+
+bot.hears('🏆 Salón de la Fama', async (ctx) => {
+  try {
+    const text = await getRankingText(ctx.from.id);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
+      [Markup.button.callback('⬅️ Volver', 'status')]
+    ]);
+    await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    console.error('Error en botón Salón de la Fama:', err);
   }
 });
 
@@ -278,7 +368,6 @@ bot.on('text', async (ctx, next) => {
   });
 });
 
-// Comprar (captura segura de callback_data)
 bot.action(/mkt_buy_(.+)/, async (ctx) => {
   try {
     const listingId = ctx.match[1];
@@ -303,7 +392,6 @@ bot.action(/mkt_buy_(.+)/, async (ctx) => {
   }
 });
 
-// Cancelar (captura segura de callback_data)
 bot.action(/mkt_del_(.+)/, async (ctx) => {
   try {
     const listingId = ctx.match[1];
@@ -316,7 +404,7 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
-// Ranking
+// Salón de la Fama
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -407,15 +495,9 @@ bot.action('menu_inv', async (ctx) => {
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
-    if (player.potionsSmall > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-    }
-    if (player.potionsMedium > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-    }
-    if (player.potionsEnergy > 0) {
-      buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-    }
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -462,15 +544,9 @@ Object.keys(ITEMS).forEach((key) => {
                  `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
-      if (player.potionsSmall > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-      }
-      if (player.potionsMedium > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-      }
-      if (player.potionsEnergy > 0) {
-        buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-      }
+      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+      if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
       return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -517,7 +593,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Atributos
+// Puntos de Atributo
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -716,7 +792,6 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-// Evitar doble instancia local / reinicio
 bot.launch({ dropPendingUpdates: true })
   .then(() => console.log('✅ Bot conectado con éxito a Telegram'))
   .catch((err) => console.error('Error al lanzar Telegraf:', err.message));
