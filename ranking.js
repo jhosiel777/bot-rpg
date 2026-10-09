@@ -25,12 +25,7 @@ async function getRankingText(currentUserId) {
     if (!inTop) {
       const currentPlayer = await Player.findOne({ userId: currentUserId }).lean();
       if (currentPlayer) {
-        const higherCount = await Player.countDocuments({
-          \$or: [
-            { level: { \$gt: currentPlayer.level } },
-            { level: currentPlayer.level, exp: { \$gt: currentPlayer.exp } }
-          ]
-        });
+        const higherCount = await Player.countDocuments({ level: { \$gt: currentPlayer.level } });
         const myRank = higherCount + 1;
         text += `──────────────────\n` +
                 `📍 *Tu Posición:* #${myRank} (Nivel ${currentPlayer.level} | ${currentPlayer.gold}g)\n`;
