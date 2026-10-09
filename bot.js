@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
+const { getRankingText } = require('./ranking');
 const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY, REST_COOLDOWN_MS } = require('./playerModel');
 
 startServer();
@@ -87,7 +88,8 @@ function getStatusView(player) {
     [
       Markup.button.callback('🛒 Tienda', 'menu_shop'),
       Markup.button.callback('🎒 Inventario', 'menu_inv')
-    ]
+    ],
+    [Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')]
   ];
 
   if (player.statPoints > 0) {
@@ -118,6 +120,19 @@ bot.start(async (ctx) => {
   }
 });
 
+// Comandos de texto directos /top y /ranking
+bot.command(['top', 'ranking'], async (ctx) => {
+  try {
+    const text = await getRankingText(ctx.from.id);
+    return await ctx.reply(text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Ir al Menú', 'status')]])
+    });
+  } catch (err) {
+    console.error('Error en comando /top:', err);
+  }
+});
+
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -127,6 +142,21 @@ bot.action('status', async (ctx) => {
     return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en status:', err);
+  }
+});
+
+// Vista de Ranking por botón
+bot.action('menu_ranking', async (ctx) => {
+  await safeAnswerCb(ctx);
+  try {
+    const text = await getRankingText(ctx.from.id);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
+      [Markup.button.callback('⬅️ Volver', 'status')]
+    ]);
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    console.error('Error en menu_ranking:', err);
   }
 });
 
@@ -154,7 +184,7 @@ bot.action('menu_shop', async (ctx) => {
   }
 });
 
-// Registrar acciones de compra de forma directa por ID
+// Compra directa por ID
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`buy_${item.id}`, async (ctx) => {
@@ -208,13 +238,13 @@ bot.action('menu_inv', async (ctx) => {
 
     const buttons = [];
     if (player.potionsSmall > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Menor', `use_potion_small`)]);
+      buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
     }
     if (player.potionsMedium > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Mayor', `use_potion_medium`)]);
+      buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
     }
     if (player.potionsEnergy > 0) {
-      buttons.push([Markup.button.callback('⚡ Usar Elixir', `use_potion_energy`)]);
+      buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
@@ -224,7 +254,7 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
-// Registrar acciones de uso de objetos de forma directa por ID
+// Uso directo de objetos
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`use_${item.id}`, async (ctx) => {
@@ -264,13 +294,13 @@ Object.keys(ITEMS).forEach((key) => {
 
       const buttons = [];
       if (player.potionsSmall > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Menor', `use_potion_small`)]);
+        buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
       }
       if (player.potionsMedium > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Mayor', `use_potion_medium`)]);
+        buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
       }
       if (player.potionsEnergy > 0) {
-        buttons.push([Markup.button.callback('⚡ Usar Elixir', `use_potion_energy`)]);
+        buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
       }
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
@@ -281,7 +311,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Descansar con cooldown de 5 min (sin costo de energía)
+// Descanso (cooldown de 5 minutos)
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -318,7 +348,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Distribución de Atributos
+// Puntos de atributo
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -387,7 +417,7 @@ bot.action('add_hp', async (ctx) => {
   }
 });
 
-// Menú Expediciones
+// Menú Mazmorras
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
