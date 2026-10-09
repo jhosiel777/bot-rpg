@@ -130,6 +130,7 @@ bot.action('status', async (ctx) => {
   }
 });
 
+// Menú Tienda
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -153,55 +154,44 @@ bot.action('menu_shop', async (ctx) => {
   }
 });
 
-bot.action(/^buy_(.+)\$/, async (ctx) => {
-  console.log('--- EVENTO COMPRA DETECTADO ---');
-  console.log('Match recibido:', ctx.match);
+// Registrar acciones de compra de forma directa por ID
+Object.keys(ITEMS).forEach((key) => {
+  const item = ITEMS[key];
+  bot.action(`buy_${item.id}`, async (ctx) => {
+    try {
+      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-  const itemId = ctx.match[1];
-  const item = ITEMS[itemId];
+      if (player.gold < item.cost) {
+        return await safeAnswerCb(ctx, `❌ Oro insuficiente (${item.cost}g necesario).`, true);
+      }
 
-  console.log('Item buscado:', itemId, 'Encontrado:', !!item);
+      player.gold -= item.cost;
+      player[item.field] = (player[item.field] || 0) + 1;
+      await player.save();
 
-  if (!item) {
-    return await safeAnswerCb(ctx, '❌ Objeto no encontrado.', true);
-  }
+      await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
 
-  try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-    console.log(`Jugador: ${player.name} | Oro actual: ${player.gold} | Costo: ${item.cost}`);
+      let text = `🛒 *Tienda del Aventurero*\n` +
+                 `💰 Tu Oro: ${player.gold}\n\n` +
+                 `Objetos disponibles para compra:\n\n`;
 
-    if (player.gold < item.cost) {
-      return await safeAnswerCb(ctx, `❌ Oro insuficiente (cuesta ${item.cost}g).`, true);
+      const buttons = [];
+      for (const k in ITEMS) {
+        const it = ITEMS[k];
+        text += `• ${it.name} — 💰 ${it.cost} oro\n  _${it.desc}_\n\n`;
+        buttons.push([Markup.button.callback(`Comprar ${it.name} (${it.cost}g)`, `buy_${it.id}`)]);
+      }
+      buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+      return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (err) {
+      console.error('Error procesando compra:', err);
+      await safeAnswerCb(ctx, 'Error al procesar compra.', true);
     }
-
-    player.gold -= item.cost;
-    player[item.field] = (player[item.field] || 0) + 1;
-
-    console.log('Guardando jugador en MongoDB...');
-    await player.save();
-    console.log('¡Guardado con éxito!');
-
-    await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
-
-    let text = `🛒 *Tienda del Aventurero*\n` +
-               `💰 Tu Oro: ${player.gold}\n\n` +
-               `Objetos disponibles para compra:\n\n`;
-
-    const buttons = [];
-    for (const key in ITEMS) {
-      const it = ITEMS[key];
-      text += `• ${it.name} — 💰 ${it.cost} oro\n  _${it.desc}_\n\n`;
-      buttons.push([Markup.button.callback(`Comprar ${it.name} (${it.cost}g)`, `buy_${it.id}`)]);
-    }
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  } catch (err) {
-    console.error('ERROR CRÍTICO EN COMPRA:', err);
-    await safeAnswerCb(ctx, 'Error interno al procesar compra.', true);
-  }
+  });
 });
 
+// Menú Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -211,20 +201,20 @@ bot.action('menu_inv', async (ctx) => {
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
                `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
                `*Objetos:*\n` +
-               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+               `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
                `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
                `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
     if (player.potionsSmall > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Menor (+10 HP)', 'use_potion_small')]);
+      buttons.push([Markup.button.callback('🧪 Usar Menor', `use_potion_small`)]);
     }
     if (player.potionsMedium > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Mayor (+30 HP)', 'use_potion_medium')]);
+      buttons.push([Markup.button.callback('🧪 Usar Mayor', `use_potion_medium`)]);
     }
     if (player.potionsEnergy > 0) {
-      buttons.push([Markup.button.callback('⚡ Usar Elixir (+1 ⚡)', 'use_potion_energy')]);
+      buttons.push([Markup.button.callback('⚡ Usar Elixir', `use_potion_energy`)]);
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
@@ -234,63 +224,64 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
-bot.action(/^use_(.+)\$/, async (ctx) => {
-  const itemId = ctx.match[1];
-  const item = ITEMS[itemId];
-  if (!item) return;
+// Registrar acciones de uso de objetos de forma directa por ID
+Object.keys(ITEMS).forEach((key) => {
+  const item = ITEMS[key];
+  bot.action(`use_${item.id}`, async (ctx) => {
+    try {
+      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-  try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-    if (!player[item.field] || player[item.field] <= 0) {
-      return await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
-    }
-
-    if (item.type === 'hp') {
-      if (player.hp >= player.maxHp) {
-        return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
+      if (!player[item.field] || player[item.field] <= 0) {
+        return await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
       }
-      player[item.field] -= 1;
-      player.hp = Math.min(player.maxHp, player.hp + item.value);
-      await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
-    } else if (item.type === 'energy') {
-      if (player.energy >= MAX_ENERGY) {
-        return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
+
+      if (item.type === 'hp') {
+        if (player.hp >= player.maxHp) {
+          return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
+        }
+        player[item.field] -= 1;
+        player.hp = Math.min(player.maxHp, player.hp + item.value);
+        await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
+      } else if (item.type === 'energy') {
+        if (player.energy >= MAX_ENERGY) {
+          return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
+        }
+        player[item.field] -= 1;
+        player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
+        await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`, true);
       }
-      player[item.field] -= 1;
-      player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
-      await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`, true);
-    }
 
-    await player.save();
+      await player.save();
 
-    let text = `🎒 *Mochila de Aventurero*\n\n` +
-               `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
-               `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
-               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
-               `Toca un botón para consumir un objeto:`;
+      let text = `🎒 *Mochila de Aventurero*\n\n` +
+                 `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
+                 `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+                 `*Objetos:*\n` +
+                 `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
+                 `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
+                 `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+                 `Toca un botón para consumir un objeto:`;
 
-    const buttons = [];
-    if (player.potionsSmall > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Menor (+10 HP)', 'use_potion_small')]);
-    }
-    if (player.potionsMedium > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Mayor (+30 HP)', 'use_potion_medium')]);
-    }
-    if (player.potionsEnergy > 0) {
-      buttons.push([Markup.button.callback('⚡ Usar Elixir (+1 ⚡)', 'use_potion_energy')]);
-    }
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+      const buttons = [];
+      if (player.potionsSmall > 0) {
+        buttons.push([Markup.button.callback('🧪 Usar Menor', `use_potion_small`)]);
+      }
+      if (player.potionsMedium > 0) {
+        buttons.push([Markup.button.callback('🧪 Usar Mayor', `use_potion_medium`)]);
+      }
+      if (player.potionsEnergy > 0) {
+        buttons.push([Markup.button.callback('⚡ Usar Elixir', `use_potion_energy`)]);
+      }
+      buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  } catch (err) {
-    console.error('Error al usar objeto:', err);
-  }
+      return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (err) {
+      console.error('Error al usar objeto:', err);
+    }
+  });
 });
 
+// Descansar con cooldown de 5 min (sin costo de energía)
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -327,6 +318,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
+// Distribución de Atributos
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -395,6 +387,7 @@ bot.action('add_hp', async (ctx) => {
   }
 });
 
+// Menú Expediciones
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
