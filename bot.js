@@ -144,6 +144,9 @@ bot.action('menu_shop', async (ctx) => {
 
 // Comprar objetos
 bot.action(/^buy_(.+)\$/, async (ctx) => {
+  // 1. Responder de inmediato para quitar el reloj de carga en Telegram
+  await safeAnswerCb(ctx);
+
   const itemId = ctx.match[1];
   const item = ITEMS[itemId];
   if (!item) return;
@@ -156,13 +159,14 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
       return;
     }
 
+    // Descontar oro y sumar objeto
     player.gold -= item.cost;
     player[item.field] = (player[item.field] || 0) + 1;
     await player.save();
 
     await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`);
 
-    // Refrescar tienda
+    // Reconstruir vista de la tienda con datos actualizados
     let text = `🛒 *Tienda del Aventurero*\n` +
                `💰 Tu Oro: ${player.gold}\n\n` +
                `Objetos disponibles para compra:\n\n`;
@@ -175,9 +179,13 @@ bot.action(/^buy_(.+)\$/, async (ctx) => {
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (editErr) {
+      // Si el texto es idéntico Telegram arroja error, lo ignoramos de forma segura
+    }
   } catch (err) {
-    console.error('Error en buy action:', err);
+    console.error('Error en compra:', err);
   }
 });
 
