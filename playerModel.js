@@ -1,38 +1,57 @@
 const mongoose = require('mongoose');
 
-const BASE_START_HP = 50;
 const MAX_BASE_HP = 100;
 const MAX_ENERGY = 10;
-const ENERGY_RECHARGE_MS = 5 * 60 * 1000;
-const REST_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos de cooldown
+const REST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos
+
+function getRequiredExp(level) {
+  return Math.floor(100 * Math.pow(1.5, level - 1));
+}
 
 const playerSchema = new mongoose.Schema({
   userId: { type: Number, required: true, unique: true },
-  name: { type: String, default: 'Aventurero' },
+  name: { type: String, required: true },
   level: { type: Number, default: 1 },
   exp: { type: Number, default: 0 },
+  hp: { type: Number, default: 50 },
+  maxHp: { type: Number, default: 50 },
+  strength: { type: Number, default: 5 },
   statPoints: { type: Number, default: 0 },
-  strength: { type: Number, default: 0 },
-  maxHp: { type: Number, default: BASE_START_HP },
-  hp: { type: Number, default: BASE_START_HP },
   gold: { type: Number, default: 0 },
   energy: { type: Number, default: MAX_ENERGY },
   lastEnergyUpdate: { type: Number, default: () => Date.now() },
   onMissionUntil: { type: Number, default: 0 },
   lastRestTime: { type: Number, default: 0 },
-  // Inventario
+
+  // Inventario básico
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
-  potionsEnergy: { type: Number, default: 0 }
-  // Noqueo
-   knockedOutUntil: { type: Number, default: 0 }
+  potionsEnergy: { type: Number, default: 0 },
+
+  // Penalización por derrota
+  knockedOutUntil: { type: Number, default: 0 },
+
+  // Sistema de Anuncios y Bebida Energética
+  potionsEnergyDrink: { type: Number, default: 0 },
+  adsClaimedToday: { type: Number, default: 0 },
+  lastAdClaimDate: { type: String, default: '' }
 });
 
-function getRequiredExp(level) {
-  return Math.round(100 * Math.pow(level, 1.5));
-}
+// Regeneración pasiva de energía (1 cada 10 min)
+playerSchema.methods.updateEnergy = function () {
+  const now = Date.now();
+  const REGEN_TIME_MS = 10 * 60 * 1000;
+  const timePassed = now - this.lastEnergyUpdate;
 
-playerSchema.methods.addExp = function(amount) {
+  if (timePassed >= REGEN_TIME_MS && this.energy < MAX_ENERGY) {
+    const energyToAdd = Math.floor(timePassed / REGEN_TIME_MS);
+    this.energy = Math.min(MAX_ENERGY, this.energy + energyToAdd);
+    this.lastEnergyUpdate = now - (timePassed % REGEN_TIME_MS);
+  }
+};
+
+// Subida de nivel
+playerSchema.methods.addExp = function (amount) {
   this.exp += amount;
   let req = getRequiredExp(this.level);
 
@@ -40,30 +59,17 @@ playerSchema.methods.addExp = function(amount) {
     this.exp -= req;
     this.level += 1;
     this.statPoints += 2;
+    this.hp = this.maxHp;
+    this.energy = MAX_ENERGY;
     req = getRequiredExp(this.level);
   }
 };
 
-playerSchema.methods.applyDeathPenalty = function() {
-  const penalty = Math.round(getRequiredExp(this.level) * (0.35 + Math.random() * 0.15));
-  this.exp -= penalty;
-
-  while (this.exp < 0 && this.level > 1) {
-    this.level -= 1;
-    if (this.statPoints >= 2) {
-      this.statPoints -= 2;
-    } else {
-      this.statPoints = 0;
-    }
-    const prevReq = getRequiredExp(this.level);
-    this.exp += prevReq;
-  }
-
-  if (this.exp < 0) {
-    this.exp = 0;
-  }
-
-  return penalty;
+// Penalización por muerte: pierde 20% de EXP acumulada
+playerSchema.methods.applyDeathPenalty = function () {
+  const lostExp = Math.floor(this.exp * 0.20);
+  this.exp -= lostExp;
+  return lostExp;
 };
 
 const Player = mongoose.model('Player', playerSchema);
@@ -71,23 +77,16 @@ const Player = mongoose.model('Player', playerSchema);
 async function getPlayer(userId, name) {
   let player = await Player.findOne({ userId });
   if (!player) {
-    player = await Player.create({
+    player = new Player({
       userId,
       name: name || 'Aventurero',
-      hp: BASE_START_HP,
-      maxHp: BASE_START_HP
+      lastEnergyUpdate: Date.now()
     });
-  }
-
-  const now = Date.now();
-  const timePassed = now - player.lastEnergyUpdate;
-  if (player.energy < MAX_ENERGY && timePassed >= ENERGY_RECHARGE_MS) {
-    const gained = Math.floor(timePassed / ENERGY_RECHARGE_MS);
-    player.energy = Math.min(MAX_ENERGY, player.energy + gained);
-    player.lastEnergyUpdate = now - (timePassed % ENERGY_RECHARGE_MS);
+    await player.save();
+  } else {
+    player.updateEnergy();
     await player.save();
   }
-
   return player;
 }
 
