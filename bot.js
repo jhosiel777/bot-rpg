@@ -235,5 +235,13 @@ bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
 bot.launch().then(() => console.log('Bot conectado con éxito a Telegram'));
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+const stopBot = (signal) => {
+  try {
+    bot.stop(signal);
+  } catch (e) {
+    // Evita que lance el error si ya no estaba activo
+  }
+};
+
+process.once('SIGINT', () => stopBot('SIGINT'));
+process.once('SIGTERM', () => stopBot('SIGTERM'));
