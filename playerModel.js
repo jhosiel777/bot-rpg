@@ -4,6 +4,7 @@ const BASE_START_HP = 50;
 const MAX_BASE_HP = 100;
 const MAX_ENERGY = 10;
 const ENERGY_RECHARGE_MS = 5 * 60 * 1000;
+const REST_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos de cooldown
 
 const playerSchema = new mongoose.Schema({
   userId: { type: Number, required: true, unique: true },
@@ -17,7 +18,12 @@ const playerSchema = new mongoose.Schema({
   gold: { type: Number, default: 0 },
   energy: { type: Number, default: MAX_ENERGY },
   lastEnergyUpdate: { type: Number, default: () => Date.now() },
-  onMissionUntil: { type: Number, default: 0 }
+  onMissionUntil: { type: Number, default: 0 },
+  lastRestTime: { type: Number, default: 0 },
+  // Inventario
+  potionsSmall: { type: Number, default: 0 },
+  potionsMedium: { type: Number, default: 0 },
+  potionsEnergy: { type: Number, default: 0 }
 });
 
 function getRequiredExp(level) {
@@ -88,5 +94,6 @@ module.exports = {
   getPlayer,
   getRequiredExp,
   MAX_BASE_HP,
-  MAX_ENERGY
+  MAX_ENERGY,
+  REST_COOLDOWN_MS
 };
