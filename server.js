@@ -12,14 +12,12 @@ let botInstance = null;
 
 app.use(express.json());
 
-const ADSGRAM_BLOCK_ID = process.env.ADSGRAM_BLOCK_ID || '53014';
-
 // Ruta raíz para health checks de Render
 app.get('/', (req, res) => {
   res.status(200).send('OK - Bot activo y despierto');
 });
 
-// Ruta de la Mini App de Telegram para ver el anuncio
+// Ruta de la Mini App de Telegram para ver el anuncio con Monetag
 app.get('/ad-reward', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -29,7 +27,7 @@ app.get('/ad-reward', (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Recompensa Diaria</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+  <script src="//libtl.com/sdk.js" data-zone="12000502" data-sdk="show_12000502"></script>
   <style>
     body {
       background-color: #121212;
@@ -107,8 +105,6 @@ app.get('/ad-reward', (req, res) => {
     tg.ready();
     tg.expand();
 
-    const AdController = window.Adsgram.init({ blockId: "${ADSGRAM_BLOCK_ID}" });
-
     function playAd() {
       const btn = document.getElementById('adBtn');
       const msg = document.getElementById('msg');
@@ -116,7 +112,15 @@ app.get('/ad-reward', (req, res) => {
       msg.style.color = '#bbb';
       msg.innerText = "Cargando anuncio...";
 
-      AdController.show().then(async () => {
+      if (typeof show_12000502 !== 'function') {
+        msg.style.color = '#ff4d4d';
+        msg.innerText = "El anuncio aún se está preparando. Espera unos segundos y vuelve a pulsar.";
+        btn.disabled = false;
+        return;
+      }
+
+      show_12000502().then(async () => {
+        msg.style.color = '#bbb';
         msg.innerText = "¡Completado! Entregando bebida...";
 
         const initData = tg.initDataUnsafe;
@@ -153,7 +157,7 @@ app.get('/ad-reward', (req, res) => {
         }
       }).catch((err) => {
         msg.style.color = '#ff4d4d';
-        msg.innerText = "El anuncio no se completó o no hay disponibles.";
+        msg.innerText = "El anuncio no se completó o fue cerrado antes de tiempo.";
         btn.disabled = false;
       });
     }
