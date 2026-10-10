@@ -337,14 +337,25 @@ bot.action('menu_ranking', async (ctx) => {
   }
 });
 
+// Acción status: borra el anterior y reenvía para actualizar la barra inferior fija
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const userId = ctx.from.id;
+    const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
-    lastUserMessages.set(ctx.from.id, ctx.callbackQuery.message.message_id);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+
+    try {
+      await ctx.deleteMessage();
+    } catch (e) {}
+
+    const sent = await ctx.reply(view.text, {
+      ...view.keyboard,
+      ...MAIN_BOTTOM_KEYBOARD
+    });
+
+    lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en status:', err);
   }
