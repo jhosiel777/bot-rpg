@@ -374,7 +374,8 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
 
   const today = new Date().toISOString().slice(0, 10);
   const adsToday = (u.lastAdClaimDate === today) ? (u.adsClaimedToday || 0) : 0;
-  const adsTotal = u.totalAdsClaimed || 0;
+  // Si vio anuncios hoy antes de la actualización, asegura que el total refleje al menos los de hoy
+  const adsTotal = Math.max(u.totalAdsClaimed || 0, adsToday);
 
   let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
              `🆔 Telegram ID: ` + u.userId + `\n` +
