@@ -9,7 +9,7 @@ const APP_URL = 'https://bot-rpg-wu42.onrender.com';
 app.use(express.json());
 
 // Block ID de Adsgram asignado
-const ADSGRAM_BLOCK_ID = process.env.ADSGRAM_BLOCK_ID || '53008';
+const ADSGRAM_BLOCK_ID = process.env.ADSGRAM_BLOCK_ID || '53014';
 
 // Ruta raíz para health checks de Render
 app.get('/', (req, res) => {
