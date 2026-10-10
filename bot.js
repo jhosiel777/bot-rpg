@@ -906,17 +906,23 @@ async function startExpedition(ctx, dungeonKey) {
                             `⏳ No podrás explorar durante las próximas 2 horas.\n` +
                             `⚠️ Perdiste ${lostExp} de EXP acumulada.\n` +
                             `Descansa en el campamento o usa pociones para reponerte.`;
-              } else {
-                p.gold += goldGained;
-                p.addExp(expGained);
+          } else {
+  p.gold += goldGained;
+  const leveledUp = p.addExp(expGained);
+  let levelUpNotice = '';
 
-                resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                            `Derrotaste a un ${enemy.name}.\n` +
-                            (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
-                            `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
-                            `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
-                            `🔮 EXP: +${expGained}`;
-              }
+  if (leveledUp) {
+    levelUpNotice = `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
+  }
+
+  resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
+              `Derrotaste a un ${enemy.name}.\n` +
+              (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
+              `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
+              `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
+              `🔮 EXP: +${expGained}` +
+              levelUpNotice;
+}
             } else {
               // Murió por la trampa
               const lostExp = p.applyDeathPenalty();
