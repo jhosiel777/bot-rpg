@@ -11,7 +11,8 @@ const {
   buyListing,
   cancelListing,
   getItemBounds,
-  getMarketHistory
+  getMarketHistory,
+  getMarketTrendsView
 } = require('./market');
 const {
   Player,
@@ -404,7 +405,7 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
     buttons.push([Markup.button.callback('✨ Revivir Aventurero (Admin)', `adm_revive_target_${u.userId}_${backPage}`)]);
   }
 
-  buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]);
+  buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)] );
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
@@ -421,7 +422,7 @@ bot.action('adm_revive_self', async (ctx) => {
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
-// Revivir a un usuario específico desde el panel de inspección
+// Revivir a un usuario específico
 bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const targetId = parseInt(ctx.match[1], 10);
@@ -435,7 +436,6 @@ bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
     await safeAnswerCb(ctx, `✨ ${u.name} ha sido revivido con éxito.`, true);
   }
 
-  // Refrescar la vista del usuario
   return await safeEditMessage(
     ctx,
     `✅ *El aventurero fue restaurado con vida completa.*`,
@@ -678,7 +678,10 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
       }
     });
 
-    buttons.push([Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+    buttons.push([
+      Markup.button.callback('📊 Tendencias (24h)', 'mkt_trends'),
+      Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')
+    ]);
     buttons.push([
       Markup.button.callback('🔄 Actualizar', 'menu_market'),
       Markup.button.callback('⬅️ Volver', 'status')
@@ -758,7 +761,10 @@ async function renderMarket(ctx) {
     }
   });
 
-  buttons.push([Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+  buttons.push([
+    Markup.button.callback('📊 Tendencias (24h)', 'mkt_trends'),
+    Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')
+  ]);
   buttons.push([
     Markup.button.callback('🔄 Actualizar', 'menu_market'),
     Markup.button.callback('⬅️ Volver', 'status')
@@ -771,6 +777,16 @@ bot.action('menu_market', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
   await renderMarket(ctx);
+});
+
+bot.action('mkt_trends', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const text = await getMarketTrendsView();
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Actualizar', 'mkt_trends')],
+    [Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]
+  ]);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
 bot.action('mkt_sell_menu', async (ctx) => {
