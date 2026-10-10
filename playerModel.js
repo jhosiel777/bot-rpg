@@ -37,10 +37,10 @@ const playerSchema = new mongoose.Schema({
   totalAdsClaimed: { type: Number, default: 0 }
 });
 
-// Cooldown de descanso según nivel de agilidad
+// Cooldown de descanso: Base 15 minutos (mínimo 5 min con agilidad máxima)
 playerSchema.methods.getRestCooldownMs = function() {
   const agi = this.agility || 0;
-  const minutes = Math.max(2, 5 - (agi * 0.03));
+  const minutes = Math.max(5, 15 - (agi * 0.10));
   return Math.round(minutes * 60 * 1000);
 };
 
