@@ -4,13 +4,11 @@ const MAX_LEVEL = 101;
 const MAX_STAT = 100;
 const MAX_BASE_HP = 300;
 const MAX_ENERGY = 10;
-const BASE_REST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos base
+const BASE_REST_COOLDOWN_MS = 15 * 60 * 1000;
 
 function getRequiredExp(level) {
   if (level >= MAX_LEVEL) return 'MAX';
-  // Hito final de nivel 100 a 101 estilo RuneScape (desafío final por los 5 stat points)
   if (level === 100) return 50000;
-  // Curva progresiva para los niveles 1 al 99
   return Math.floor(20 * Math.pow(level, 1.5));
 }
 
@@ -29,31 +27,26 @@ const playerSchema = new mongoose.Schema({
   energy: { type: Number, default: MAX_ENERGY },
   lastEnergyUpdate: { type: Number, default: () => Date.now() },
   onMissionUntil: { type: Number, default: 0 },
-  potionsUsedInMission: { type: Number, default: 0 }, // Límite de pociones de salud en expedición
+  potionsUsedInMission: { type: Number, default: 0 },
   lastRestTime: { type: Number, default: 0 },
 
-  // Inventario básico
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
   potionsEnergy: { type: Number, default: 0 },
 
-  // Penalización por derrota
   knockedOutUntil: { type: Number, default: 0 },
 
-  // Sistema de Anuncios y Bebida Energética
   potionsEnergyDrink: { type: Number, default: 0 },
   adsClaimedToday: { type: Number, default: 0 },
   lastAdClaimDate: { type: String, default: '' }
 });
 
-// Cooldown de descanso reducido por Agilidad (3s menos por punto)
 playerSchema.methods.getRestCooldownMs = function () {
   const agi = this.agility || 0;
   const reductionMs = agi * 3 * 1000;
   return Math.max(10 * 60 * 1000, BASE_REST_COOLDOWN_MS - reductionMs);
 };
 
-// Regeneración pasiva de energía (1 cada 10 min)
 playerSchema.methods.updateEnergy = function () {
   const now = Date.now();
   const REGEN_TIME_MS = 10 * 60 * 1000;
@@ -66,7 +59,6 @@ playerSchema.methods.updateEnergy = function () {
   }
 };
 
-// Verificación y subida de nivel
 playerSchema.methods.checkLevelUp = function () {
   if (this.level >= MAX_LEVEL) {
     this.level = MAX_LEVEL;
@@ -80,7 +72,6 @@ playerSchema.methods.checkLevelUp = function () {
     this.exp -= req;
     this.level += 1;
 
-    // Reparto de puntos según el hito
     if (this.level === 101) {
       this.statPoints += 5;
     } else if (this.level % 10 === 0) {
@@ -98,14 +89,12 @@ playerSchema.methods.checkLevelUp = function () {
   return leveledUp;
 };
 
-// Subida de nivel al ganar EXP en expedición
 playerSchema.methods.addExp = function (amount) {
   if (this.level >= MAX_LEVEL) return false;
   this.exp += amount;
   return this.checkLevelUp();
 };
 
-// Penalización por muerte: pierde 20% de EXP acumulada
 playerSchema.methods.applyDeathPenalty = function () {
   const lostExp = Math.floor(this.exp * 0.20);
   this.exp -= lostExp;
@@ -113,6 +102,41 @@ playerSchema.methods.applyDeathPenalty = function () {
 };
 
 const Player = mongoose.model('Player', playerSchema);
+
+// Esquema para estadísticas globales de drops
+const globalStatsSchema = new mongoose.Schema({
+  key: { type: String, default: 'main', unique: true },
+  totalDropsSmall: { type: Number, default: 0 },
+  totalDropsMedium: { type: Number, default: 0 },
+  totalDropsEnergy: { type: Number, default: 0 }
+});
+
+const GlobalStats = mongoose.model('GlobalStats', globalStatsSchema);
+
+async function recordDrop(type) {
+  try {
+    const incField = {};
+    if (type === 'small') incField.totalDropsSmall = 1;
+    if (type === 'medium') incField.totalDropsMedium = 1;
+    if (type === 'energy') incField.totalDropsEnergy = 1;
+
+    await GlobalStats.findOneAndUpdate(
+      { key: 'main' },
+      { $inc: incField },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.error('Error registrando drop global:', err.message);
+  }
+}
+
+async function getGlobalStats() {
+  let stats = await GlobalStats.findOne({ key: 'main' });
+  if (!stats) {
+    stats = await GlobalStats.create({ key: 'main' });
+  }
+  return stats;
+}
 
 async function getPlayer(userId, name) {
   let player = await Player.findOne({ userId });
@@ -135,6 +159,9 @@ module.exports = {
   Player,
   getPlayer,
   getRequiredExp,
+  GlobalStats,
+  recordDrop,
+  getGlobalStats,
   MAX_LEVEL,
   MAX_STAT,
   MAX_BASE_HP,
