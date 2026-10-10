@@ -256,6 +256,20 @@ bot.command(['top', 'ranking'], async (ctx) => {
   }
 });
 
+bot.action('menu_ranking', async (ctx) => {
+  await safeAnswerCb(ctx);
+  try {
+    const text = await getRankingText(ctx.from.id);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
+      [Markup.button.callback('⬅️ Volver', 'status')]
+    ]);
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    console.error('Error en menu_ranking:', err);
+  }
+});
+
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
