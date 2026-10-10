@@ -1,4 +1,18 @@
 const { MarketListing } = require('./marketModel');
+// Esquema para registrar cada compra/venta completada en el mercado
+const marketLogSchema = new mongoose.Schema({
+  sellerId: Number,
+  sellerName: String,
+  buyerId: Number,
+  buyerName: String,
+  itemName: String,
+  price: Number,
+  tax: Number,
+  sellerProfit: Number,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const MarketLog = mongoose.model('MarketLog', marketLogSchema);
 const { Player } = require('./playerModel');
 const ITEMS = require('./shop');
 
