@@ -5,6 +5,7 @@ const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
 const { getRankingText } = require('./ranking');
+const { WorldBoss, getWorldBoss } = require('./bossModel');
 const {
   initMarketPrices,
   evaluateDynamicPrice,
@@ -35,6 +36,7 @@ mongoose.connect(process.env.MONGO_URI)
     console.log('✅ Base de datos MongoDB conectada');
     await initMarketPrices();
     scheduleNextUtcCycle();
+    initBossScheduler();
   })
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
@@ -46,9 +48,12 @@ startServer(bot);
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
+const confirmedBossWarning = new Map(); // Sesión de confirmación de advertencia
 let adminBroadcastWaiting = false;
+let adminBossCustomHpWaiting = false;
+let bossWaitMinutesConfig = 30; // Tiempo por defecto para el jefe
 
-// Planificador exacto de ciclos fijos de 4 horas UTC (00, 04, 08, 12, 16, 20)
+// Planificador de ciclos de mercado (00, 04, 08, 12, 16, 20 UTC)
 function scheduleNextUtcCycle() {
   const now = new Date();
   const currentHour = now.getUTCHours();
@@ -69,6 +74,83 @@ function scheduleNextUtcCycle() {
     }
     scheduleNextUtcCycle();
   }, delayMs);
+}
+
+// Revisor periódico del estado del Jefe Mundial (cada 15s)
+function initBossScheduler() {
+  setInterval(async () => {
+    try {
+      const boss = await WorldBoss.findOne();
+      if (!boss) return;
+
+      const now = Date.now();
+
+      // Alerta a los 5 minutos antes de la batalla
+      if (boss.status === 'scheduled' && boss.battleStartsAt) {
+        const msUntilStart = new Date(boss.battleStartsAt).getTime() - now;
+
+        if (msUntilStart <= 5 * 60 * 1000 && msUntilStart > 0 && !boss.alert5MinSent) {
+          boss.alert5MinSent = true;
+          await boss.save();
+
+          const alertMsg = `⚠️ *¡ALERTA MÁXIMA EN EL REINO!*\n\n` +
+                           `Faltan *5 minutos* para la llegada del Coloso ancestral.\n\n` +
+                           `📋 *Ficha Técnica del Coloso:*\n` +
+                           `• Nombre: *${boss.name}*\n` +
+                           `• Nivel de Amenaza: *Lv. ${boss.level}*\n` +
+                           `• Salud Total: *${boss.maxHp.toLocaleString()} HP*\n` +
+                           `• Rango de Ataque: *${boss.minDmg} - ${boss.maxDmg}*\n` +
+                           `• Ataques por Asalto: *${boss.attacksPerTurn} golpe(s)*\n` +
+                           `• Naturaleza del Daño: *${boss.damageType}*\n\n` +
+                           `🛡️ _¡Prepárense aventureros de nivel 5 o superior!_`;
+
+          await broadcastToAll(alertMsg);
+        }
+
+        // Inicio oficial de la batalla
+        if (msUntilStart <= 0) {
+          boss.status = 'active';
+          boss.battleEndsAt = new Date(now + 90 * 60 * 1000); // 1.5 horas de duración
+          await boss.save();
+
+          const startMsg = `🐲 *¡EL JEFE MUNDIAL HA DESPERTADO!*\n\n` +
+                           `*${boss.name}* ruge y desata el caos en las tierras centrales.\n` +
+                           `❤️ Salud: *${boss.currentHp}/${boss.maxHp} HP*\n\n` +
+                           `⚔️ ¡Unan sus fuerzas en el campamento para derrotarlo!`;
+
+          await broadcastToAll(startMsg);
+        }
+      }
+
+      // Tiempo expirado: El jefe escapa
+      if (boss.status === 'active' && boss.battleEndsAt) {
+        if (now > new Date(boss.battleEndsAt).getTime()) {
+          boss.status = 'escaped';
+          await boss.save();
+
+          const escapeMsg = `💨 *El Jefe Mundial ha escapado...*\n\n` +
+                            `El tiempo límite concluyó y *${boss.name}* regresó a su guarida subterránea.`;
+
+          await broadcastToAll(escapeMsg);
+        }
+      }
+    } catch (err) {
+      console.error('Error en scheduler de Jefe Mundial:', err.message);
+    }
+  }, 15000);
+}
+
+async function broadcastToAll(messageText) {
+  try {
+    const players = await Player.find({}, 'userId');
+    for (const p of players) {
+      try {
+        await bot.telegram.sendMessage(p.userId, messageText, { parse_mode: 'Markdown' });
+      } catch (e) {}
+    }
+  } catch (err) {
+    console.error('Error enviando broadcast global:', err.message);
+  }
 }
 
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
@@ -196,6 +278,7 @@ function getStatusView(player) {
 
   const buttons = [
     [Markup.button.callback('🗺️ Elegir Expedición', 'menu_dungeons')],
+    [Markup.button.callback('🐲 Jefe Mundial', 'menu_boss')],
     [
       Markup.button.callback(
         restSecLeft > 0 ? `🏕️ Descanso (${formatSeconds(restSecLeft)})` : '🏕️ Descansar (+30% Salud)',
@@ -222,28 +305,29 @@ function getStatsView(player) {
   const luk = player.luck || 0;
 
   const dmgMitigation = ((str / (str + 60)) * 40).toFixed(1);
+  const baseAtk = Math.round(20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3));
   const dodgeChance = (agi * 0.3).toFixed(1);
   const trapDodge = Math.min(60, 15 + (agi * 0.45)).toFixed(1);
   const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
 
-  const critChance = Math.min(25, 5 + (luk * 0.20)).toFixed(1);
-  const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
+  const critChance = Math.min(30, (luk * 0.25)).toFixed(1);
   const dropBonus = (luk * 0.05).toFixed(2);
 
   let text = `📈 *Distribución de Atributos*\n\n` +
              `Puntos Disponibles: *${player.statPoints}*\n\n` +
              `💪 *Fuerza (${str}/${MAX_STAT}):*\n` +
-             `• Mitigación de daño físico: *${dmgMitigation}%*.\n` +
-             `• +Oro extra en botín (hasta 50% de tope).\n\n` +
+             `• Daño de Ataque Base: *${baseAtk}* de impacto físico.\n` +
+             `• Mitigación de daño recibido: *${dmgMitigation}%*.\n` +
+             `• +Oro extra en botín de mazmorras.\n\n` +
              `❤️ *Salud Máxima (${player.maxHp}/${MAX_BASE_HP} HP):*\n` +
              `• Cada mejora suma +5 HP de vida máxima.\n\n` +
              `🏃 *Agilidad (${agi}/${MAX_STAT}):*\n` +
              `• Esquiva de combate: *${dodgeChance}%* por asalto.\n` +
-             `• Esquiva de trampas: *${trapDodge}%* de éxito (máx: 60%).\n` +
+             `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
+             `• Impacto rozante en Jefe Mundial: 50% de reducción.\n` +
              `• Cooldown de descanso: *${restCooldownMin} min* (base 15 min).\n\n` +
              `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
-             `• Golpe Crítico Afortunado: *${critChance}%* (-35% daño recibido, +20% EXP).\n` +
-             `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n` +
+             `• Golpe Crítico Ofensivo: *${critChance}%* (Multiplica daño por 1.4x).\n` +
              `• Bono de drop de pociones: *+${dropBonus}%*.\n\n`;
 
   if (player.statPoints > 0) {
@@ -270,18 +354,60 @@ function getStatsView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
+// Censo de jugadores aptos (Nivel >= 5) para el Jefe Mundial
+async function getBossCensus() {
+  const aptPlayers = await Player.find({ level: { $gte: 5 } });
+  const totalAptos = aptPlayers.length;
+  const activeCount = Math.max(totalAptos, 3);
+
+  let totalHp = 0;
+  let totalStr = 0;
+  let totalLvl = 0;
+
+  aptPlayers.forEach((p) => {
+    totalHp += (p.maxHp || 50);
+    totalStr += (p.strength || 0);
+    totalLvl += p.level;
+  });
+
+  const avgMaxHp = totalAptos > 0 ? Math.round(totalHp / totalAptos) : 80;
+  const avgStr = totalAptos > 0 ? Math.round(totalStr / totalAptos) : 5;
+  const avgLvl = totalAptos > 0 ? Math.round(totalLvl / totalAptos) : 8;
+
+  const avgDmg = 20 + (avgStr * 1.2) + Math.floor(Math.sqrt(avgStr) * 3);
+  const recommendedHp = Math.round(activeCount * avgDmg * 15);
+
+  const minDmg = Math.max(50, Math.round(avgMaxHp * 0.25));
+  const maxDmg = Math.max(75, Math.round(avgMaxHp * 0.35));
+  const attacksPerTurn = avgMaxHp >= 200 ? 2 : 1;
+
+  return {
+    totalAptos,
+    activeCount,
+    avgMaxHp,
+    avgStr,
+    avgLvl,
+    recommendedHp,
+    minDmg,
+    maxDmg,
+    attacksPerTurn
+  };
+}
+
 // PANEL DE ADMINISTRADOR
 function getAdminHomeView() {
   const text = `👑 *Panel de Creador (Admin)*\n\n` +
                `Bienvenido al panel de control del reino. Opciones de gestión:`;
 
   const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
     [Markup.button.callback('📜 Historial P2P', 'adm_mkt_page_1')],
     [Markup.button.callback('📢 Transmitir Mensaje Global', 'adm_prompt_broadcast')],
     [Markup.button.callback('❤️‍🩹 Revivir / Quitar Inconsciente (Propio)', 'adm_revive_self')],
     [Markup.button.callback('🥤 Auto-conceder +1 Bebida Energética', 'adm_give_drink')],
+    [Markup.button.callback('🩸 Auto-conceder +1 Elixir Dragón', 'adm_give_dragon_blood')],
     [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
   ]);
 
@@ -291,6 +417,7 @@ function getAdminHomeView() {
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
   adminBroadcastWaiting = false;
+  adminBossCustomHpWaiting = false;
   const view = getAdminHomeView();
   await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -299,10 +426,534 @@ bot.action('adm_home', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
   adminBroadcastWaiting = false;
+  adminBossCustomHpWaiting = false;
   const view = getAdminHomeView();
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
+// Panel del Jefe Mundial en Admin
+bot.action('adm_boss_panel', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const boss = await getWorldBoss();
+  const census = await getBossCensus();
+
+  let text = `🐲 *Panel de Convocatoria del Jefe Mundial*\n\n` +
+             `Estado actual: *${boss.status.toUpperCase()}*\n`;
+
+  if (boss.status === 'scheduled') {
+    const minsLeft = Math.max(0, Math.ceil((new Date(boss.battleStartsAt).getTime() - Date.now()) / 60000));
+    text += `⏳ Batalla programada: inicia en *${minsLeft} min*\n` +
+            `❤️ Salud programada: *${boss.maxHp.toLocaleString()} HP*\n\n`;
+  } else if (boss.status === 'active') {
+    text += `⚔️ *¡Batalla en curso!*\n` +
+            `❤️ Salud restante: *${boss.currentHp}/${boss.maxHp} HP*\n` +
+            `👥 Participantes: *${boss.participants.length}*\n\n`;
+  } else {
+    text += `\n📊 *Censo de Jugadores Aptos (Nivel 5+):*\n` +
+            `• Jugadores aptos censados: *${census.totalAptos}* (Mínimo operativo: ${census.activeCount})\n` +
+            `• Promedio Salud Máx: *${census.avgMaxHp} HP*\n` +
+            `• Promedio Fuerza: *${census.avgStr}*\n` +
+            `• Nivel sugerido: *Lv. ${census.avgLvl}*\n` +
+            `• 💡 *Salud Recomendada:* *${census.recommendedHp.toLocaleString()} HP*\n\n` +
+            `⏱️ *Tiempo de espera fijado:* *${bossWaitMinutesConfig} minutos*\n\n` +
+            `Elige una opción para configurar o iniciar:`;
+  }
+
+  const buttons = [];
+
+  if (boss.status === 'idle' || boss.status === 'defeated' || boss.status === 'escaped') {
+    buttons.push([
+      Markup.button.callback(`⚡ Iniciar con Salud Recomendada (${census.recommendedHp} HP)`, `adm_boss_spawn_${census.recommendedHp}`)
+    ]);
+    buttons.push([
+      Markup.button.callback('🧪 Test 500 HP', 'adm_boss_spawn_500'),
+      Markup.button.callback('🧪 Test 1000 HP', 'adm_boss_spawn_1000'),
+      Markup.button.callback('🧪 Test 2500 HP', 'adm_boss_spawn_2500')
+    ]);
+    buttons.push([
+      Markup.button.callback('✏️ Escribir Salud Personalizada', 'adm_boss_custom_hp')
+    ]);
+    buttons.push([
+      Markup.button.callback('⏱️ Espera: 1 min (Test)', 'adm_boss_set_wait_1'),
+      Markup.button.callback('⏱️ 10 min', 'adm_boss_set_wait_10'),
+      Markup.button.callback('⏱️ 30 min', 'adm_boss_set_wait_30')
+    ]);
+    buttons.push([
+      Markup.button.callback('⏱️ 60 min', 'adm_boss_set_wait_60'),
+      Markup.button.callback('⏱️ 360 min (6h)', 'adm_boss_set_wait_360')
+    ]);
+  } else {
+    buttons.push([Markup.button.callback('🛑 Forzar Finalización del Evento', 'adm_boss_force_end')]);
+  }
+
+  buttons.push([Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action(/adm_boss_set_wait_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  bossWaitMinutesConfig = parseInt(ctx.match[1], 10);
+  await safeAnswerCb(ctx, `Tiempo fijado en ${bossWaitMinutesConfig} minutos.`);
+  const census = await getBossCensus();
+  const boss = await getWorldBoss();
+  let text = `🐲 *Panel de Convocatoria del Jefe Mundial*\n\n` +
+             `Estado: *${boss.status.toUpperCase()}*\n` +
+             `💡 Salud Recomendada: *${census.recommendedHp.toLocaleString()} HP*\n` +
+             `⏱️ Tiempo de espera fijado: *${bossWaitMinutesConfig} minutos*\n\n` +
+             `Selecciona con qué vida convocar al jefe:`;
+
+  const buttons = [
+    [Markup.button.callback(`⚡ Iniciar con Salud Recomendada (${census.recommendedHp} HP)`, `adm_boss_spawn_${census.recommendedHp}`)],
+    [
+      Markup.button.callback('🧪 Test 500 HP', 'adm_boss_spawn_500'),
+      Markup.button.callback('🧪 Test 1000 HP', 'adm_boss_spawn_1000'),
+      Markup.button.callback('🧪 Test 2500 HP', 'adm_boss_spawn_2500')
+    ],
+    [Markup.button.callback('✏️ Escribir Salud Personalizada', 'adm_boss_custom_hp')],
+    [Markup.button.callback('⬅️ Volver', 'adm_boss_panel')]
+  ];
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('adm_boss_custom_hp', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  adminBossCustomHpWaiting = true;
+
+  const text = `✏️ *Salud Personalizada para el Jefe Mundial*\n\n` +
+               `Escribe en el chat el valor numérico de la salud que deseas asignarle (por ejemplo: 750, 3000 o 15000).\n\n` +
+               `_El jefe se programará con esa vida y con el tiempo de espera actual (${bossWaitMinutesConfig} min)._`;
+
+  return await safeEditMessage(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'adm_boss_panel')]])
+  });
+});
+
+bot.action(/adm_boss_spawn_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const chosenHp = parseInt(ctx.match[1], 10);
+  return await scheduleBossFight(ctx, chosenHp, bossWaitMinutesConfig);
+});
+
+bot.action('adm_boss_force_end', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const boss = await getWorldBoss();
+  boss.status = 'idle';
+  boss.participants = [];
+  await boss.save();
+  await safeAnswerCb(ctx, 'Evento del jefe finalizado.');
+  return await safeEditMessage(ctx, '✅ *El evento del Jefe Mundial fue reiniciado a IDLE.*', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+  });
+});
+
+async function scheduleBossFight(ctx, hp, waitMinutes) {
+  const boss = await getWorldBoss();
+
+  if (boss.status === 'scheduled' || boss.status === 'active') {
+    return await safeAnswerCb(ctx, 'Ya hay un Jefe Mundial activo o programado.', true);
+  }
+
+  const census = await getBossCensus();
+  const now = Date.now();
+  const startsAt = new Date(now + waitMinutes * 60 * 1000);
+
+  boss.status = 'scheduled';
+  boss.name = 'Bahamut, el Destructor Carmesí';
+  boss.level = census.avgLvl;
+  boss.maxHp = hp;
+  boss.currentHp = hp;
+  boss.minDmg = census.minDmg;
+  boss.maxDmg = census.maxDmg;
+  boss.attacksPerTurn = census.attacksPerTurn;
+  boss.damageType = 'Físico';
+  boss.activeCount = census.activeCount;
+  boss.avgMaxHp = census.avgMaxHp;
+  boss.avgStr = census.avgStr;
+  boss.scheduledAt = new Date(now);
+  boss.battleStartsAt = startsAt;
+  boss.battleEndsAt = null;
+  boss.alert5MinSent = false;
+  boss.participants = [];
+
+  await boss.save();
+  await safeAnswerCb(ctx, '¡Jefe Mundial programado exitosamente!');
+
+  const announceMsg = `🚨 *¡CONVOCATORIA DEL JEFE MUNDIAL!*\n\n` +
+                      `Una temible energía oscura se concentra en las cordilleras.\n` +
+                      `El coloso *${boss.name}* emergerá en *${waitMinutes} minutos*.\n\n` +
+                      `⚔️ Requisito: *Nivel 5 o superior*.\n` +
+                      `Preparen sus armas, atributos y pociones en el campamento.`;
+
+  await broadcastToAll(announceMsg);
+
+  return await safeEditMessage(
+    ctx,
+    `✅ *Jefe Mundial programado con éxito.*\n\n` +
+    `• Salud asignada: *${hp.toLocaleString()} HP*\n` +
+    `• Tiempo de espera: *${waitMinutes} min*\n` +
+    `• Se envió el aviso global a todos los aventureros.`,
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+    }
+  );
+}
+
+// Menú del Jefe Mundial para jugadores
+bot.action('menu_boss', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const boss = await getWorldBoss();
+
+  if (player.level < 5) {
+    return await safeEditMessage(
+      ctx,
+      `🔒 *Jefe Mundial Bloqueado*\n\n` +
+      `Debes alcanzar al menos el *Nivel 5* para participar en las batallas de Colosos. (Tu nivel: ${player.level})`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+      }
+    );
+  }
+
+  let text = `🐲 *Frente de Batalla: ${boss.name}*\n\n`;
+
+  if (boss.status === 'scheduled') {
+    const minsLeft = Math.max(0, Math.ceil((new Date(boss.battleStartsAt).getTime() - Date.now()) / 60000));
+    text += `⏳ El coloso está despertando. La batalla inicia en aproximadamente *${minsLeft} minutos*.\n\n` +
+            `❤️ Salud prevista: *${boss.maxHp.toLocaleString()} HP*\n` +
+            `⚔️ Daño estimado: *${boss.minDmg} - ${boss.maxDmg}*\n\n` +
+            `Asegúrate de preparar tu inventario y descansar antes del inicio.`;
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
+        [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+      ])
+    });
+  }
+
+  if (boss.status === 'active') {
+    const myPart = boss.participants.find(p => p.userId === player.userId);
+    const myDmg = myPart ? myPart.totalDamage : 0;
+    const hpPct = ((boss.currentHp / boss.maxHp) * 100).toFixed(1);
+
+    text += `🔥 *¡EL JEFE ESTÁ EN COMBATE!*\n\n` +
+            `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP* (${hpPct}%)\n` +
+            `⚔️ Rango de ataque enemigo: *${boss.minDmg} - ${boss.maxDmg}* Físico\n` +
+            `💥 Tu daño aportado: *${myDmg.toLocaleString()} puntos*\n\n` +
+            `❤️ Tu salud actual: *${player.hp}/${player.maxHp} HP*\n` +
+            `⚡ Tu energía: *${player.energy}/${MAX_ENERGY}*\n\n` +
+            `¿Deseas asestar un asalto?`;
+
+    const buttons = [
+      [Markup.button.callback('⚔️ Atacar al Coloso (1 ⚡)', 'boss_attack')],
+      [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
+      [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
+      [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+    ];
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  }
+
+  text += `_Actualmente ningún coloso amenaza las tierras. El Creador anunciará la próxima convocatoria._`;
+  return await safeEditMessage(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+  });
+});
+
+// Acción de combate contra el Jefe Mundial
+bot.action('boss_attack', async (ctx) => {
+  return await executeBossAttack(ctx, false);
+});
+
+bot.action('boss_attack_confirm', async (ctx) => {
+  return await executeBossAttack(ctx, true);
+});
+
+async function executeBossAttack(ctx, confirmedWarning = false) {
+  const userId = ctx.from.id;
+  const player = await getPlayer(userId, ctx.from.first_name);
+  const boss = await getWorldBoss();
+
+  if (boss.status !== 'active') {
+    return await safeAnswerCb(ctx, 'El Jefe Mundial no se encuentra en combate activo.', true);
+  }
+
+  if (player.level < 5) {
+    return await safeAnswerCb(ctx, 'Requieres nivel 5 o más.', true);
+  }
+
+  if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
+    return await safeAnswerCb(ctx, 'Estás inconsciente. No puedes atacar.', true);
+  }
+
+  if (player.hp <= 0) {
+    return await safeAnswerCb(ctx, 'Estás sin salud. Cúrate primero.', true);
+  }
+
+  if (player.energy < 1) {
+    return await safeAnswerCb(ctx, 'Necesitas al menos 1 punto de Energía.', true);
+  }
+
+  // Advertencia preventiva contextual
+  const sessionConfirmed = (confirmedBossWarning.get(userId) === String(boss._id));
+  const isVulnerable = (player.maxHp * 0.80 < boss.maxDmg) || (player.hp < boss.maxDmg * 0.80);
+
+  if (isVulnerable && !confirmedWarning && !sessionConfirmed) {
+    await safeAnswerCb(ctx);
+    const warnText = `⚠️ *¡ADVERTENCIA DE COMBATE CRÍTICO!*\n\n` +
+                     `Tu salud (${player.hp}/${player.maxHp} HP) está muy por debajo del daño máximo del Coloso (*${boss.maxDmg}* daño).\n\n` +
+                     `Podrías caer inconsciente de un solo impacto. Se recomienda curarte con pociones antes de asaltar.\n\n` +
+                     `¿Deseas arriesgarte y atacar de todos modos?`;
+
+    const warnBtns = Markup.inlineKeyboard([
+      [Markup.button.callback('⚔️ Atacar de todos modos', 'boss_attack_confirm')],
+      [Markup.button.callback('🎒 Curarme con Pociones', 'menu_inv')],
+      [Markup.button.callback('⬅️ Retirarme', 'menu_boss')]
+    ]);
+
+    return await safeEditMessage(ctx, warnText, { parse_mode: 'Markdown', ...warnBtns });
+  }
+
+  if (confirmedWarning) {
+    confirmedBossWarning.set(userId, String(boss._id));
+  }
+
+  // 1. Daño del jugador hacia el Jefe
+  player.energy -= 1;
+  const str = player.strength || 0;
+  const luk = player.luck || 0;
+  const agi = player.agility || 0;
+
+  const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
+  const variation = (Math.random() * 0.16) - 0.08; // +-8%
+  let playerDmg = Math.round(dañoBase * (1 + variation));
+
+  const critChance = Math.min(0.30, (luk * 0.0025));
+  let isCrit = false;
+  if (Math.random() < critChance) {
+    isCrit = true;
+    playerDmg = Math.round(playerDmg * 1.40);
+  }
+  playerDmg = Math.max(1, playerDmg);
+
+  // Aplicar daño al jefe
+  boss.currentHp = Math.max(0, boss.currentHp - playerDmg);
+
+  // Registrar participación
+  let participant = boss.participants.find(p => p.userId === userId);
+  if (!participant) {
+    const isFirst = (boss.participants.length === 0);
+    boss.participants.push({
+      userId,
+      name: player.name,
+      totalDamage: playerDmg,
+      attacksCount: 1,
+      firstHit: isFirst,
+      lastHit: false
+    });
+  } else {
+    participant.totalDamage += playerDmg;
+    participant.attacksCount += 1;
+  }
+
+  const isBossDefeated = (boss.currentHp <= 0);
+  if (isBossDefeated) {
+    const pRecord = boss.participants.find(p => p.userId === userId);
+    if (pRecord) pRecord.lastHit = true;
+    boss.status = 'defeated';
+  }
+
+  // 2. Contraataque del Jefe hacia el Jugador
+  let bossDmg1 = Math.floor(Math.random() * (boss.maxDmg - boss.minDmg + 1)) + boss.minDmg;
+  let attacksTaken = 1;
+  let extraDmg = 0;
+
+  // Doble golpe si avgMaxHp >= 200
+  if (boss.avgMaxHp >= 200 && Math.random() < 0.28) {
+    attacksTaken = 2;
+    extraDmg = Math.round(bossDmg1 * (Math.random() * 0.10 + 0.40)); // 40% a 50%
+  }
+
+  const rawBossTotal = bossDmg1 + extraDmg;
+
+  // Mitigaciones del jugador
+  const strMitigationRatio = (str / (str + 60)) * 0.40;
+  let mitigatedDmg = Math.round(rawBossTotal * (1 - strMitigationRatio));
+
+  let grazed = false;
+  const grazeChance = Math.min(0.40, agi * 0.004);
+  if (Math.random() < grazeChance) {
+    grazed = true;
+    mitigatedDmg = Math.round(mitigatedDmg * 0.50);
+  }
+
+  // Regla estricta de piso: mínimo el 30% del ataque original
+  const minAllowed = Math.round(rawBossTotal * 0.30);
+  const finalDamageTaken = Math.max(minAllowed, mitigatedDmg);
+
+  player.hp = Math.max(0, player.hp - finalDamageTaken);
+
+  let knockOutMsg = '';
+  if (player.hp === 0) {
+    const lostExp = player.applyDeathPenalty();
+    player.knockedOutUntil = Date.now() + 2 * 60 * 60 * 1000;
+    knockOutMsg = `\n💀 *¡Has caído inconsciente!*\n` +
+                  `El impacto del coloso fue descomunal. Espera 2h o usa un *Elixir de Sangre de Dragón*.\n` +
+                  `⚠️ Perdiste ${lostExp} de EXP.`;
+  }
+
+  await player.save();
+  await boss.save();
+  await safeAnswerCb(ctx);
+
+  let combatReport = `⚔️ *Asalto contra ${boss.name}*\n\n` +
+                     (isCrit ? `✨ *¡Golpe Crítico Devastador!* (1.4x)\n` : '') +
+                     `💥 Daño infligido: *${playerDmg.toLocaleString()} puntos*\n\n` +
+                     `🛡️ *Ataque recibido (${attacksTaken} golpe/s):*\n` +
+                     `• Daño original: ${rawBossTotal}\n` +
+                     (grazed ? `🤸 ¡Impacto rozante de Agilidad! (-50%)\n` : '') +
+                     `• Daño final recibido: *${finalDamageTaken} HP*\n` +
+                     `❤️ Tu salud restante: *${player.hp}/${player.maxHp} HP*\n` +
+                     `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP*` +
+                     knockOutMsg;
+
+  if (isBossDefeated) {
+    combatReport += `\n\n🎉 *¡EL COLOSO HA SIDO DERROTADO!* ¡Repartiendo botín del reino...!`;
+    await ctx.reply(combatReport, { parse_mode: 'Markdown' });
+    return await distributeBossRewards(boss);
+  }
+
+  const nextBtns = [
+    [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'boss_attack')],
+    [Markup.button.callback('🎒 Mochila / Pociones', 'menu_inv')],
+    [Markup.button.callback('⬅️ Volver al Frente', 'menu_boss')]
+  ];
+
+  return await safeEditMessage(ctx, combatReport, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(nextBtns) });
+}
+
+// Distribución de recompensas con sistema anti-monopolio
+async function distributeBossRewards(boss) {
+  try {
+    const parts = [...boss.participants].sort((a, b) => b.totalDamage - a.totalDamage);
+    if (!parts.length) return;
+
+    const totalDmgAll = parts.reduce((acc, p) => acc + p.totalDamage, 0) || 1;
+    const baseGoldPool = Math.round(boss.maxHp * 0.8);
+    const baseExpPool = Math.round(boss.maxHp * 1.2);
+
+    const top1 = parts[0];
+    const top2 = parts.length > 1 ? parts[1] : null;
+    const lastHitter = parts.find(p => p.lastHit) || top1;
+    const firstHitter = parts.find(p => p.firstHit);
+
+    const elixirWinners = new Set();
+    let dropsSummary = [];
+
+    // Tirada 1: Top 1 (60% de probabilidad)
+    if (Math.random() < 0.60) {
+      elixirWinners.add(top1.userId);
+      dropsSummary.push(`• 🩸 *${top1.name}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
+    }
+
+    // Tirada 2: Último Golpe (60% de probabilidad)
+    let targetRoll2 = lastHitter;
+    if (elixirWinners.has(targetRoll2.userId) && top2) {
+      targetRoll2 = top2; // Traslado al Top 2 si ya lo tiene o son el mismo
+    }
+
+    if (!elixirWinners.has(targetRoll2.userId) && Math.random() < 0.60) {
+      elixirWinners.add(targetRoll2.userId);
+      const reason = (targetRoll2.userId === lastHitter.userId) ? 'Remate Final' : 'Top 2 Daño';
+      dropsSummary.push(`• 🩸 *${targetRoll2.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
+    }
+
+    // Tirada 3: Sorteo de slots restantes (Pool de 3 máximo)
+    const remainingSlots = 3 - elixirWinners.size;
+    if (remainingSlots > 0) {
+      const candidates = parts.filter(p => !elixirWinners.has(p.userId));
+      for (const cand of candidates) {
+        if (elixirWinners.size >= 3) break;
+        const isFirst = (firstHitter && firstHitter.userId === cand.userId);
+        const chance = isFirst ? 0.30 : 0.10; // +20% bono al primer golpe
+        if (Math.random() < chance) {
+          elixirWinners.add(cand.userId);
+          const reason = isFirst ? 'Primer Golpe' : 'Sorteo de Participación';
+          dropsSummary.push(`• 🩸 *${cand.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
+        }
+      }
+    }
+
+    // Repartir Oro, EXP y Elixires
+    for (const p of parts) {
+      const playerDoc = await Player.findOne({ userId: p.userId });
+      if (!playerDoc) continue;
+
+      const dmgRatio = p.totalDamage / totalDmgAll;
+      let earnedGold = Math.round(baseGoldPool * dmgRatio);
+      let earnedExp = Math.round(baseExpPool * dmgRatio);
+
+      // Bonificaciones extras
+      if (p.userId === top1.userId) {
+        earnedGold += 150;
+        earnedExp += 250;
+      }
+      if (lastHitter && p.userId === lastHitter.userId) {
+        earnedGold += 100;
+        earnedExp += 150;
+      }
+      if (firstHitter && p.userId === firstHitter.userId) {
+        earnedGold += 80;
+        earnedExp += 100;
+      }
+
+      playerDoc.gold += earnedGold;
+      const leveledUp = playerDoc.addExp(earnedExp);
+
+      if (elixirWinners.has(p.userId)) {
+        playerDoc.potionsDragonBlood = (playerDoc.potionsDragonBlood || 0) + 1;
+      }
+
+      await playerDoc.save();
+
+      const individualMsg = `🏆 *¡Recompensas del Coloso: ${boss.name}!* \n\n` +
+                            `• Tu daño aportado: *${p.totalDamage.toLocaleString()}*\n` +
+                            `💰 Oro ganado: *+${earnedGold}g*\n` +
+                            `🔮 EXP ganada: *+${earnedExp}*\n` +
+                            (elixirWinners.has(p.userId) ? `🩸 *¡Obtuviste 1x Elixir de Sangre de Dragón!*\n` : '') +
+                            (leveledUp ? `🎉 ¡Subiste a Nivel ${playerDoc.level}!` : '');
+
+      try {
+        await bot.telegram.sendMessage(p.userId, individualMsg, { parse_mode: 'Markdown' });
+      } catch (e) {}
+    }
+
+    const publicMsg = `🎉 *¡${boss.name} HA SIDO ANIQUILADO!*\n\n` +
+                      `🥇 *Top 1 en Daño:* ${top1.name} (${top1.totalDamage.toLocaleString()} daño)\n` +
+                      `⚡ *Primer Golpe:* ${firstHitter ? firstHitter.name : 'N/A'}\n` +
+                      `🗡️ *Golpe de Gracia:* ${lastHitter.name}\n\n` +
+                      `🎁 *Elixires de Sangre de Dragón hallados:*\n` +
+                      (dropsSummary.length ? dropsSummary.join('\n') : `_Ningún aventurero logró extraer elixires esta vez._`);
+
+    await broadcastToAll(publicMsg);
+  } catch (err) {
+    console.error('Error distribuyendo recompensas del jefe:', err);
+  }
+}
+
+// Estadísticas de Drops
 bot.action('adm_drops', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -329,8 +980,7 @@ bot.action('adm_prompt_broadcast', async (ctx) => {
   adminBroadcastWaiting = true;
 
   const text = `📢 *Transmisión Global del Creador*\n\n` +
-               `Escribe a continuación en el chat el mensaje que deseas enviar a todos los aventureros del reino.\n\n` +
-               `_Se les enviará con formato místico anunciando que el Creador les habla._`;
+               `Escribe a continuación en el chat el mensaje que deseas enviar a todos los aventureros del reino.`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('⬅️ Cancelar', 'adm_home')]
@@ -428,7 +1078,8 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
           `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
           `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
           `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
-          `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n\n` +
+          `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n` +
+          `• 🩸 Elixir Sangre Dragón: ${u.potionsDragonBlood || 0}\n\n` +
           `📺 *Anuncios Vistos:*\n` +
           `• Hoy: *${adsToday}*\n` +
           `• Total Histórico: *${adsTotal}*\n\n` +
@@ -446,7 +1097,6 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Revivir al propio creador
 bot.action('adm_revive_self', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const p = await getPlayer(ADMIN_ID);
@@ -458,7 +1108,6 @@ bot.action('adm_revive_self', async (ctx) => {
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
-// Revivir a un usuario específico
 bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const targetId = parseInt(ctx.match[1], 10);
@@ -482,7 +1131,6 @@ bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
   );
 });
 
-// Historial P2P paginado
 bot.action(/adm_mkt_page_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -536,6 +1184,14 @@ bot.action('adm_give_drink', async (ctx) => {
   await safeAnswerCb(ctx, `🥤 Te añadiste 1x Bebida Energética (Total: ${p.potionsEnergyDrink})`, true);
 });
 
+bot.action('adm_give_dragon_blood', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const p = await getPlayer(ADMIN_ID);
+  p.potionsDragonBlood = (p.potionsDragonBlood || 0) + 1;
+  await p.save();
+  await safeAnswerCb(ctx, `🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ${p.potionsDragonBlood})`, true);
+});
+
 bot.action('adm_claim_overflow_drink', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const p = await getPlayer(ADMIN_ID);
@@ -547,7 +1203,7 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
-// Mensajes de texto: Broadcast global o fijación de precio en Mercado P2P
+// Manejo de mensajes de texto: Broadcast, salud personalizada o venta en mercado
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
@@ -560,27 +1216,27 @@ bot.on('text', async (ctx, next) => {
                          `"${msgContent}"`;
 
     const statusMsg = await ctx.reply('⏳ Transmitiendo mensaje a todos los aventureros...');
-
-    const allPlayers = await Player.find({}, 'userId');
-    let sentCount = 0;
-
-    for (const p of allPlayers) {
-      try {
-        await ctx.telegram.sendMessage(p.userId, broadcastMsg, { parse_mode: 'Markdown' });
-        sentCount++;
-      } catch (err) {}
-    }
+    await broadcastToAll(broadcastMsg);
 
     return await ctx.telegram.editMessageText(
       ctx.chat.id,
       statusMsg.message_id,
       null,
-      `✅ *Transmisión completada.*\nEntregado a ${sentCount} de ${allPlayers.length} aventureros.`,
+      `✅ *Transmisión completada exitosamente.*`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
       }
     );
+  }
+
+  if (userId === ADMIN_ID && adminBossCustomHpWaiting) {
+    adminBossCustomHpWaiting = false;
+    const customHp = parseInt(ctx.message.text.trim(), 10);
+    if (isNaN(customHp) || customHp < 50) {
+      return await ctx.reply('⚠️ Escribe un número válido mayor a 50 para la salud del jefe.');
+    }
+    return await scheduleBossFight(ctx, customHp, bossWaitMinutesConfig);
   }
 
   const itemId = pendingMarketSales.get(userId);
@@ -613,7 +1269,10 @@ async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
     pendingMarketSales.delete(userId);
-    if (userId === ADMIN_ID) adminBroadcastWaiting = false;
+    if (userId === ADMIN_ID) {
+      adminBroadcastWaiting = false;
+      adminBossCustomHpWaiting = false;
+    }
 
     const oldMsgId = lastUserMessages.get(userId);
     if (oldMsgId) {
@@ -634,13 +1293,16 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
-    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
+    if (ctx.from.id === ADMIN_ID) {
+      adminBroadcastWaiting = false;
+      adminBossCustomHpWaiting = false;
+    }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
     const sent = await ctx.reply(view.text, view.keyboard);
@@ -653,7 +1315,10 @@ bot.hears('⚔️ Estado', async (ctx) => {
 bot.hears('📈 Atributos', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
-    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
+    if (ctx.from.id === ADMIN_ID) {
+      adminBroadcastWaiting = false;
+      adminBossCustomHpWaiting = false;
+    }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatsView(player);
     const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
@@ -666,7 +1331,10 @@ bot.hears('📈 Atributos', async (ctx) => {
 bot.hears('🎒 Inventario', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
-    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
+    if (ctx.from.id === ADMIN_ID) {
+      adminBroadcastWaiting = false;
+      adminBossCustomHpWaiting = false;
+    }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
@@ -681,7 +1349,8 @@ bot.hears('🎒 Inventario', async (ctx) => {
             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+            `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
             `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
@@ -689,6 +1358,7 @@ bot.hears('🎒 Inventario', async (ctx) => {
     if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
     if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+    if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -700,7 +1370,10 @@ bot.hears('🎒 Inventario', async (ctx) => {
 bot.hears('🏪 Mercado P2P', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
-    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
+    if (ctx.from.id === ADMIN_ID) {
+      adminBroadcastWaiting = false;
+      adminBossCustomHpWaiting = false;
+    }
     const { text, listings } = await getMarketView(ctx.from.id);
     const buttons = [];
 
@@ -771,7 +1444,10 @@ bot.action('menu_ranking', async (ctx) => {
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
-  if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
+  if (ctx.from.id === ADMIN_ID) {
+    adminBroadcastWaiting = false;
+    adminBossCustomHpWaiting = false;
+  }
   try {
     const userId = ctx.from.id;
     const player = await getPlayer(userId, ctx.from.first_name);
@@ -861,6 +1537,7 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 });
 
+// Arreglado: muestra el precio base dinámico actual bounds.basePrice
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
@@ -870,7 +1547,7 @@ Object.keys(ITEMS).forEach((key) => {
     pendingMarketSales.set(ctx.from.id, item.id);
 
     const text = `📦 *Vender: ${item.name}*\n\n` +
-                 `• Precio base en tienda: ${item.cost}g\n` +
+                 `• Precio base actual: *${bounds.basePrice}g*\n` +
                  `• Rango permitido: *${bounds.minPrice}g* a *${bounds.maxPrice}g*\n` +
                  `• Comisión de mercado: 8%\n\n` +
                  `💬 *Escribe en el chat el precio en oro* que deseas asignarle:`;
@@ -960,7 +1637,7 @@ Object.keys(ITEMS).forEach((key) => {
   bot.action(`buy_${item.id}`, async (ctx) => {
     try {
       if (item.npcSell === false) {
-        return await safeAnswerCb(ctx, '❌ Este objeto se obtiene viendo un anuncio patrocinado.', true);
+        return await safeAnswerCb(ctx, '❌ Este objeto no se adquiere en el puesto comercial del NPC.', true);
       }
 
       const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -1002,7 +1679,8 @@ bot.action('menu_inv', async (ctx) => {
             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+            `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
             `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
@@ -1010,6 +1688,7 @@ bot.action('menu_inv', async (ctx) => {
     if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
     if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+    if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -1018,6 +1697,7 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
+// Consumo de objetos
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`use_${item.id}`, async (ctx) => {
@@ -1025,7 +1705,7 @@ Object.keys(ITEMS).forEach((key) => {
       const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
       if (!player[item.field] || player[item.field] <= 0) {
-        return await safeAnswerCb(ctx, 'No te quedan más pociones de este tipo.', true);
+        return await safeAnswerCb(ctx, 'No te quedan más objetos de este tipo.', true);
       }
 
       if (item.type === 'hp') {
@@ -1048,7 +1728,7 @@ Object.keys(ITEMS).forEach((key) => {
 
         if (inMission) {
           player.potionsUsedInMission = (player.potionsUsedInMission || 0) + 1;
-          await safeAnswerCb(ctx, `Recuperaste +${item.value} HP. (Pociones en viaje: ${player.potionsUsedInMission}/2)`, true);
+          await safeAnswerCb(ctx, `Recuperaste +${item.value} HP. (En viaje: ${player.potionsUsedInMission}/2)`, true);
         } else {
           await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
         }
@@ -1059,6 +1739,16 @@ Object.keys(ITEMS).forEach((key) => {
         player[item.field] -= 1;
         player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
         await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`, true);
+      } else if (item.type === 'revive') {
+        const isKO = player.knockedOutUntil && Date.now() < player.knockedOutUntil;
+        if (!isKO && player.hp >= player.maxHp) {
+          return await safeAnswerCb(ctx, 'No requieres revivir ni curarte en este momento.', true);
+        }
+
+        player[item.field] -= 1;
+        player.knockedOutUntil = 0;
+        player.hp = player.maxHp;
+        await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Estado de inconsciencia eliminado y salud restaurada al 100%.', true);
       }
 
       await player.save();
@@ -1075,7 +1765,8 @@ Object.keys(ITEMS).forEach((key) => {
               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-              `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+              `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+              `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
               `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
@@ -1083,6 +1774,7 @@ Object.keys(ITEMS).forEach((key) => {
       if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
       if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
       if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+      if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
       return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -1309,7 +2001,7 @@ async function startExpedition(ctx, dungeonKey) {
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
             p.gold += bonusGold;
             const leveledUp = p.addExp(expGained);
-            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
+            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
             const dropMsg = rollDungeonDrops(dungeon, p);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
