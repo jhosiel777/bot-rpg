@@ -38,6 +38,7 @@ startServer(bot);
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
+let adminBroadcastWaiting = false; // Estado para esperar el mensaje del broadcast
 
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
@@ -238,7 +239,7 @@ function getStatsView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// PANEL DE ADMINISTRADOR EXCLUSIVO
+// PANEL DE ADMINISTRADOR
 function getAdminHomeView() {
   const text = `👑 *Panel de Creador (Admin)*\n\n` +
                `Bienvenido, Jhosiel. Desde aquí puedes monitorear estadísticas globales y a los jugadores:`;
@@ -246,6 +247,7 @@ function getAdminHomeView() {
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
+    [Markup.button.callback('📢 Transmitir Mensaje Global', 'adm_prompt_broadcast')],
     [Markup.button.callback('🥤 Auto-conceder +1 Bebida Energética', 'adm_give_drink')],
     [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
   ]);
@@ -255,6 +257,7 @@ function getAdminHomeView() {
 
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
+  adminBroadcastWaiting = false;
   const view = getAdminHomeView();
   await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -262,6 +265,7 @@ bot.command('admin', async (ctx) => {
 bot.action('adm_home', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
+  adminBroadcastWaiting = false;
   const view = getAdminHomeView();
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -286,7 +290,24 @@ bot.action('adm_drops', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// Paginación de Usuarios (10 en 10)
+// Broadcast Global
+bot.action('adm_prompt_broadcast', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  adminBroadcastWaiting = true;
+
+  const text = `📢 *Transmisión Global del Creador*\n\n` +
+               `Escribe a continuación en el chat el mensaje que deseas enviar a todos los aventureros del reino.\n\n` +
+               `_Se les enviará con formato místico anunciando que el Creador les habla._`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('⬅️ Cancelar', 'adm_home')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+// Paginación de Usuarios
 bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -332,7 +353,7 @@ bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Detalle individual de un usuario
+// Detalle individual corregido (ID visible y puntos invertidos en HP calculados)
 bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -345,8 +366,10 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
     return await safeAnswerCb(ctx, 'Usuario no encontrado.', true);
   }
 
+  const hpPoints = Math.max(0, Math.floor(((u.maxHp || 50) - 50) / 5));
+
   const text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
-               `🆔 Telegram ID: \`\${u.userId}\`\n` +
+               `🆔 Telegram ID: \`\${String(u.userId)}\`\n` +
                `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
                `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
                `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
@@ -354,6 +377,7 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
                `💰 Oro: ${u.gold}\n\n` +
                `📊 *Atributos:*\n` +
                `• Fuerza: ${u.strength}\n` +
+               `• Salud Invertida: +${hpPoints * 5} HP (${hpPoints} pts asignados)\n` +
                `• Agilidad: ${u.agility || 0}\n` +
                `• Suerte: ${u.luck || 0}\n` +
                `• Puntos sin asignar: ${u.statPoints}\n\n` +
@@ -372,7 +396,6 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// Auto-conceder bebida para el creador
 bot.action('adm_give_drink', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const p = await getPlayer(ADMIN_ID);
@@ -381,7 +404,6 @@ bot.action('adm_give_drink', async (ctx) => {
   await safeAnswerCb(ctx, `🥤 Te añadiste 1x Bebida Energética (Total: ${p.potionsEnergyDrink})`, true);
 });
 
-// Callback interactivo cuando el creador supera el límite de anuncios
 bot.action('adm_claim_overflow_drink', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const p = await getPlayer(ADMIN_ID);
@@ -393,11 +415,78 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
+// Manejo de texto: Broadcast global o venta en mercado
+bot.on('text', async (ctx, next) => {
+  const userId = ctx.from.id;
+
+  // Si el Admin estaba preparando un broadcast
+  if (userId === ADMIN_ID && adminBroadcastWaiting) {
+    adminBroadcastWaiting = false;
+    const msgContent = ctx.message.text.trim();
+
+    const broadcastMsg = `🌌 *Una voz divina resuena en todo el reino...*\n` +
+                         `📜 _El Creador les proclama:_\n\n` +
+                         `"${msgContent}"`;
+
+    const statusMsg = await ctx.reply('⏳ Transmitiendo mensaje a todos los aventureros...');
+
+    const allPlayers = await Player.find({}, 'userId');
+    let sentCount = 0;
+
+    for (const p of allPlayers) {
+      try {
+        await ctx.telegram.sendMessage(p.userId, broadcastMsg, { parse_mode: 'Markdown' });
+        sentCount++;
+      } catch (err) {
+        // Ignorar usuarios que bloquearon al bot
+      }
+    }
+
+    return await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      statusMsg.message_id,
+      null,
+      `✅ *Transmisión completada.*\nEntregado a ${sentCount} de ${allPlayers.length} aventureros.`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+      }
+    );
+  }
+
+  // Lógica de mercado P2P existente
+  const itemId = pendingMarketSales.get(userId);
+  if (!itemId) {
+    return next();
+  }
+
+  const price = parseInt(ctx.message.text.trim(), 10);
+  if (isNaN(price) || price <= 0) {
+    return await ctx.reply('⚠️ Por favor escribe solo un número entero positivo para el precio.');
+  }
+
+  const res = await createListing(userId, ctx.from.first_name, itemId, price);
+  if (!res.success) {
+    return await ctx.reply(res.msg, { parse_mode: 'Markdown' });
+  }
+
+  pendingMarketSales.delete(userId);
+
+  return await ctx.reply(res.msg, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('🏪 Ver Mercado', 'menu_market')],
+      [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
+    ])
+  });
+});
+
 // Start & Menu
 async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
     pendingMarketSales.delete(userId);
+    if (userId === ADMIN_ID) adminBroadcastWaiting = false;
 
     const oldMsgId = lastUserMessages.get(userId);
     if (oldMsgId) {
@@ -424,6 +513,7 @@ bot.start(handleStartMenu);
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
+    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
     const sent = await ctx.reply(view.text, view.keyboard);
@@ -436,6 +526,7 @@ bot.hears('⚔️ Estado', async (ctx) => {
 bot.hears('📈 Atributos', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
+    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatsView(player);
     const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
@@ -448,6 +539,7 @@ bot.hears('📈 Atributos', async (ctx) => {
 bot.hears('🎒 Inventario', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
+    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
@@ -481,6 +573,7 @@ bot.hears('🎒 Inventario', async (ctx) => {
 bot.hears('🏪 Mercado P2P', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
+    if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
     const { text, listings } = await getMarketView(ctx.from.id);
     const buttons = [];
 
@@ -548,6 +641,7 @@ bot.action('menu_ranking', async (ctx) => {
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
+  if (ctx.from.id === ADMIN_ID) adminBroadcastWaiting = false;
   try {
     const userId = ctx.from.id;
     const player = await getPlayer(userId, ctx.from.first_name);
@@ -644,37 +738,6 @@ Object.keys(ITEMS).forEach((key) => {
     ]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
-  });
-});
-
-bot.on('text', async (ctx, next) => {
-  const userId = ctx.from.id;
-  const itemId = pendingMarketSales.get(userId);
-
-  if (!itemId) {
-    return next();
-  }
-
-  const price = parseInt(ctx.message.text.trim(), 10);
-
-  if (isNaN(price) || price <= 0) {
-    return await ctx.reply('⚠️ Por favor escribe solo un número entero positivo para el precio.');
-  }
-
-  const res = await createListing(userId, ctx.from.first_name, itemId, price);
-
-  if (!res.success) {
-    return await ctx.reply(res.msg, { parse_mode: 'Markdown' });
-  }
-
-  pendingMarketSales.delete(userId);
-
-  return await ctx.reply(res.msg, {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback('🏪 Ver Mercado', 'menu_market')],
-      [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
-    ])
   });
 });
 
@@ -924,7 +987,7 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Atributos y subida de stats
+// Atributos
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -1237,7 +1300,6 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-// Exportar instancia del bot para que server.js pueda mandarte notificaciones de admin
 module.exports = { bot, ADMIN_ID };
 
 async function startBotWithRetry(retries = 5, delayMs = 4000) {
