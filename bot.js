@@ -240,7 +240,7 @@ function getStatsView(player) {
              `🏃 *Agilidad (${agi}/${MAX_STAT}):*\n` +
              `• Esquiva de combate: *${dodgeChance}%* por asalto.\n` +
              `• Esquiva de trampas: *${trapDodge}%* de éxito (máx: 60%).\n` +
-             `• Cooldown de descanso: *${restCooldownMin} min*.\n\n` +
+             `• Cooldown de descanso: *${restCooldownMin} min* (base 15 min).\n\n` +
              `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
              `• Golpe Crítico Afortunado: *${critChance}%* (-35% daño recibido, +20% EXP).\n` +
              `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n` +
@@ -685,8 +685,8 @@ bot.hears('🎒 Inventario', async (ctx) => {
             `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
-    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
     if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
@@ -1006,8 +1006,8 @@ bot.action('menu_inv', async (ctx) => {
             `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
-    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
     if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
     if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
@@ -1079,8 +1079,8 @@ Object.keys(ITEMS).forEach((key) => {
               `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
-      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
       if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
       if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
@@ -1309,7 +1309,7 @@ async function startExpedition(ctx, dungeonKey) {
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
             p.gold += bonusGold;
             const leveledUp = p.addExp(expGained);
-            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
+            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
             const dropMsg = rollDungeonDrops(dungeon, p);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
