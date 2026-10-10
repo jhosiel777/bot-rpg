@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const MAX_BASE_HP = 100;
 const MAX_ENERGY = 10;
-const REST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos
+const REST_COOLDOWN_MS = 5 * 60 * 1000; // Reducido a 5 minutos
 
 function getRequiredExp(level) {
   return Math.floor(100 * Math.pow(1.5, level - 1));
@@ -50,10 +50,10 @@ playerSchema.methods.updateEnergy = function () {
   }
 };
 
-// Subida de nivel
-playerSchema.methods.addExp = function (amount) {
-  this.exp += amount;
+// Verificación y subida de nivel
+playerSchema.methods.checkLevelUp = function () {
   let req = getRequiredExp(this.level);
+  let leveledUp = false;
 
   while (this.exp >= req) {
     this.exp -= req;
@@ -62,7 +62,16 @@ playerSchema.methods.addExp = function (amount) {
     this.hp = this.maxHp;
     this.energy = MAX_ENERGY;
     req = getRequiredExp(this.level);
+    leveledUp = true;
   }
+
+  return leveledUp;
+};
+
+// Subida de nivel al ganar EXP en expedición
+playerSchema.methods.addExp = function (amount) {
+  this.exp += amount;
+  return this.checkLevelUp();
 };
 
 // Penalización por muerte: pierde 20% de EXP acumulada
@@ -85,6 +94,7 @@ async function getPlayer(userId, name) {
     await player.save();
   } else {
     player.updateEnergy();
+    player.checkLevelUp();
     await player.save();
   }
   return player;
