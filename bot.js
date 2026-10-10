@@ -85,6 +85,47 @@ function formatHoursMinutes(sec) {
   return `${m}s`;
 }
 
+// Función para calcular drops de expedición
+function rollDungeonDrops(dungeon, player) {
+  if (!dungeon.drops) return '';
+  const luckVal = player.luck || 0;
+  const luckBonus = luckVal * 0.0005; // +5% a nivel 100 de suerte
+
+  const obtained = [];
+
+  // Drop: Elixir de Energía
+  if (dungeon.drops.energyChance > 0) {
+    const chance = dungeon.drops.energyChance + luckBonus;
+    if (Math.random() < chance) {
+      player.potionsEnergy = (player.potionsEnergy || 0) + 1;
+      obtained.push('⚡ Elixir de Energía');
+    }
+  }
+
+  // Drop: Poción Mayor (solo donde esté configurada)
+  if (dungeon.drops.mediumHpChance > 0) {
+    const chance = dungeon.drops.mediumHpChance + luckBonus;
+    if (Math.random() < chance) {
+      player.potionsMedium = (player.potionsMedium || 0) + 1;
+      obtained.push('🧪 Poción Mayor de Vida');
+    }
+  }
+
+  // Drop: Poción Menor
+  if (dungeon.drops.smallHpChance > 0) {
+    const chance = dungeon.drops.smallHpChance + luckBonus;
+    if (Math.random() < chance) {
+      player.potionsSmall = (player.potionsSmall || 0) + 1;
+      obtained.push('🧪 Poción Menor de Vida');
+    }
+  }
+
+  if (obtained.length > 0) {
+    return `\n🎁 *¡Botín extra hallado!* Recibiste: ${obtained.join(', ')}`;
+  }
+  return '';
+}
+
 function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
@@ -147,6 +188,7 @@ function getStatsView(player) {
   const agi = player.agility || 0;
   const luk = player.luck || 0;
   const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
+  const dropBonus = (luk * 0.05).toFixed(2);
   const dodgeChance = (agi * 0.3).toFixed(1);
   const trapDodge = (15 + (agi * 0.5)).toFixed(1);
   const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
@@ -163,7 +205,8 @@ function getStatsView(player) {
              `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
              `• Cooldown de descanso: *${restCooldownMin} min*.\n\n` +
              `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
-             `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n\n`;
+             `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n` +
+             `• Bono de drop de pociones: *+${dropBonus}%*.\n\n`;
 
   if (player.statPoints > 0) {
     text += `Elige qué atributo mejorar:`;
@@ -342,7 +385,7 @@ bot.action('menu_ranking', async (ctx) => {
   }
 });
 
-// Acción status: edición limpia para mantener el mensaje interactivo completo con sus botones
+// Acción status: edición limpia sin alterar la barra inferior
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -905,11 +948,13 @@ async function startExpedition(ctx, dungeonKey) {
             p.gold += bonusGold;
             const leveledUp = p.addExp(expGained);
             const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
+            const dropMsg = rollDungeonDrops(dungeon, p);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
                         `🍀 ¡Tu suerte te permitió sortear peligros y hallar un tesoro pacíficamente!\n` +
                         `💰 Oro: +${bonusGold} (Bono Fuerza: +${strBonus})\n` +
                         `🔮 EXP: +${expGained}` +
+                        dropMsg +
                         levelUpNotice;
           } else {
             let trapMsg = '';
@@ -970,12 +1015,15 @@ async function startExpedition(ctx, dungeonKey) {
                   levelUpNotice = `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
                 }
 
+                const dropMsg = rollDungeonDrops(dungeon, p);
+
                 resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
                             `Derrotaste a un ${enemy.name}.\n` +
                             (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
                             `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
                             `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
                             `🔮 EXP: +${expGained}` +
+                            dropMsg +
                             levelUpNotice;
               }
             } else {
