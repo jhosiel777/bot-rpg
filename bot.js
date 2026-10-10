@@ -243,6 +243,7 @@ function rollDungeonDrops(dungeon, player) {
   return '';
 }
 
+// Vista principal limpia con botón unificado de aventuras
 function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
@@ -277,8 +278,7 @@ function getStatusView(player) {
   text += `\n¿Qué decides hacer?`;
 
   const buttons = [
-    [Markup.button.callback('🗺️ Elegir Expedición', 'menu_dungeons')],
-    [Markup.button.callback('🐲 Jefe Mundial', 'menu_boss')],
+    [Markup.button.callback('🗺️ Aventuras & Eventos', 'menu_adventures')],
     [
       Markup.button.callback(
         restSecLeft > 0 ? `🏕️ Descanso (${formatSeconds(restSecLeft)})` : '🏕️ Descansar (+30% Salud)',
@@ -298,6 +298,23 @@ function getStatusView(player) {
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
+
+// Submenú dedicado a expediciones y eventos
+bot.action('menu_adventures', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const text = `🗺️ *Aventuras y Eventos del Reino*\n\n` +
+               `Selecciona el desafío al que deseas enfrentarte:\n\n` +
+               `• 🌲 *Expediciones y Mazmorras:* Explora el Bosque Umbrío, Cripta o Guarida del Dragón.\n` +
+               `• 🐲 *Jefe Mundial:* Asalta a los temibles Colosos convocados en el reino.`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🌲 Expediciones y Mazmorras', 'menu_dungeons')],
+    [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
+    [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
 
 function getStatsView(player) {
   const str = player.strength || 0;
@@ -431,7 +448,7 @@ bot.action('adm_home', async (ctx) => {
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
-// Panel del Jefe Mundial en Admin
+// Panel del Jefe Mundial en Admin con opción de 120 minutos incluida
 bot.action('adm_boss_panel', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -476,12 +493,13 @@ bot.action('adm_boss_panel', async (ctx) => {
       Markup.button.callback('✏️ Escribir Salud Personalizada', 'adm_boss_custom_hp')
     ]);
     buttons.push([
-      Markup.button.callback('⏱️ Espera: 1 min (Test)', 'adm_boss_set_wait_1'),
+      Markup.button.callback('⏱️ 1 min (Test)', 'adm_boss_set_wait_1'),
       Markup.button.callback('⏱️ 10 min', 'adm_boss_set_wait_10'),
       Markup.button.callback('⏱️ 30 min', 'adm_boss_set_wait_30')
     ]);
     buttons.push([
-      Markup.button.callback('⏱️ 60 min', 'adm_boss_set_wait_60'),
+      Markup.button.callback('⏱️ 60 min (1h)', 'adm_boss_set_wait_60'),
+      Markup.button.callback('⏱️ 120 min (2h)', 'adm_boss_set_wait_120'),
       Markup.button.callback('⏱️ 360 min (6h)', 'adm_boss_set_wait_360')
     ]);
   } else {
@@ -619,7 +637,7 @@ bot.action('menu_boss', async (ctx) => {
       `Debes alcanzar al menos el *Nivel 5* para participar en las batallas de Colosos. (Tu nivel: ${player.level})`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
       }
     );
   }
@@ -637,7 +655,7 @@ bot.action('menu_boss', async (ctx) => {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
-        [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+        [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
       ])
     });
   }
@@ -659,7 +677,7 @@ bot.action('menu_boss', async (ctx) => {
       [Markup.button.callback('⚔️ Atacar al Coloso (1 ⚡)', 'boss_attack')],
       [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
       [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
-      [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+      [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
     ];
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -668,7 +686,7 @@ bot.action('menu_boss', async (ctx) => {
   text += `_Actualmente ningún coloso amenaza las tierras. El Creador anunciará la próxima convocatoria._`;
   return await safeEditMessage(ctx, text, {
     parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
   });
 });
 
@@ -838,7 +856,7 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
   const nextBtns = [
     [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'boss_attack')],
     [Markup.button.callback('🎒 Mochila / Pociones', 'menu_inv')],
-    [Markup.button.callback('⬅️ Volver al Frente', 'menu_boss')]
+    [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
   ];
 
   return await safeEditMessage(ctx, combatReport, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(nextBtns) });
@@ -1537,7 +1555,7 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 });
 
-// Arreglado: muestra el precio base dinámico actual bounds.basePrice
+// Muestra el precio base dinámico actual bounds.basePrice
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
@@ -1697,9 +1715,11 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
-// Consumo de objetos
+// Consumo de objetos estándar
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
+  if (item.id === 'dragon_blood') return; // Manejo especial abajo
+
   bot.action(`use_${item.id}`, async (ctx) => {
     try {
       const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -1739,16 +1759,6 @@ Object.keys(ITEMS).forEach((key) => {
         player[item.field] -= 1;
         player.energy = Math.min(MAX_ENERGY, player.energy + item.value);
         await safeAnswerCb(ctx, `Recuperaste +${item.value} Energía.`, true);
-      } else if (item.type === 'revive') {
-        const isKO = player.knockedOutUntil && Date.now() < player.knockedOutUntil;
-        if (!isKO && player.hp >= player.maxHp) {
-          return await safeAnswerCb(ctx, 'No requieres revivir ni curarte en este momento.', true);
-        }
-
-        player[item.field] -= 1;
-        player.knockedOutUntil = 0;
-        player.hp = player.maxHp;
-        await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Estado de inconsciencia eliminado y salud restaurada al 100%.', true);
       }
 
       await player.save();
@@ -1782,6 +1792,107 @@ Object.keys(ITEMS).forEach((key) => {
       console.error('Error al usar objeto:', err);
     }
   });
+});
+
+// Consumo con verificación y confirmación del Elixir de Sangre de Dragón
+bot.action('use_dragon_blood', async (ctx) => {
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) {
+      return await safeAnswerCb(ctx, 'No te quedan más Elixires de Sangre de Dragón.', true);
+    }
+
+    const isKO = player.knockedOutUntil && Date.now() < player.knockedOutUntil;
+
+    // Caso 1: Vida completa y sano -> Bloquear consumo
+    if (!isKO && player.hp >= player.maxHp) {
+      return await safeAnswerCb(ctx, 'Tu salud ya está al máximo y no estás noqueado.', true);
+    }
+
+    // Caso 2: Noqueado -> Beber inmediatamente sin preguntar
+    if (isKO) {
+      player.potionsDragonBlood -= 1;
+      player.knockedOutUntil = 0;
+      player.hp = player.maxHp;
+      await player.save();
+      await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Estado de inconsciencia eliminado y salud restaurada al 100%.', true);
+
+      let text = `🎒 *Mochila de Aventurero*\n\n` +
+                 `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
+                 `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+                 `*Objetos:*\n` +
+                 `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+                 `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+                 `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+                 `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+                 `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
+                 `Toca un botón para consumir un objeto:`;
+
+      const buttons = [];
+      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
+      if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+      if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+      if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
+      buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+      return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    }
+
+    // Caso 3: Sano pero herido -> Confirmar si desea gastarlo solo para curarse
+    await safeAnswerCb(ctx);
+    const confirmText = `🩸 *Confirmación de Elixir de Sangre de Dragón*\n\n` +
+                        `No estás noqueado, el elixir solo te sanará por completo (${player.hp}/${player.maxHp} HP).\n\n` +
+                        `¿Deseas beberlo igualmente?`;
+
+    const confirmBtns = Markup.inlineKeyboard([
+      [Markup.button.callback('🩸 Sí, beber igualmente', 'use_dragon_blood_confirm')],
+      [Markup.button.callback('❌ No, cancelar', 'menu_inv')]
+    ]);
+
+    return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
+  } catch (err) {
+    console.error('Error en use_dragon_blood:', err);
+  }
+});
+
+bot.action('use_dragon_blood_confirm', async (ctx) => {
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) {
+      return await safeAnswerCb(ctx, 'No te quedan más Elixires de Sangre de Dragón.', true);
+    }
+
+    player.potionsDragonBlood -= 1;
+    player.hp = player.maxHp;
+    await player.save();
+    await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Tu salud ha sido restaurada por completo.', true);
+
+    let text = `🎒 *Mochila de Aventurero*\n\n` +
+               `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+               `*Objetos:*\n` +
+               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+               `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+               `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
+               `Toca un botón para consumir un objeto:`;
+
+    const buttons = [];
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
+    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+    if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
+    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en use_dragon_blood_confirm:', err);
+  }
 });
 
 // Descanso dinámico
@@ -1924,7 +2035,7 @@ bot.action('menu_dungeons', async (ctx) => {
     [Markup.button.callback('🌲 Explorar Bosque (10s)', 'go_bosque')],
     [Markup.button.callback('🪦 Explorar Cripta (20s)', 'go_cripta')],
     [Markup.button.callback('🌋 Explorar Dragón (35s)', 'go_dragon')],
-    [Markup.button.callback('⬅️ Volver', 'status')]
+    [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
   ]);
 
   return await safeEditMessage(ctx, text, keyboard);
@@ -2113,7 +2224,7 @@ async function startExpedition(ctx, dungeonKey) {
           const sent = await ctx.telegram.sendMessage(
             userId,
             resultMsg,
-            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
           );
           lastUserMessages.set(userId, sent.message_id);
         }
