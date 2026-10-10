@@ -186,13 +186,15 @@ bot.hears('🎒 Inventario', async (ctx) => {
                `*Objetos:*\n` +
                `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
                `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
-               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+               `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
     if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
     if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
     if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -423,25 +425,40 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
+// Función auxiliar para renderizar la tienda del NPC
+function getShopView(player) {
+  let text = `🛒 *Tienda del Aventurero*\n` +
+             `💰 Tu Oro: ${player.gold}\n\n` +
+             `Objetos disponibles:\n\n`;
+
+  const buttons = [];
+
+  // Artículos que se compran con oro
+  for (const key in ITEMS) {
+    const item = ITEMS[key];
+    if (item.npcSell === false) continue;
+    text += `• ${item.name} — 💰 ${item.cost} oro\n  _${item.desc}_\n\n`;
+    buttons.push([Markup.button.callback(`Comprar ${item.name} (${item.cost}g)`, `buy_${item.id}`)]);
+  }
+
+  // Sección de la Bebida Energética (anuncio patrocinado)
+  text += `• 🥤 Bebida Energética — 📺 Gratis (Patrocinio)\n  _Recupera +2 ⚡. Límite: 3/día. Máx: 5 en mochila._\n\n`;
+  buttons.push([
+    Markup.button.webApp('📺 Ver Anuncio (+1 🥤 Bebida)', 'https://bot-rpg-wu42.onrender.com/ad-reward')
+  ]);
+
+  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+  return { text, keyboard: Markup.inlineKeyboard(buttons) };
+}
+
 // Tienda NPC
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-    let text = `🛒 *Tienda del Aventurero*\n` +
-               `💰 Tu Oro: ${player.gold}\n\n` +
-               `Objetos disponibles para compra:\n\n`;
-
-    const buttons = [];
-    for (const key in ITEMS) {
-      const item = ITEMS[key];
-      text += `• ${item.name} — 💰 ${item.cost} oro\n  _${item.desc}_\n\n`;
-      buttons.push([Markup.button.callback(`Comprar ${item.name} (${item.cost}g)`, `buy_${item.id}`)]);
-    }
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    const view = getShopView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en menu_shop:', err);
   }
@@ -451,6 +468,10 @@ Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`buy_${item.id}`, async (ctx) => {
     try {
+      if (item.npcSell === false) {
+        return await safeAnswerCb(ctx, '❌ Este objeto se obtiene viendo un anuncio patrocinado.', true);
+      }
+
       const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
       if (player.gold < item.cost) {
@@ -463,19 +484,8 @@ Object.keys(ITEMS).forEach((key) => {
 
       await safeAnswerCb(ctx, `✅ Compraste 1x ${item.name}`, true);
 
-      let text = `🛒 *Tienda del Aventurero*\n` +
-                 `💰 Tu Oro: ${player.gold}\n\n` +
-                 `Objetos disponibles para compra:\n\n`;
-
-      const buttons = [];
-      for (const k in ITEMS) {
-        const it = ITEMS[k];
-        text += `• ${it.name} — 💰 ${it.cost} oro\n  _${it.desc}_\n\n`;
-        buttons.push([Markup.button.callback(`Comprar ${it.name} (${it.cost}g)`, `buy_${it.id}`)]);
-      }
-      buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-      return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+      const view = getShopView(player);
+      return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
     } catch (err) {
       console.error('Error procesando compra:', err);
       await safeAnswerCb(ctx, 'Error al procesar compra.', true);
@@ -495,7 +505,8 @@ bot.action('menu_inv', async (ctx) => {
                `*Objetos:*\n` +
                `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
                `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
-               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+               `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
@@ -507,6 +518,9 @@ bot.action('menu_inv', async (ctx) => {
     }
     if (player.potionsEnergy > 0) {
       buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    }
+    if (player.potionsEnergyDrink > 0) {
+      buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
     }
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
@@ -550,7 +564,8 @@ Object.keys(ITEMS).forEach((key) => {
                  `*Objetos:*\n` +
                  `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
                  `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
-                 `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+                 `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+                 `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                  `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
@@ -562,6 +577,9 @@ Object.keys(ITEMS).forEach((key) => {
       }
       if (player.potionsEnergy > 0) {
         buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+      }
+      if (player.potionsEnergyDrink > 0) {
+        buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
       }
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
