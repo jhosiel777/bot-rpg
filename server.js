@@ -27,7 +27,7 @@ app.get('/ad-reward', (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Recompensa Diaria</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="//libtl.com/sdk.js" data-zone="12000502" data-sdk="show_12000502"></script>
+  <script src="https://libtl.com/sdk.js" data-zone="12000502" data-sdk="show_12000502"></script>
   <style>
     body {
       background-color: #121212;
@@ -81,7 +81,7 @@ app.get('/ad-reward', (req, res) => {
     #msg {
       margin-top: 14px;
       font-size: 13px;
-      color: #4cd964;
+      line-height: 1.4;
       min-height: 18px;
     }
   </style>
@@ -101,64 +101,101 @@ app.get('/ad-reward', (req, res) => {
   </div>
 
   <script>
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
 
-    function playAd() {
+    async function claimReward() {
+      const msg = document.getElementById('msg');
+      const btn = document.getElementById('adBtn');
+      msg.style.color = '#bbb';
+      msg.innerText = "¡Completado! Entregando bebida...";
+
+      const userId = tg?.initDataUnsafe?.user?.id;
+      if (!userId) {
+        msg.style.color = '#ff4d4d';
+        msg.innerText = "Error: no se pudo identificar tu cuenta de Telegram.";
+        btn.disabled = false;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/claim-ad-drink', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          msg.style.color = '#4cd964';
+          msg.innerText = data.msg;
+          setTimeout(() => tg?.close(), 1800);
+        } else {
+          msg.style.color = '#ff9900';
+          msg.innerText = data.msg;
+          btn.disabled = false;
+        }
+      } catch (e) {
+        msg.style.color = '#ff4d4d';
+        msg.innerText = "Error al contactar con el servidor.";
+        btn.disabled = false;
+      }
+    }
+
+    async function playAd() {
       const btn = document.getElementById('adBtn');
       const msg = document.getElementById('msg');
       btn.disabled = true;
       msg.style.color = '#bbb';
       msg.innerText = "Cargando anuncio...";
 
+      let attempts = 0;
+      while (typeof show_12000502 !== 'function' && attempts < 8) {
+        await new Promise(r => setTimeout(r, 500));
+        attempts++;
+      }
+
       if (typeof show_12000502 !== 'function') {
         msg.style.color = '#ff4d4d';
-        msg.innerText = "El anuncio aún se está preparando. Espera unos segundos y vuelve a pulsar.";
+        msg.innerText = "⚠️ Si tienes un DNS privado o bloqueador de anuncios activo en tu móvil, desactívalo para poder obtener la recompensa.";
         btn.disabled = false;
         return;
       }
 
-      show_12000502().then(async () => {
-        msg.style.color = '#bbb';
-        msg.innerText = "¡Completado! Entregando bebida...";
+      let navigatedOut = false;
+      const startTime = Date.now();
 
-        const initData = tg.initDataUnsafe;
-        const userId = initData?.user?.id;
+      const onVisibilityChange = () => {
+        if (document.hidden) navigatedOut = true;
+      };
+      const onWindowBlur = () => {
+        navigatedOut = true;
+      };
 
-        if (!userId) {
-          msg.style.color = '#ff4d4d';
-          msg.innerText = "Error: no se pudo identificar tu cuenta de Telegram.";
-          btn.disabled = false;
-          return;
-        }
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      window.addEventListener('blur', onWindowBlur);
 
-        try {
-          const res = await fetch('/api/claim-ad-drink', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId })
-          });
-
-          const data = await res.json();
-          if (data.success) {
-            msg.style.color = '#4cd964';
-            msg.innerText = data.msg;
-            setTimeout(() => tg.close(), 1800);
-          } else {
-            msg.style.color = '#ff9900';
-            msg.innerText = data.msg;
-            btn.disabled = false;
-          }
-        } catch (e) {
-          msg.style.color = '#ff4d4d';
-          msg.innerText = "Error al contactar con el servidor.";
-          btn.disabled = false;
-        }
+      show_12000502().then(() => {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('blur', onWindowBlur);
+        claimReward();
       }).catch((err) => {
-        msg.style.color = '#ff4d4d';
-        msg.innerText = "El anuncio no se completó o fue cerrado antes de tiempo.";
-        btn.disabled = false;
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('blur', onWindowBlur);
+
+        const duration = Date.now() - startTime;
+
+        // Solo se valida si salió al navegador externo (clic) y no fue un cierre instantáneo
+        if (navigatedOut && duration > 2000) {
+          claimReward();
+        } else {
+          msg.style.color = '#ff4d4d';
+          msg.innerText = "El anuncio se cerró antes de tiempo. Debes completarlo para recibir la recompensa.";
+          btn.disabled = false;
+        }
       });
     }
   </script>
