@@ -10,7 +10,8 @@ const {
   createListing,
   buyListing,
   cancelListing,
-  getItemBounds
+  getItemBounds,
+  getMarketHistory
 } = require('./market');
 const {
   Player,
@@ -247,6 +248,7 @@ function getAdminHomeView() {
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
+    [Markup.button.callback('📜 Historial P2P', 'adm_mkt_page_1')],
     [Markup.button.callback('📢 Transmitir Mensaje Global', 'adm_prompt_broadcast')],
     [Markup.button.callback('🥤 Auto-conceder +1 Bebida Energética', 'adm_give_drink')],
     [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
@@ -352,7 +354,7 @@ bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Detalle individual corregido sin escapes rotos
+// Detalle individual corregido
 bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -395,6 +397,52 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
+// Visualizador paginado del Historial P2P para el Admin
+bot.action(/adm_mkt_page_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const page = parseInt(ctx.match[1], 10) || 1;
+  const { logs, total, totalPages } = await getMarketHistory(page, 5);
+
+  let text = `📜 *Historial Global de Mercado P2P* (Pág. ${page}/${totalPages})\n` +
+             `Total de transacciones: *${total}*\n\n`;
+
+  if (!logs.length) {
+    text += `_Aún no se han realizado transacciones en el mercado._`;
+  } else {
+    logs.forEach((log, idx) => {
+      const dateStr = new Date(log.createdAt).toLocaleString('es-VE', {
+        timeZone: 'America/Caracas',
+        dateStyle: 'short',
+        timeStyle: 'short'
+      });
+      text += `*#${(page - 1) * 5 + idx + 1} • ${log.itemName}*\n` +
+              `• Comprador: ${log.buyerName} (\`\${log.buyerId}\`)\n` +
+              `• Vendedor: ${log.sellerName} (\`\${log.sellerId}\`)\n` +
+              `• Precio: 💰 ${log.price}g (Comisión: ${log.tax}g | Neto: ${log.sellerProfit}g)\n` +
+              `• Fecha: ${dateStr}\n\n`;
+    });
+  }
+
+  const buttons = [];
+  const navRow = [];
+  if (page > 1) {
+    navRow.push(Markup.button.callback('⬅️ Anterior', `adm_mkt_page_${page - 1}`));
+  }
+  if (page < totalPages) {
+    navRow.push(Markup.button.callback('Siguiente ➡️', `adm_mkt_page_${page + 1}`));
+  }
+  if (navRow.length) buttons.push(navRow);
+
+  buttons.push([
+    Markup.button.callback('🔄 Actualizar', `adm_mkt_page_${page}`),
+    Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
 bot.action('adm_give_drink', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   const p = await getPlayer(ADMIN_ID);
@@ -414,7 +462,7 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
-// Manejo de mensajes de texto: Broadcast global o fijación de precio en Mercado P2P
+// Manejo de mensajes de texto: Broadcast global o venta en Mercado P2P
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
