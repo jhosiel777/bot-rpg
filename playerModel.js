@@ -47,12 +47,19 @@ playerSchema.methods.getRestCooldownMs = function () {
   return Math.max(10 * 60 * 1000, BASE_REST_COOLDOWN_MS - reductionMs);
 };
 
+// Regeneración pasiva con sincronización para evitar energía fantasma
 playerSchema.methods.updateEnergy = function () {
   const now = Date.now();
   const REGEN_TIME_MS = 10 * 60 * 1000;
-  const timePassed = now - this.lastEnergyUpdate;
 
-  if (timePassed >= REGEN_TIME_MS && this.energy < MAX_ENERGY) {
+  if (this.energy >= MAX_ENERGY) {
+    this.energy = MAX_ENERGY;
+    this.lastEnergyUpdate = now;
+    return;
+  }
+
+  const timePassed = now - this.lastEnergyUpdate;
+  if (timePassed >= REGEN_TIME_MS) {
     const energyToAdd = Math.floor(timePassed / REGEN_TIME_MS);
     this.energy = Math.min(MAX_ENERGY, this.energy + energyToAdd);
     this.lastEnergyUpdate = now - (timePassed % REGEN_TIME_MS);
@@ -103,7 +110,6 @@ playerSchema.methods.applyDeathPenalty = function () {
 
 const Player = mongoose.model('Player', playerSchema);
 
-// Esquema para estadísticas globales de drops
 const globalStatsSchema = new mongoose.Schema({
   key: { type: String, default: 'main', unique: true },
   totalDropsSmall: { type: Number, default: 0 },
