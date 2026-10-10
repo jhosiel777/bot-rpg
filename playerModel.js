@@ -24,6 +24,7 @@ const playerSchema = new mongoose.Schema({
   potionsMedium: { type: Number, default: 0 },
   potionsEnergy: { type: Number, default: 0 },
   potionsEnergyDrink: { type: Number, default: 0 },
+  potionsDragonBlood: { type: Number, default: 0 }, // Elixir de Sangre de Dragón
 
   // Control de expediciones y estados
   onMissionUntil: { type: Number, default: 0 },
@@ -89,7 +90,7 @@ const globalStatsSchema = new mongoose.Schema({
 
 const GlobalStats = mongoose.model('GlobalStats', globalStatsSchema);
 
-// Curva de EXP con mayor dificultad progresiva (escala x1.22)
+// Curva de EXP exponencial (escala x1.22)
 function getRequiredExp(level) {
   return Math.floor(100 * Math.pow(1.22, level - 1));
 }
