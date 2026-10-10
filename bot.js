@@ -96,6 +96,12 @@ function getStatusView(player) {
              `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
              `💰 Oro: ${player.gold}\n\n`;
 
+  // Comprobar si está en expedición
+  if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
+    const missionSecLeft = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
+    text += `🚶 *En expedición:* Regresa en ${missionSecLeft}s\n`;
+  }
+
   // Comprobar penalización de noqueo
   if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
     const koSecLeft = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
