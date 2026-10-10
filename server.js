@@ -188,7 +188,6 @@ app.get('/ad-reward', (req, res) => {
 
         const duration = Date.now() - startTime;
 
-        // Solo se valida si salió al navegador externo (clic) y no fue un cierre instantáneo
         if (navigatedOut && duration > 2000) {
           claimReward();
         } else {
@@ -278,9 +277,10 @@ app.post('/api/claim-ad-drink', async (req, res) => {
       });
     }
 
-    // Acreditar bebida normalmente
+    // Acreditar bebida e incrementar contador histórico total
     player.potionsEnergyDrink = currentDrinks + 1;
     player.adsClaimedToday += 1;
+    player.totalAdsClaimed = (player.totalAdsClaimed || 0) + 1;
     await player.save();
 
     const remainingToday = 3 - player.adsClaimedToday;
