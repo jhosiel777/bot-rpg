@@ -26,13 +26,14 @@ const {
 
 const ADMIN_ID = 835648800;
 
-startServer();
-
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Base de datos MongoDB conectada'))
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// Iniciar servidor pasando la instancia del bot
+startServer(bot);
 
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
