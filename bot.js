@@ -250,6 +250,7 @@ function getAdminHomeView() {
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
     [Markup.button.callback('📜 Historial P2P', 'adm_mkt_page_1')],
     [Markup.button.callback('📢 Transmitir Mensaje Global', 'adm_prompt_broadcast')],
+    [Markup.button.callback('❤️‍🩹 Revivir / Quitar Inconsciente (Propio)', 'adm_revive_self')],
     [Markup.button.callback('🥤 Auto-conceder +1 Bebida Energética', 'adm_give_drink')],
     [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
   ]);
@@ -354,7 +355,7 @@ bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Detalle individual corregido
+// Detalle individual de un usuario con opción de revivirlo
 bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -368,36 +369,84 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   }
 
   const hpPoints = Math.max(0, Math.floor(((u.maxHp || 50) - 50) / 5));
+  const isKO = (u.knockedOutUntil && Date.now() < u.knockedOutUntil) || u.hp <= 0;
 
-  const text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
-               `🆔 Telegram ID: ` + u.userId + `\n` +
-               `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
-               `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
-               `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
-               `⚡ Energía: ${u.energy}/${MAX_ENERGY}\n` +
-               `💰 Oro: ${u.gold}\n\n` +
-               `📊 *Atributos:*\n` +
-               `• Fuerza: ${u.strength}\n` +
-               `• Salud Invertida: +${hpPoints * 5} HP (${hpPoints} pts asignados)\n` +
-               `• Agilidad: ${u.agility || 0}\n` +
-               `• Suerte: ${u.luck || 0}\n` +
-               `• Puntos sin asignar: ${u.statPoints}\n\n` +
-               `🎒 *Inventario de Pociones:*\n` +
-               `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
-               `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
-               `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
-               `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}\n\n` +
-               `🛡️ *Equipamiento Actual:*\n` +
-               `_Próximamente disponible._`;
+  let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
+             `🆔 Telegram ID: ` + u.userId + `\n` +
+             `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
+             `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
+             `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
+             `⚡ Energía: ${u.energy}/${MAX_ENERGY}\n` +
+             `💰 Oro: ${u.gold}\n\n`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]
-  ]);
+  if (isKO) {
+    const secKO = Math.max(0, Math.ceil(((u.knockedOutUntil || 0) - Date.now()) / 1000));
+    text += `💀 *Estado:* Inconsciente (${formatHoursMinutes(secKO)} restante)\n\n`;
+  }
 
-  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+  text += `📊 *Atributos:*\n` +
+          `• Fuerza: ${u.strength}\n` +
+          `• Salud Invertida: +${hpPoints * 5} HP (${hpPoints} pts asignados)\n` +
+          `• Agilidad: ${u.agility || 0}\n` +
+          `• Suerte: ${u.luck || 0}\n` +
+          `• Puntos sin asignar: ${u.statPoints}\n\n` +
+          `🎒 *Inventario de Pociones:*\n` +
+          `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
+          `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
+          `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
+          `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}\n\n` +
+          `🛡️ *Equipamiento Actual:*\n` +
+          `_Próximamente disponible._`;
+
+  const buttons = [];
+
+  if (isKO) {
+    buttons.push([Markup.button.callback('✨ Revivir Aventurero (Admin)', `adm_revive_target_${u.userId}_${backPage}`)]);
+  }
+
+  buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Visualizador paginado del Historial P2P para el Admin
+// Revivir al propio creador
+bot.action('adm_revive_self', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const p = await getPlayer(ADMIN_ID);
+  p.knockedOutUntil = 0;
+  p.hp = p.maxHp;
+  await p.save();
+  await safeAnswerCb(ctx, `❤️‍🩹 ¡Has revivido! Salud restaurada a ${p.maxHp} HP.`, true);
+  const view = getAdminHomeView();
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+// Revivir a un usuario específico desde el panel de inspección
+bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const targetId = parseInt(ctx.match[1], 10);
+  const backPage = parseInt(ctx.match[2], 10) || 1;
+
+  const u = await Player.findOne({ userId: targetId });
+  if (u) {
+    u.knockedOutUntil = 0;
+    u.hp = u.maxHp;
+    await u.save();
+    await safeAnswerCb(ctx, `✨ ${u.name} ha sido revivido con éxito.`, true);
+  }
+
+  // Refrescar la vista del usuario
+  return await safeEditMessage(
+    ctx,
+    `✅ *El aventurero fue restaurado con vida completa.*`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback('⬅️ Volver a los detalles', `adm_user_${targetId}_${backPage}`)],
+      [Markup.button.callback(`👥 Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]
+    ])
+  );
+});
+
+// Historial P2P paginado
 bot.action(/adm_mkt_page_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -418,8 +467,8 @@ bot.action(/adm_mkt_page_(\d+)/, async (ctx) => {
         timeStyle: 'short'
       });
       text += `*#${(page - 1) * 5 + idx + 1} • ${log.itemName}*\n` +
-              `• Comprador: ${log.buyerName} (\`\${log.buyerId}\`)\n` +
-              `• Vendedor: ${log.sellerName} (\`\${log.sellerId}\`)\n` +
+              `• Comprador: ${log.buyerName} (${log.buyerId})\n` +
+              `• Vendedor: ${log.sellerName} (${log.sellerId})\n` +
               `• Precio: 💰 ${log.price}g (Comisión: ${log.tax}g | Neto: ${log.sellerProfit}g)\n` +
               `• Fecha: ${dateStr}\n\n`;
     });
