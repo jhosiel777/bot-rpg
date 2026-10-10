@@ -32,13 +32,13 @@ mongoose.connect(process.env.MONGO_URI)
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Iniciar servidor pasando la instancia del bot
+// Inicializar servidor HTTP pasando la instancia del bot
 startServer(bot);
 
 const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
-let adminBroadcastWaiting = false; // Estado para esperar el mensaje del broadcast
+let adminBroadcastWaiting = false;
 
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
@@ -242,7 +242,7 @@ function getStatsView(player) {
 // PANEL DE ADMINISTRADOR
 function getAdminHomeView() {
   const text = `👑 *Panel de Creador (Admin)*\n\n` +
-               `Bienvenido, Jhosiel. Desde aquí puedes monitorear estadísticas globales y a los jugadores:`;
+               `Bienvenido al panel de control del reino. Opciones de gestión:`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
@@ -290,7 +290,6 @@ bot.action('adm_drops', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// Broadcast Global
 bot.action('adm_prompt_broadcast', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -353,7 +352,7 @@ bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Detalle individual corregido (ID visible y puntos invertidos en HP calculados)
+// Detalle individual corregido sin escapes rotos
 bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -369,7 +368,7 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   const hpPoints = Math.max(0, Math.floor(((u.maxHp || 50) - 50) / 5));
 
   const text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
-               `🆔 Telegram ID: \`\${String(u.userId)}\`\n` +
+               `🆔 Telegram ID: ` + u.userId + `\n` +
                `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
                `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
                `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
@@ -415,11 +414,10 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
-// Manejo de texto: Broadcast global o venta en mercado
+// Manejo de mensajes de texto: Broadcast global o fijación de precio en Mercado P2P
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
-  // Si el Admin estaba preparando un broadcast
   if (userId === ADMIN_ID && adminBroadcastWaiting) {
     adminBroadcastWaiting = false;
     const msgContent = ctx.message.text.trim();
@@ -437,9 +435,7 @@ bot.on('text', async (ctx, next) => {
       try {
         await ctx.telegram.sendMessage(p.userId, broadcastMsg, { parse_mode: 'Markdown' });
         sentCount++;
-      } catch (err) {
-        // Ignorar usuarios que bloquearon al bot
-      }
+      } catch (err) {}
     }
 
     return await ctx.telegram.editMessageText(
@@ -454,7 +450,6 @@ bot.on('text', async (ctx, next) => {
     );
   }
 
-  // Lógica de mercado P2P existente
   const itemId = pendingMarketSales.get(userId);
   if (!itemId) {
     return next();
@@ -481,7 +476,6 @@ bot.on('text', async (ctx, next) => {
   });
 });
 
-// Start & Menu
 async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
@@ -652,7 +646,6 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Mercado P2P
 async function renderMarket(ctx) {
   const { text, listings } = await getMarketView(ctx.from.id);
   const buttons = [];
