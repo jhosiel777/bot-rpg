@@ -41,10 +41,17 @@ const DynamicPrice = mongoose.model('DynamicPrice', dynamicPriceSchema);
 // Caché en memoria para consultas instantáneas
 const priceCache = new Map();
 
+// Helper: determina si un ítem tiene economía fluctuante
+function isDynamicItem(item) {
+  return item && (item.dynamic === true || item.npcSell === false);
+}
+
 async function initMarketPrices() {
   try {
     for (const key in ITEMS) {
       const item = ITEMS[key];
+      if (!isDynamicItem(item)) continue;
+
       let record = await DynamicPrice.findOne({ itemId: item.id });
       if (!record) {
         record = await DynamicPrice.create({
@@ -60,13 +67,13 @@ async function initMarketPrices() {
         lastUpdate: record.lastUpdate
       });
     }
-    console.log('✅ Precios dinámicos del mercado cargados en memoria');
+    console.log('✅ Precios dinámicos (ítems especiales) cargados en memoria');
   } catch (err) {
     console.error('Error inicializando precios dinámicos:', err.message);
   }
 }
 
-// Obtener bandas permitidas (0.5x a 1.5x)
+// Obtener bandas permitidas
 function getItemBounds(itemId) {
   let item = null;
   for (const k in ITEMS) {
@@ -74,22 +81,30 @@ function getItemBounds(itemId) {
   }
   if (!item) return { minPrice: 1, maxPrice: 99999, basePrice: 100 };
 
-  const cached = priceCache.get(itemId);
-  const base = cached ? cached.currentBasePrice : item.cost;
+  // Ítems dinámicos: bandas 0.5x a 1.5x sobre el precio de mercado
+  if (isDynamicItem(item)) {
+    const cached = priceCache.get(itemId);
+    const base = cached ? cached.currentBasePrice : item.cost;
+    const minPrice = Math.max(1, Math.round(base * 0.5));
+    const maxPrice = Math.max(minPrice, Math.round(base * 1.5));
+    return { minPrice, maxPrice, basePrice: base };
+  }
 
-  const minPrice = Math.max(1, Math.round(base * 0.5));
-  const maxPrice = Math.max(minPrice, Math.round(base * 1.5));
-
-  return { minPrice, maxPrice, basePrice: base };
+  // Ítems estándar de tienda: precio fijo de referencia
+  const minPrice = Math.max(1, Math.round(item.cost * 0.5));
+  const maxPrice = Math.max(minPrice, Math.round(item.cost * 1.5));
+  return { minPrice, maxPrice, basePrice: item.cost };
 }
 
-// Evaluación periódica de oferta y demanda en ciclos de 4 horas UTC
+// Evaluación de oferta y demanda cada 4h UTC solo para activos especiales
 async function evaluateDynamicPrice(windowStart = null, windowEnd = null) {
   const now = windowEnd ? new Date(windowEnd) : new Date();
   const startTime = windowStart ? new Date(windowStart) : new Date(now.getTime() - 4 * 60 * 60 * 1000);
 
   for (const key in ITEMS) {
     const item = ITEMS[key];
+    if (!isDynamicItem(item)) continue;
+
     const originalCost = item.cost;
 
     let record = await DynamicPrice.findOne({ itemId: item.id });
@@ -105,21 +120,18 @@ async function evaluateDynamicPrice(windowStart = null, windowEnd = null) {
     const currentBase = record.currentBasePrice;
     let newBase = currentBase;
 
-    // Buscar transacciones dentro de la ventana de 4 horas
     const logs = await MarketLog.find({
       itemId: item.id,
-      createdAt: { $gte: startTime, $lte: now }
+      createdAt: { $gte: startTime,$lte: now }
     });
 
     if (logs.length === 0) {
-      // Inactividad: decae 1% hacia originalCost
       if (currentBase > originalCost) {
         newBase = Math.max(originalCost, Math.round(currentBase * 0.99));
       } else {
         newBase = originalCost;
       }
     } else {
-      // Contar usuarios únicos (compradores + vendedores)
       const uniqueUsers = new Set();
       let totalAmount = 0;
 
@@ -132,14 +144,11 @@ async function evaluateDynamicPrice(windowStart = null, windowEnd = null) {
       const avgPrice = totalAmount / logs.length;
       const priceDeltaRatio = (avgPrice - currentBase) / currentBase;
 
-      // Anti-colusión: límites de fluctuación por ciclo
       let maxCap = 0;
       if (uniqueUsers.size >= 4) {
         maxCap = 0.05; // Máx ±5%
       } else if (uniqueUsers.size >= 2) {
         maxCap = 0.01; // Máx ±1%
-      } else {
-        maxCap = 0; // Transacciones no válidas entre cuentas distintas
       }
 
       if (maxCap > 0) {
@@ -147,7 +156,6 @@ async function evaluateDynamicPrice(windowStart = null, windowEnd = null) {
         newBase = Math.round(currentBase * (1 + clampedDelta));
       }
 
-      // Proteger piso de tienda
       if (newBase < originalCost) {
         newBase = originalCost;
       }
@@ -175,7 +183,7 @@ async function getMarketView(currentUserId) {
   let text = `🏪 *Mercado P2P del Reino*\n\n` +
              `Compra y vende objetos directamente con otros aventureros.\n` +
              `• Comisión del mercado: *8%* por venta exitosa.\n` +
-             `• Precios regulados por oferta y demanda (Ciclos UTC de 4h).\n\n`;
+             `• Bienes especiales regulados por oferta y demanda (Ciclos UTC de 4h).\n\n`;
 
   if (!listings.length) {
     text += `_No hay ofertas publicadas actualmente. ¡Sé el primero en vender!_`;
@@ -331,13 +339,18 @@ async function cancelListing(listingId, sellerId) {
   };
 }
 
-// Tendencias y cotización de precios
+// Tendencias exclusivas para activos especiales y escasos
 async function getMarketTrendsView() {
-  let text = `📊 *Tendencias de Precios (Ciclos UTC de 4h)*\n\n` +
-             `Los precios de referencia se actualizan cada 4 horas fijas (00, 04, 08, 12, 16, 20 UTC):\n\n`;
+  let text = `📊 *Tendencias de Activos Especiales (Ciclos UTC de 4h)*\n\n` +
+             `Los precios de referencia fluctúan cada 4 horas fijas (00, 04, 08, 12, 16, 20 UTC):\n\n`;
+
+  let foundDynamic = false;
 
   for (const key in ITEMS) {
     const item = ITEMS[key];
+    if (!isDynamicItem(item)) continue;
+
+    foundDynamic = true;
     const cached = priceCache.get(item.id) || {
       currentBasePrice: item.cost,
       previousBasePrice: item.cost
@@ -360,16 +373,21 @@ async function getMarketTrendsView() {
     const { minPrice, maxPrice } = getItemBounds(item.id);
 
     text += `${icon} *${item.name}*\n` +
-            `• Base: *${current}g* (${sign}${pct}% en este ciclo)\n` +
-            `• Rango permitido: *${minPrice}g* - *${maxPrice}g*\n` +
-            `• Costo original en tienda: ${item.cost}g\n\n`;
+            `• Base actual: *${current}g* (${sign}${pct}% en este ciclo)\n` +
+            `• Rango permitido P2P: *${minPrice}g* - *${maxPrice}g*\n` +
+            `• Piso mínimo absoluto: ${item.cost}g\n\n`;
   }
 
-  text += `_Reglas de mercado:_\n` +
+  if (!foundDynamic) {
+    text += `_No hay activos con cotización flotante configurados._\n\n`;
+  }
+
+  text += `_Reglas de cotización:_\n` +
           `• 2-3 usuarios únicos en el ciclo: impacto máx. ±1%.\n` +
           `• 4 o más usuarios únicos: impacto máx. ±5%.\n` +
-          `• Sin ventas en 4h: decae 1% hacia su costo original.\n` +
-          `• El precio base jamás cae por debajo del valor de tienda.`;
+          `• Sin ventas en 4h: decae 1% hacia su piso original.\n` +
+          `• El precio jamás desciende por debajo de su valor base.\n` +
+          `• Las pociones ordinarias de tienda no fluctúan en bolsa.`;
 
   return text;
 }
