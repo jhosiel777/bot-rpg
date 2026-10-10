@@ -159,7 +159,7 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 // Botones inferiores fijos
