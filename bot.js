@@ -12,7 +12,15 @@ const {
   cancelListing,
   getItemBounds
 } = require('./market');
-const { Player, getPlayer, getRequiredExp, MAX_BASE_HP, MAX_ENERGY, REST_COOLDOWN_MS } = require('./playerModel');
+const {
+  Player,
+  getPlayer,
+  getRequiredExp,
+  MAX_LEVEL,
+  MAX_STAT,
+  MAX_BASE_HP,
+  MAX_ENERGY
+} = require('./playerModel');
 
 startServer();
 
@@ -58,7 +66,8 @@ async function safeEditMessage(ctx, text, extra = {}) {
 
 function getRestTimeRemaining(player) {
   const now = Date.now();
-  const diff = (player.lastRestTime + REST_COOLDOWN_MS) - now;
+  const cooldownMs = player.getRestCooldownMs();
+  const diff = (player.lastRestTime + cooldownMs) - now;
   return diff > 0 ? Math.ceil(diff / 1000) : 0;
 }
 
@@ -73,7 +82,7 @@ function formatHoursMinutes(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}s`;
+  return `${m}m ${s}s`;
 }
 
 function getStatusView(player) {
@@ -81,7 +90,7 @@ function getStatusView(player) {
   const restSecLeft = getRestTimeRemaining(player);
 
   let text = `⚔️ Aventurero: ${player.name}\n` +
-             `⭐ Nivel: ${player.level}\n` +
+             `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
              `🔮 EXP: ${player.exp}/${reqExp}\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
              `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
@@ -132,7 +141,7 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Handler general para iniciar o abrir menú (/start, /Start, /menu)
+// Handler general para iniciar o abrir menú (/start, /menu)
 async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
@@ -148,10 +157,8 @@ async function handleStartMenu(ctx) {
     const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
 
-    // Asegura el teclado fijo en móviles
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
 
-    // Panel interactivo principal
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
@@ -162,7 +169,6 @@ async function handleStartMenu(ctx) {
 bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
-// Botones inferiores fijos
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
@@ -439,7 +445,6 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
-// Función auxiliar para renderizar la tienda del NPC
 function getShopView(player) {
   let text = `🛒 *Tienda del Aventurero*\n` +
              `💰 Tu Oro: ${player.gold}\n\n` +
@@ -447,7 +452,6 @@ function getShopView(player) {
 
   const buttons = [];
 
-  // Artículos que se compran con oro
   for (const key in ITEMS) {
     const item = ITEMS[key];
     if (item.npcSell === false) continue;
@@ -455,7 +459,6 @@ function getShopView(player) {
     buttons.push([Markup.button.callback(`Comprar ${item.name} (${item.cost}g)`, `buy_${item.id}`)]);
   }
 
-  // Sección de la Bebida Energética (anuncio patrocinado)
   text += `• 🥤 Bebida Energética — 📺 Gratis (Patrocinio)\n  _Recupera +2 ⚡. Límite: 3/día. Máx: 5 en mochila._\n\n`;
   buttons.push([
     Markup.button.webApp('📺 Ver Anuncio (+1 🥤 Bebida)', 'https://bot-rpg-wu42.onrender.com/ad-reward')
@@ -466,7 +469,6 @@ function getShopView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Tienda NPC
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -507,7 +509,6 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -524,18 +525,10 @@ bot.action('menu_inv', async (ctx) => {
                `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
-    if (player.potionsSmall > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-    }
-    if (player.potionsMedium > 0) {
-      buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-    }
-    if (player.potionsEnergy > 0) {
-      buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-    }
-    if (player.potionsEnergyDrink > 0) {
-      buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-    }
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -583,18 +576,10 @@ Object.keys(ITEMS).forEach((key) => {
                  `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
-      if (player.potionsSmall > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
-      }
-      if (player.potionsMedium > 0) {
-        buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
-      }
-      if (player.potionsEnergy > 0) {
-        buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-      }
-      if (player.potionsEnergyDrink > 0) {
-        buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-      }
+      if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
+      if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Mayor', 'use_potion_medium')]);
+      if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+      if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
       buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
       return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -604,7 +589,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Descanso
+// Descanso dinámico
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -641,28 +626,40 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Atributos
+// Menú de Atributos (4 Stats)
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const agi = player.agility || 0;
+    const luk = player.luck || 0;
+    const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
+    const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
 
-    const text = `📈 Distribución de Atributos:\n\n` +
-                 `Puntos Disponibles: ${player.statPoints}\n` +
-                 `💪 Fuerza: ${player.strength} (Aumenta el botín y reduce daño recibido)\n` +
-                 `❤️ Salud Máxima: ${player.maxHp}/${MAX_BASE_HP}\n\n` +
-                 `Elige dónde asignar tus puntos:`;
+    const text = `📈 *Distribución de Atributos*\n\n` +
+                 `Puntos Disponibles: *${player.statPoints}*\n\n` +
+                 `💪 *Fuerza:* ${player.strength}/${MAX_STAT} (+Oro, Mitiga daño)\n` +
+                 `❤️ *Salud Máxima:* ${player.maxHp}/${MAX_BASE_HP} HP\n` +
+                 `🏃 *Agilidad:* ${agi}/${MAX_STAT} (Esquiva, Descanso: ${restCooldownMin}m)\n` +
+                 `🍀 *Suerte:* ${luk}/${MAX_STAT} (Tesoro pacífico: ${peacefulChance}%)\n\n` +
+                 `Selecciona qué estadística deseas aumentar:`;
 
     const buttons = [];
     if (player.statPoints > 0) {
-      buttons.push([Markup.button.callback('💪 +1 Fuerza', 'add_str')]);
-      if (player.maxHp < MAX_BASE_HP) {
-        buttons.push([Markup.button.callback('❤️ +5 Salud Máxima', 'add_hp')]);
-      }
+      const row1 = [];
+      if (player.strength < MAX_STAT) row1.push(Markup.button.callback('💪 +1 Fuerza', 'add_str'));
+      if (player.maxHp < MAX_BASE_HP) row1.push(Markup.button.callback('❤️ +5 HP', 'add_hp'));
+      if (row1.length) buttons.push(row1);
+
+      const row2 = [];
+      if (agi < MAX_STAT) row2.push(Markup.button.callback('🏃 +1 Agilidad', 'add_agi'));
+      if (luk < MAX_STAT) row2.push(Markup.button.callback('🍀 +1 Suerte', 'add_luk'));
+      if (row2.length) buttons.push(row2);
     }
+
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en menu_stats:', err);
   }
@@ -671,14 +668,13 @@ bot.action('menu_stats', async (ctx) => {
 bot.action('add_str', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-    if (player.statPoints <= 0) {
-      return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
-    }
+    if (player.statPoints <= 0) return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
+    if (player.strength >= MAX_STAT) return await safeAnswerCb(ctx, 'Fuerza ya está al máximo.', true);
 
     player.statPoints -= 1;
     player.strength += 1;
     await player.save();
-    await safeAnswerCb(ctx, '+1 Fuerza asignado');
+    await safeAnswerCb(ctx, `+1 Fuerza asignado (${player.strength}/${MAX_STAT})`);
 
     const view = getStatusView(player);
     return await safeEditMessage(ctx, view.text, view.keyboard);
@@ -690,23 +686,55 @@ bot.action('add_str', async (ctx) => {
 bot.action('add_hp', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-    if (player.statPoints <= 0) {
-      return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
-    }
-    if (player.maxHp >= MAX_BASE_HP) {
-      return await safeAnswerCb(ctx, 'Ya alcanzaste el tope de 100 HP base.', true);
-    }
+    if (player.statPoints <= 0) return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
+    if (player.maxHp >= MAX_BASE_HP) return await safeAnswerCb(ctx, `Ya alcanzaste el tope de ${MAX_BASE_HP} HP.`, true);
 
     player.statPoints -= 1;
     player.maxHp = Math.min(MAX_BASE_HP, player.maxHp + 5);
     player.hp = Math.min(player.maxHp, player.hp + 5);
     await player.save();
-    await safeAnswerCb(ctx, '+5 Salud Máxima asignado');
+    await safeAnswerCb(ctx, `+5 Salud Máxima asignado (${player.maxHp}/${MAX_BASE_HP})`);
 
     const view = getStatusView(player);
     return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en add_hp:', err);
+  }
+});
+
+bot.action('add_agi', async (ctx) => {
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (player.statPoints <= 0) return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
+    if ((player.agility || 0) >= MAX_STAT) return await safeAnswerCb(ctx, 'Agilidad ya está al máximo.', true);
+
+    player.statPoints -= 1;
+    player.agility = (player.agility || 0) + 1;
+    await player.save();
+    await safeAnswerCb(ctx, `+1 Agilidad asignado (${player.agility}/${MAX_STAT})`);
+
+    const view = getStatusView(player);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en add_agi:', err);
+  }
+});
+
+bot.action('add_luk', async (ctx) => {
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (player.statPoints <= 0) return await safeAnswerCb(ctx, 'No tienes puntos disponibles.', true);
+    if ((player.luck || 0) >= MAX_STAT) return await safeAnswerCb(ctx, 'Suerte ya está al máximo.', true);
+
+    player.statPoints -= 1;
+    player.luck = (player.luck || 0) + 1;
+    await player.save();
+    await safeAnswerCb(ctx, `+1 Suerte asignado (${player.luck}/${MAX_STAT})`);
+
+    const view = getStatusView(player);
+    return await safeEditMessage(ctx, view.text, view.keyboard);
+  } catch (err) {
+    console.error('Error en add_luk:', err);
   }
 });
 
@@ -721,8 +749,8 @@ bot.action('menu_dungeons', async (ctx) => {
   const text = `🗺️ Elige tu destino de exploración:\n\n` +
                `💀 Si tu vida cae a 0 quedas noqueado por 2 horas:\n\n` +
                `🌲 Bosque Umbrío (Fácil) — Cuesta 1 ⚡ — Viaje: 10s\n` +
-               `🪦 Cripta Abandonada (Medio) — Cuesta 2 ⚡ — Viaje: 20s\n` +
-               `🌋 Guarida del Dragón (Difícil) — Cuesta 3 ⚡ — Viaje: 35s`;
+               `🪦 Cripta Abandonada (Medio) — Cuesta 2 ⚡ — Viaje: 20s (Trampas activas)\n` +
+               `🌋 Guarida del Dragón (Difícil) — Cuesta 3 ⚡ — Viaje: 35s (Ataques triples + Trampas)`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Explorar Bosque (10s)', 'go_bosque')],
@@ -745,7 +773,6 @@ async function startExpedition(ctx, dungeonKey) {
     const player = await getPlayer(userId, ctx.from.first_name);
     const dungeon = DUNGEONS[dungeonKey];
 
-    // Validación de noqueo (2 horas)
     if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
       const remainingSec = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
       return await safeAnswerCb(
@@ -788,13 +815,19 @@ async function startExpedition(ctx, dungeonKey) {
           const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
           const roll = Math.random();
 
-          // Límite de bonificación por Fuerza: máximo el 50% del oro base del enemigo
+          const luckVal = p.luck || 0;
+          const agiVal = p.agility || 0;
+
+          // Probabilidad de tesoro pacífico: 10% base + (Suerte * 0.20%), tope 30%
+          const peacefulChance = Math.min(0.30, 0.10 + (luckVal * 0.002));
+
           const maxStrBonus = Math.floor(enemy.maxGold * 0.5);
           const strBonus = Math.min(p.strength, maxStrBonus);
 
           let resultMsg = '';
 
-          if (roll < 0.30) {
+          if (roll < peacefulChance) {
+            // Evento pacífico (Tesoro)
             const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
             const bonusGold = baseGold + strBonus;
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
@@ -802,36 +835,82 @@ async function startExpedition(ctx, dungeonKey) {
             p.addExp(expGained);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
-                        `Evitaste peligros y hallaste un tesoro.\n` +
+                        `🍀 ¡Tu suerte te permitió sortear peligros y hallar un tesoro pacíficamente!\n` +
                         `💰 Oro: +${bonusGold} (Bono Fuerza: +${strBonus})\n` +
                         `🔮 EXP: +${expGained}`;
           } else {
-            const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
-            const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
-            const goldGained = baseGold + strBonus;
-            const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+            let trapMsg = '';
+            let trapDmg = 0;
 
-            p.hp = Math.max(0, p.hp - dmg);
+            // Evento de Trampas en Cripta y Dragón (20% de probabilidad)
+            if (dungeon.hasTraps && Math.random() < 0.20) {
+              const dodgeTrapChance = Math.min(0.65, 0.15 + (agiVal * 0.005));
+              if (Math.random() < dodgeTrapChance) {
+                trapMsg = `🤸 ¡Tus reflejos de Agilidad te permitieron esquivar una trampa mortal en el camino!\n\n`;
+              } else {
+                trapDmg = Math.floor(Math.random() * 8) + 5; // 5 a 12 de daño de trampa
+                p.hp = Math.max(0, p.hp - trapDmg);
+                trapMsg = `⚠️ ¡Pisaste una trampa de pinchos y perdiste ${trapDmg} HP antes del combate!\n\n`;
+              }
+            }
 
-            if (p.hp === 0) {
+            // Si sobrevivió a la trampa, combate contra el enemigo
+            if (p.hp > 0) {
+              const hitsCount = enemy.hits || 1;
+              let totalCombatDmg = 0;
+              let dodgedHits = 0;
+
+              for (let i = 0; i < hitsCount; i++) {
+                // Esquiva por Agilidad: 0.3% por punto
+                const dodgeChance = Math.min(0.35, agiVal * 0.003);
+                if (Math.random() < dodgeChance) {
+                  dodgedHits++;
+                } else {
+                  const rawDmg = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
+                  // Reducción por Fuerza (mínimo 1 por golpe conectado)
+                  const netDmg = Math.max(1, rawDmg - Math.floor(p.strength / (hitsCount > 1 ? 4 : 2)));
+                  totalCombatDmg += netDmg;
+                }
+              }
+
+              p.hp = Math.max(0, p.hp - totalCombatDmg);
+
+              const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
+              const goldGained = baseGold + strBonus;
+              const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+
+              if (p.hp === 0) {
+                const lostExp = p.applyDeathPenalty();
+                const KNOCKOUT_MS = 2 * 60 * 60 * 1000;
+                p.knockedOutUntil = Date.now() + KNOCKOUT_MS;
+
+                resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                            `Fuiste derrotado por un ${enemy.name}.\n` +
+                            `💥 Daño de combate: ${totalCombatDmg}${dodgedHits > 0 ? ` (Esquivaste \${dodgedHits} golpe/s)` : ''}\n` +
+                            `💀 ¡Has quedado inconsciente!\n` +
+                            `⏳ No podrás explorar durante las próximas 2 horas.\n` +
+                            `⚠️ Perdiste ${lostExp} de EXP acumulada.\n` +
+                            `Descansa en el campamento o usa pociones para reponerte.`;
+              } else {
+                p.gold += goldGained;
+                p.addExp(expGained);
+
+                resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                            `Derrotaste a un ${enemy.name}.\n` +
+                            (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
+                            `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
+                            `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
+                            `🔮 EXP: +${expGained}`;
+              }
+            } else {
+              // Murió por la trampa
               const lostExp = p.applyDeathPenalty();
-              const KNOCKOUT_MS = 2 * 60 * 60 * 1000; // 2 horas
+              const KNOCKOUT_MS = 2 * 60 * 60 * 1000;
               p.knockedOutUntil = Date.now() + KNOCKOUT_MS;
 
-              resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                          `Fuiste abatido por un ${enemy.name} (recibiste ${dmg} de daño).\n` +
-                          `💀 ¡Has quedado inconsciente!\n` +
-                          `⏳ No podrás ir a expediciones durante las próximas 2 horas.\n` +
-                          `⚠️ Penalización: Perdiste ${lostExp} de EXP (Nivel actual: ${p.level}).\n` +
-                          `Descansa en el campamento o usa pociones para reponer tu salud.`;
-            } else {
-              p.gold += goldGained;
-              p.addExp(expGained);
-              resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
-                          `Derrotaste a un ${enemy.name}.\n` +
-                          `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
-                          `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
-                          `🔮 EXP: +${expGained}`;
+              resultMsg = `${trapMsg}💀 La trampa fue mortal y caíste inconsciente antes de combatir.\n` +
+                          `⏳ Espera 2 horas para recuperarte o usa pociones.\n` +
+                          `⚠️ Perdiste ${lostExp} de EXP acumulada.`;
             }
           }
 
@@ -861,7 +940,6 @@ bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
 
-// Reintentos de conexión para evitar el conflicto 409 durante despliegues en Render
 async function startBotWithRetry(retries = 5, delayMs = 4000) {
   try {
     await bot.telegram.deleteWebhook({ drop_pending_updates: true });
