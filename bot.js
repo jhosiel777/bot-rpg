@@ -16,11 +16,15 @@ const {
   Player,
   getPlayer,
   getRequiredExp,
+  recordDrop,
+  getGlobalStats,
   MAX_LEVEL,
   MAX_STAT,
   MAX_BASE_HP,
   MAX_ENERGY
 } = require('./playerModel');
+
+const ADMIN_ID = 835648800;
 
 startServer();
 
@@ -34,7 +38,6 @@ const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 
-// Menú persistente inferior con pestaña Atributos
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
   ['🏪 Mercado P2P', '🏆 Salón de la Fama']
@@ -85,37 +88,36 @@ function formatHoursMinutes(sec) {
   return `${m}s`;
 }
 
-// Función para calcular drops de expedición
 function rollDungeonDrops(dungeon, player) {
   if (!dungeon.drops) return '';
   const luckVal = player.luck || 0;
-  const luckBonus = luckVal * 0.0005; // +5% a nivel 100 de suerte
+  const luckBonus = luckVal * 0.0005;
 
   const obtained = [];
 
-  // Drop: Elixir de Energía
   if (dungeon.drops.energyChance > 0) {
     const chance = dungeon.drops.energyChance + luckBonus;
     if (Math.random() < chance) {
       player.potionsEnergy = (player.potionsEnergy || 0) + 1;
+      recordDrop('energy');
       obtained.push('⚡ Elixir de Energía');
     }
   }
 
-  // Drop: Poción Mayor (solo donde esté configurada)
   if (dungeon.drops.mediumHpChance > 0) {
     const chance = dungeon.drops.mediumHpChance + luckBonus;
     if (Math.random() < chance) {
       player.potionsMedium = (player.potionsMedium || 0) + 1;
+      recordDrop('medium');
       obtained.push('🧪 Poción Mayor de Vida');
     }
   }
 
-  // Drop: Poción Menor
   if (dungeon.drops.smallHpChance > 0) {
     const chance = dungeon.drops.smallHpChance + luckBonus;
     if (Math.random() < chance) {
       player.potionsSmall = (player.potionsSmall || 0) + 1;
+      recordDrop('small');
       obtained.push('🧪 Poción Menor de Vida');
     }
   }
@@ -137,13 +139,11 @@ function getStatusView(player) {
              `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
              `💰 Oro: ${player.gold}\n\n`;
 
-  // Tiempo restante de expedición
   if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
     const missionSecLeft = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
     text += `🚶 *En expedición:* Regresa en ${missionSecLeft}s\n`;
   }
 
-  // Comprobar penalización de noqueo
   if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
     const koSecLeft = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
     text += `💀 *Estado:* Inconsciente (Recuperación en: ${formatHoursMinutes(koSecLeft)})\n`;
@@ -183,7 +183,6 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Vista detallada de Atributos
 function getStatsView(player) {
   const str = player.strength || 0;
   const agi = player.agility || 0;
@@ -238,7 +237,162 @@ function getStatsView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Handlers /start y /menu
+// PANEL DE ADMINISTRADOR EXCLUSIVO
+function getAdminHomeView() {
+  const text = `👑 *Panel de Creador (Admin)*\n\n` +
+               `Bienvenido, Jhosiel. Desde aquí puedes monitorear estadísticas globales y a los jugadores:`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
+    [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
+    [Markup.button.callback('🥤 Auto-conceder +1 Bebida Energética', 'adm_give_drink')],
+    [Markup.button.callback('🏕️ Volver al Campamento', 'status')]
+  ]);
+
+  return { text, keyboard };
+}
+
+bot.command('admin', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const view = getAdminHomeView();
+  await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('adm_home', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  const view = getAdminHomeView();
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('adm_drops', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const stats = await getGlobalStats();
+  const text = `📊 *Estadísticas Globales de Drops*\n\n` +
+               `Cantidad total de ítems caídos en expediciones:\n\n` +
+               `• 🧪 *Pociones Menores de Vida:* ${stats.totalDropsSmall}\n` +
+               `• 🧪 *Pociones Mayores de Vida:* ${stats.totalDropsMedium}\n` +
+               `• ⚡ *Elixires de Energía:* ${stats.totalDropsEnergy}\n\n` +
+               `*Total histórico de objetos dropeados:* ${stats.totalDropsSmall + stats.totalDropsMedium + stats.totalDropsEnergy}`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Actualizar', 'adm_drops')],
+    [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+// Paginación de Usuarios (10 en 10)
+bot.action(/adm_users_page_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const page = parseInt(ctx.match[1], 10) || 1;
+  const limit = 10;
+  const skip = (page - 1) * limit;
+
+  const totalUsers = await Player.countDocuments();
+  const totalPages = Math.ceil(totalUsers / limit) || 1;
+
+  const users = await Player.find()
+    .sort({ level: -1, exp: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  let text = `👥 *Lista de Usuarios Registrados* (Pág. ${page}/${totalPages})\n` +
+             `Total de jugadores: *${totalUsers}*\n\n` +
+             `Toca cualquier aventurero para ver sus datos y mochila:`;
+
+  const buttons = [];
+
+  for (const u of users) {
+    buttons.push([
+      Markup.button.callback(
+        `⭐ Lv.${u.level} | ${u.name.substring(0, 18)} (ID: ${u.userId})`,
+        `adm_user_${u.userId}_${page}`
+      )
+    ]);
+  }
+
+  const navRow = [];
+  if (page > 1) {
+    navRow.push(Markup.button.callback('⬅️ Anterior', `adm_users_page_${page - 1}`));
+  }
+  if (page < totalPages) {
+    navRow.push(Markup.button.callback('Siguiente ➡️', `adm_users_page_${page + 1}`));
+  }
+  if (navRow.length) buttons.push(navRow);
+
+  buttons.push([Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+// Detalle individual de un usuario
+bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const targetId = parseInt(ctx.match[1], 10);
+  const backPage = parseInt(ctx.match[2], 10) || 1;
+
+  const u = await Player.findOne({ userId: targetId });
+  if (!u) {
+    return await safeAnswerCb(ctx, 'Usuario no encontrado.', true);
+  }
+
+  const text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
+               `🆔 Telegram ID: \`\${u.userId}\`\n` +
+               `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
+               `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
+               `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
+               `⚡ Energía: ${u.energy}/${MAX_ENERGY}\n` +
+               `💰 Oro: ${u.gold}\n\n` +
+               `📊 *Atributos:*\n` +
+               `• Fuerza: ${u.strength}\n` +
+               `• Agilidad: ${u.agility || 0}\n` +
+               `• Suerte: ${u.luck || 0}\n` +
+               `• Puntos sin asignar: ${u.statPoints}\n\n` +
+               `🎒 *Inventario de Pociones:*\n` +
+               `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
+               `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
+               `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
+               `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}\n\n` +
+               `🛡️ *Equipamiento Actual:*\n` +
+               `_Próximamente disponible._`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+// Auto-conceder bebida para el creador
+bot.action('adm_give_drink', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const p = await getPlayer(ADMIN_ID);
+  p.potionsEnergyDrink = (p.potionsEnergyDrink || 0) + 1;
+  await p.save();
+  await safeAnswerCb(ctx, `🥤 Te añadiste 1x Bebida Energética (Total: ${p.potionsEnergyDrink})`, true);
+});
+
+// Callback interactivo cuando el creador supera el límite de anuncios
+bot.action('adm_claim_overflow_drink', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  const p = await getPlayer(ADMIN_ID);
+  p.potionsEnergyDrink = (p.potionsEnergyDrink || 0) + 1;
+  await p.save();
+  await safeAnswerCb(ctx, '🥤 Bebida agregada exitosamente a tu mochila de Creador.', true);
+  try {
+    await ctx.editMessageText(`✅ *Bebida añadida por privilegios de creador.* Tienes ${p.potionsEnergyDrink} en mochila.`, { parse_mode: 'Markdown' });
+  } catch (e) {}
+});
+
+// Start & Menu
 async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
@@ -266,7 +420,6 @@ async function handleStartMenu(ctx) {
 bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
-// Teclado inferior fijo
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
@@ -391,7 +544,6 @@ bot.action('menu_ranking', async (ctx) => {
   }
 });
 
-// Acción status: edición limpia para mantener el mensaje interactivo completo con sus botones
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -626,7 +778,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Inventario y uso de objetos con límite de 2 pociones en expedición
+// Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -939,16 +1091,13 @@ async function startExpedition(ctx, dungeonKey) {
           const agiVal = p.agility || 0;
           const strVal = p.strength || 0;
 
-          // Probabilidad de tesoro pacífico: 10% base + (Suerte * 0.20%), tope 30%
           const peacefulChance = Math.min(0.30, 0.10 + (luckVal * 0.002));
-
           const maxStrBonus = Math.floor(enemy.maxGold * 0.5);
           const strBonus = Math.min(strVal, maxStrBonus);
 
           let resultMsg = '';
 
           if (roll < peacefulChance) {
-            // Evento pacífico
             const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
             const bonusGold = baseGold + strBonus;
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
@@ -967,7 +1116,6 @@ async function startExpedition(ctx, dungeonKey) {
             let trapMsg = '';
             let trapDmg = 0;
 
-            // Evento de Trampas (tope máximo del 60%)
             if (dungeon.hasTraps && Math.random() < 0.20) {
               const dodgeTrapChance = Math.min(0.60, 0.15 + (agiVal * 0.0045));
               if (Math.random() < dodgeTrapChance) {
@@ -994,18 +1142,16 @@ async function startExpedition(ctx, dungeonKey) {
                 }
               }
 
-              // Mitigación porcentual de daño físico por Fuerza (máximo 25% a 100 STR)
               const strMitigationRatio = (strVal / (strVal + 60)) * 0.40;
               let mitigatedCombatDmg = Math.round(rawCombatDmg * (1 - strMitigationRatio));
 
-              // Golpe Crítico por Suerte (5% base hasta 25% a 100 LUK)
               const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002));
               let isCrit = false;
               let critMsg = '';
 
               if (rawCombatDmg > 0 && Math.random() < critChance) {
                 isCrit = true;
-                mitigatedCombatDmg = Math.round(mitigatedCombatDmg * 0.65); // Reduce 35% el daño sufrido
+                mitigatedCombatDmg = Math.round(mitigatedCombatDmg * 0.65);
                 critMsg = `✨ ¡Asestaste un *Golpe Crítico Afortunado*! Redujiste el ataque enemigo y ganaste +20% EXP.\n`;
               }
 
@@ -1089,6 +1235,9 @@ async function startExpedition(ctx, dungeonKey) {
 bot.action('go_bosque', (ctx) => startExpedition(ctx, 'bosque'));
 bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
 bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
+
+// Exportar instancia del bot para que server.js pueda mandarte notificaciones de admin
+module.exports = { bot, ADMIN_ID };
 
 async function startBotWithRetry(retries = 5, delayMs = 4000) {
   try {
