@@ -73,7 +73,7 @@ function formatHoursMinutes(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m ${s}s`;
+  return `${m}s`;
 }
 
 function getStatusView(player) {
@@ -159,7 +159,7 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 // Botones inferiores fijos
@@ -788,21 +788,27 @@ async function startExpedition(ctx, dungeonKey) {
           const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
           const roll = Math.random();
 
+          // Límite de bonificación por Fuerza: máximo el 50% del oro base del enemigo
+          const maxStrBonus = Math.floor(enemy.maxGold * 0.5);
+          const strBonus = Math.min(p.strength, maxStrBonus);
+
           let resultMsg = '';
 
           if (roll < 0.30) {
-            const bonusGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+            const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
+            const bonusGold = baseGold + strBonus;
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
             p.gold += bonusGold;
             p.addExp(expGained);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
                         `Evitaste peligros y hallaste un tesoro.\n` +
-                        `💰 Oro: +${bonusGold}\n` +
+                        `💰 Oro: +${bonusGold} (Bono Fuerza: +${strBonus})\n` +
                         `🔮 EXP: +${expGained}`;
           } else {
             const dmg = Math.max(1, Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg - Math.floor(p.strength / 2));
-            const goldGained = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold + p.strength;
+            const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
+            const goldGained = baseGold + strBonus;
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
 
             p.hp = Math.max(0, p.hp - dmg);
@@ -824,7 +830,7 @@ async function startExpedition(ctx, dungeonKey) {
               resultMsg = `⚔️ Encuentro en ${dungeon.name}:\n\n` +
                           `Derrotaste a un ${enemy.name}.\n` +
                           `💥 Daño recibido: ${dmg} (Salud: ${p.hp}/${p.maxHp})\n` +
-                          `💰 Oro: +${goldGained}\n` +
+                          `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
                           `🔮 EXP: +${expGained}`;
             }
           }
