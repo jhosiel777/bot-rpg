@@ -34,12 +34,13 @@ const MarketLog = mongoose.model('MarketLog', marketLogSchema);
 const dynamicPriceSchema = new mongoose.Schema({
   itemId: { type: String, required: true, unique: true },
   currentBasePrice: { type: Number, required: true },
+  previousBasePrice: { type: Number, default: 0 },
   lastUpdate: { type: Date, default: Date.now }
 });
 
 const DynamicPrice = mongoose.model('DynamicPrice', dynamicPriceSchema);
 
-// Caché en memoria para responder de forma síncrona sin bloquear bot.js
+// Caché en memoria para responder de forma síncrona
 const priceCache = new Map();
 
 async function initDynamicPrices() {
@@ -66,6 +67,7 @@ async function evaluateDynamicPrice(itemId) {
     record = await DynamicPrice.create({
       itemId,
       currentBasePrice: originalCost,
+      previousBasePrice: originalCost,
       lastUpdate: new Date()
     });
     priceCache.set(itemId, originalCost);
@@ -83,10 +85,11 @@ async function evaluateDynamicPrice(itemId) {
     // Transacciones del ítem durante el último período
     const logs = await MarketLog.find({
       itemId,
-      createdAt: { $gte: sinceDate }
+      createdAt: { \$gte: sinceDate }
     });
 
     const buyers = new Set(logs.map((l) => l.buyerId));
+    record.previousBasePrice = record.currentBasePrice;
 
     // Regla de liquidez mínima: al menos 2 compradores distintos
     if (logs.length >= 2 && buyers.size >= 2) {
@@ -94,16 +97,13 @@ async function evaluateDynamicPrice(itemId) {
       const avgPrice = totalPrice / logs.length;
 
       if (avgPrice > record.currentBasePrice) {
-        // Demanda alta: sube proporcionalmente hasta un tope de +15% diario
         const rawIncrease = (avgPrice - record.currentBasePrice) / record.currentBasePrice;
         const cappedIncrease = Math.min(0.15, rawIncrease);
         record.currentBasePrice = Math.round(record.currentBasePrice * (1 + cappedIncrease));
       } else if (avgPrice < record.currentBasePrice) {
-        // Demanda baja: baja proporcionalmente hasta -15% diario
         const rawDecrease = (record.currentBasePrice - avgPrice) / record.currentBasePrice;
         const cappedDecrease = Math.min(0.15, rawDecrease);
         const newPrice = Math.round(record.currentBasePrice * (1 - cappedDecrease));
-        // Jamás por debajo del precio base original
         record.currentBasePrice = Math.max(originalCost, newPrice);
       }
     } else {
@@ -130,9 +130,52 @@ function getItemBounds(itemId) {
   };
 }
 
+// Vista de tendencias estilo bolsa / cripto (24h)
+async function getMarketTrendsView() {
+  let text = `📊 *Bolsa y Tendencias del Mercado (24h)*\n\n` +
+             `Los precios de los recursos escasos fluctúan según las compras reales entre aventureros.\n\n`;
+
+  const dynamicItemIds = ['energy_drink'];
+
+  for (const id of dynamicItemIds) {
+    const item = Object.values(ITEMS).find((i) => i.id === id);
+    if (!item) continue;
+
+    const record = await DynamicPrice.findOne({ itemId: id });
+    const currentPrice = record ? record.currentBasePrice : item.cost;
+    const prevPrice = (record && record.previousBasePrice) ? record.previousBasePrice : item.cost;
+
+    const diff = currentPrice - prevPrice;
+    const pct = prevPrice > 0 ? ((diff / prevPrice) * 100).toFixed(1) : '0.0';
+
+    let trendIcon = '⚪';
+    let trendSign = '';
+    if (diff > 0) {
+      trendIcon = '🟢';
+      trendSign = '+';
+    } else if (diff < 0) {
+      trendIcon = '🔴';
+    }
+
+    const bounds = getItemBounds(id);
+
+    text += `*${item.name}*\n` +
+            `• Precio Referencia: *${currentPrice}g* (${trendIcon} ${trendSign}${pct}% 24h)\n` +
+            `• Rango de Venta: ${bounds.minPrice}g — ${bounds.maxPrice}g\n` +
+            `• Precio Base Original: ${item.cost}g\n\n`;
+  }
+
+  text += `━━━━━━━━━━━━━━━━━━━━\n` +
+          `📖 *¿Cómo funciona este sistema?*\n` +
+          `• *Alta Demanda:* Si un ítem se vende con fluidez entre distintos jugadores, su valor sube hasta *+15% al día*.\n` +
+          `• *Fuerza de Gravedad:* Si no tiene compras en 24h, su valor desciende un 5% diario hacia su base original.\n` +
+          `• *Piso Protegido:* Ningún ítem puede devaluarse por debajo de su precio base original.`;
+
+  return text;
+}
+
 // Vista general del Mercado P2P
 async function getMarketView(userId) {
-  // Evalúa dinámicamente el precio de los ítems de fondo
   for (const k in ITEMS) {
     evaluateDynamicPrice(ITEMS[k].id).catch(() => {});
   }
@@ -191,7 +234,6 @@ async function createListing(userId, sellerName, itemId, price) {
     };
   }
 
-  // Descontar objeto del inventario del vendedor
   player[item.field] -= 1;
   await player.save();
 
@@ -261,7 +303,6 @@ async function buyListing(listingId, buyerId) {
 
   await MarketListing.findByIdAndDelete(listingId);
 
-  // Verificar calibración tras la compra
   evaluateDynamicPrice(listing.itemId).catch(() => {});
 
   return {
@@ -298,7 +339,7 @@ async function cancelListing(listingId, userId) {
   return { success: true, msg: '✅ Oferta cancelada y devuelta a tu inventario.' };
 }
 
-// Consultar historial P2P paginado (para el Admin)
+// Consultar historial P2P paginado (Admin)
 async function getMarketHistory(page = 1, limit = 5) {
   const skip = (page - 1) * limit;
   const total = await MarketLog.countDocuments();
@@ -316,5 +357,6 @@ module.exports = {
   createListing,
   buyListing,
   cancelListing,
-  getMarketHistory
+  getMarketHistory,
+  getMarketTrendsView
 };
