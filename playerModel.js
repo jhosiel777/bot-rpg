@@ -8,7 +8,10 @@ const BASE_REST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos base
 
 function getRequiredExp(level) {
   if (level >= MAX_LEVEL) return 'MAX';
-  return Math.floor(100 * Math.pow(1.5, level - 1));
+  // Hito final de nivel 100 a 101 estilo RuneScape (desafío final por los 5 stat points)
+  if (level === 100) return 50000;
+  // Curva progresiva para los niveles 1 al 99
+  return Math.floor(20 * Math.pow(level, 1.5));
 }
 
 const playerSchema = new mongoose.Schema({
