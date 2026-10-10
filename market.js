@@ -20,6 +20,7 @@ const marketLogSchema = new mongoose.Schema({
   sellerName: { type: String, required: true },
   buyerId: { type: Number, required: true },
   buyerName: { type: String, required: true },
+  itemId: { type: String, required: true },
   itemName: { type: String, required: true },
   price: { type: Number, required: true },
   tax: { type: Number, required: true },
@@ -29,18 +30,113 @@ const marketLogSchema = new mongoose.Schema({
 
 const MarketLog = mongoose.model('MarketLog', marketLogSchema);
 
-// Rango de precios permitidos (50% a 250% del precio base de tienda)
+// Esquema para el seguimiento de precio dinámico (Oferta y Demanda)
+const dynamicPriceSchema = new mongoose.Schema({
+  itemId: { type: String, required: true, unique: true },
+  currentBasePrice: { type: Number, required: true },
+  lastUpdate: { type: Date, default: Date.now }
+});
+
+const DynamicPrice = mongoose.model('DynamicPrice', dynamicPriceSchema);
+
+// Caché en memoria para responder de forma síncrona sin bloquear bot.js
+const priceCache = new Map();
+
+async function initDynamicPrices() {
+  try {
+    const docs = await DynamicPrice.find();
+    for (const d of docs) {
+      priceCache.set(d.itemId, d.currentBasePrice);
+    }
+  } catch (err) {
+    console.error('Error cargando precios dinámicos:', err.message);
+  }
+}
+initDynamicPrices();
+
+// Evaluación y ajuste diario de precio según oferta y demanda
+async function evaluateDynamicPrice(itemId) {
+  const item = Object.values(ITEMS).find((i) => i.id === itemId);
+  if (!item) return;
+
+  const originalCost = item.cost;
+  let record = await DynamicPrice.findOne({ itemId });
+
+  if (!record) {
+    record = await DynamicPrice.create({
+      itemId,
+      currentBasePrice: originalCost,
+      lastUpdate: new Date()
+    });
+    priceCache.set(itemId, originalCost);
+    return;
+  }
+
+  const now = Date.now();
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const timeSinceLastUpdate = now - new Date(record.lastUpdate).getTime();
+
+  // Solo se recalibra si pasaron al menos 24 horas
+  if (timeSinceLastUpdate >= ONE_DAY_MS) {
+    const sinceDate = new Date(record.lastUpdate);
+
+    // Transacciones del ítem durante el último período
+    const logs = await MarketLog.find({
+      itemId,
+      createdAt: { \$gte: sinceDate }
+    });
+
+    const buyers = new Set(logs.map((l) => l.buyerId));
+
+    // Regla de liquidez mínima: al menos 2 compradores distintos
+    if (logs.length >= 2 && buyers.size >= 2) {
+      const totalPrice = logs.reduce((sum, l) => sum + l.price, 0);
+      const avgPrice = totalPrice / logs.length;
+
+      if (avgPrice > record.currentBasePrice) {
+        // Demanda alta: sube proporcionalmente hasta un tope de +15% diario
+        const rawIncrease = (avgPrice - record.currentBasePrice) / record.currentBasePrice;
+        const cappedIncrease = Math.min(0.15, rawIncrease);
+        record.currentBasePrice = Math.round(record.currentBasePrice * (1 + cappedIncrease));
+      } else if (avgPrice < record.currentBasePrice) {
+        // Demanda baja: baja proporcionalmente hasta -15% diario
+        const rawDecrease = (record.currentBasePrice - avgPrice) / record.currentBasePrice;
+        const cappedDecrease = Math.min(0.15, rawDecrease);
+        const newPrice = Math.round(record.currentBasePrice * (1 - cappedDecrease));
+        // Jamás por debajo del precio base original
+        record.currentBasePrice = Math.max(originalCost, newPrice);
+      }
+    } else {
+      // Sin demanda en 24h: fuerza de gravedad (-5% hacia el precio base)
+      const decayedPrice = Math.round(record.currentBasePrice * 0.95);
+      record.currentBasePrice = Math.max(originalCost, decayedPrice);
+    }
+
+    record.lastUpdate = new Date();
+    await record.save();
+    priceCache.set(itemId, record.currentBasePrice);
+  }
+}
+
+// Rango de precios: min 0.5x y max 1.5x del precio dinámico actual
 function getItemBounds(itemId) {
   const item = Object.values(ITEMS).find((i) => i.id === itemId);
   if (!item) return { minPrice: 1, maxPrice: 100 };
+
+  const refPrice = priceCache.get(itemId) || item.cost;
   return {
-    minPrice: Math.max(1, Math.floor(item.cost * 0.5)),
-    maxPrice: Math.ceil(item.cost * 2.5)
+    minPrice: Math.max(1, Math.floor(refPrice * 0.5)),
+    maxPrice: Math.ceil(refPrice * 1.5)
   };
 }
 
 // Vista general del Mercado P2P
 async function getMarketView(userId) {
+  // Evalúa dinámicamente el precio de los ítems de fondo
+  for (const k in ITEMS) {
+    evaluateDynamicPrice(ITEMS[k].id).catch(() => {});
+  }
+
   const listings = await MarketListing.find().sort({ createdAt: -1 });
 
   let text = `🏪 *Mercado P2P entre Aventureros*\n\n` +
@@ -64,6 +160,8 @@ async function getMarketView(userId) {
 
 // Crear una nueva oferta
 async function createListing(userId, sellerName, itemId, price) {
+  await evaluateDynamicPrice(itemId);
+
   const item = Object.values(ITEMS).find((i) => i.id === itemId);
   if (!item) {
     return { success: false, msg: '❌ Objeto inválido.' };
@@ -136,12 +234,10 @@ async function buyListing(listingId, buyerId) {
     return { success: false, msg: 'El objeto ya no es válido.' };
   }
 
-  // Cobro al comprador y entrega del ítem
   buyer.gold -= listing.price;
   buyer[item.field] = (buyer[item.field] || 0) + 1;
   await buyer.save();
 
-  // Pago neto al vendedor (comisión 8%)
   const tax = Math.round(listing.price * 0.08);
   const sellerProfit = listing.price - tax;
 
@@ -151,20 +247,22 @@ async function buyListing(listingId, buyerId) {
     await seller.save();
   }
 
-  // Registrar en el historial global de transacciones
   await MarketLog.create({
     sellerId: listing.sellerId,
     sellerName: listing.sellerName,
     buyerId: buyer.userId,
     buyerName: buyer.name,
+    itemId: listing.itemId,
     itemName: listing.itemName,
     price: listing.price,
     tax,
     sellerProfit
   });
 
-  // Eliminar oferta completada
   await MarketListing.findByIdAndDelete(listingId);
+
+  // Verificar calibración tras la compra
+  evaluateDynamicPrice(listing.itemId).catch(() => {});
 
   return {
     success: true,
@@ -212,6 +310,7 @@ async function getMarketHistory(page = 1, limit = 5) {
 module.exports = {
   MarketListing,
   MarketLog,
+  DynamicPrice,
   getItemBounds,
   getMarketView,
   createListing,
