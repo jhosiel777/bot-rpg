@@ -85,7 +85,7 @@ async function evaluateDynamicPrice(itemId) {
     // Transacciones del ítem durante el último período
     const logs = await MarketLog.find({
       itemId,
-      createdAt: { \$gte: sinceDate }
+      createdAt: { $gte: sinceDate }
     });
 
     const buyers = new Set(logs.map((l) => l.buyerId));
