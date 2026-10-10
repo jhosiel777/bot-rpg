@@ -1,10 +1,13 @@
 const mongoose = require('mongoose');
 
-const MAX_BASE_HP = 100;
+const MAX_LEVEL = 101;
+const MAX_STAT = 100;
+const MAX_BASE_HP = 300;
 const MAX_ENERGY = 10;
-const REST_COOLDOWN_MS = 5 * 60 * 1000; // Reducido a 5 minutos
+const BASE_REST_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos base
 
 function getRequiredExp(level) {
+  if (level >= MAX_LEVEL) return 'MAX';
   return Math.floor(100 * Math.pow(1.5, level - 1));
 }
 
@@ -16,6 +19,8 @@ const playerSchema = new mongoose.Schema({
   hp: { type: Number, default: 50 },
   maxHp: { type: Number, default: 50 },
   strength: { type: Number, default: 5 },
+  agility: { type: Number, default: 0 },
+  luck: { type: Number, default: 0 },
   statPoints: { type: Number, default: 0 },
   gold: { type: Number, default: 0 },
   energy: { type: Number, default: MAX_ENERGY },
@@ -37,6 +42,13 @@ const playerSchema = new mongoose.Schema({
   lastAdClaimDate: { type: String, default: '' }
 });
 
+// Cooldown de descanso reducido por Agilidad (3s menos por punto)
+playerSchema.methods.getRestCooldownMs = function () {
+  const agi = this.agility || 0;
+  const reductionMs = agi * 3 * 1000;
+  return Math.max(10 * 60 * 1000, BASE_REST_COOLDOWN_MS - reductionMs);
+};
+
 // Regeneración pasiva de energía (1 cada 10 min)
 playerSchema.methods.updateEnergy = function () {
   const now = Date.now();
@@ -52,13 +64,27 @@ playerSchema.methods.updateEnergy = function () {
 
 // Verificación y subida de nivel
 playerSchema.methods.checkLevelUp = function () {
+  if (this.level >= MAX_LEVEL) {
+    this.level = MAX_LEVEL;
+    return false;
+  }
+
   let req = getRequiredExp(this.level);
   let leveledUp = false;
 
-  while (this.exp >= req) {
+  while (typeof req === 'number' && this.exp >= req && this.level < MAX_LEVEL) {
     this.exp -= req;
     this.level += 1;
-    this.statPoints += 2;
+
+    // Reparto de puntos según el hito
+    if (this.level === 101) {
+      this.statPoints += 5;
+    } else if (this.level % 10 === 0) {
+      this.statPoints += 3;
+    } else {
+      this.statPoints += 2;
+    }
+
     this.hp = this.maxHp;
     this.energy = MAX_ENERGY;
     req = getRequiredExp(this.level);
@@ -70,6 +96,7 @@ playerSchema.methods.checkLevelUp = function () {
 
 // Subida de nivel al ganar EXP en expedición
 playerSchema.methods.addExp = function (amount) {
+  if (this.level >= MAX_LEVEL) return false;
   this.exp += amount;
   return this.checkLevelUp();
 };
@@ -104,7 +131,8 @@ module.exports = {
   Player,
   getPlayer,
   getRequiredExp,
+  MAX_LEVEL,
+  MAX_STAT,
   MAX_BASE_HP,
-  MAX_ENERGY,
-  REST_COOLDOWN_MS
+  MAX_ENERGY
 };
