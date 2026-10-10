@@ -185,26 +185,32 @@ function getStatusView(player) {
 
 // Vista detallada de Atributos
 function getStatsView(player) {
+  const str = player.strength || 0;
   const agi = player.agility || 0;
   const luk = player.luck || 0;
+
+  const dmgMitigation = ((str / (str + 60)) * 40).toFixed(1);
+  const dodgeChance = (agi * 0.3).toFixed(1);
+  const trapDodge = Math.min(60, 15 + (agi * 0.45)).toFixed(1);
+  const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
+
+  const critChance = Math.min(25, 5 + (luk * 0.20)).toFixed(1);
   const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
   const dropBonus = (luk * 0.05).toFixed(2);
-  const dodgeChance = (agi * 0.3).toFixed(1);
-  const trapDodge = (15 + (agi * 0.5)).toFixed(1);
-  const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
 
   let text = `📈 *Distribución de Atributos*\n\n` +
              `Puntos Disponibles: *${player.statPoints}*\n\n` +
-             `💪 *Fuerza (${player.strength}/${MAX_STAT}):*\n` +
-             `• +Oro extra en botín (hasta 50% de tope).\n` +
-             `• Reduce el daño físico recibido.\n\n` +
+             `💪 *Fuerza (${str}/${MAX_STAT}):*\n` +
+             `• Mitigación de daño físico: *${dmgMitigation}%*.\n` +
+             `• +Oro extra en botín (hasta 50% de tope).\n\n` +
              `❤️ *Salud Máxima (${player.maxHp}/${MAX_BASE_HP} HP):*\n` +
              `• Cada mejora suma +5 HP de vida máxima.\n\n` +
              `🏃 *Agilidad (${agi}/${MAX_STAT}):*\n` +
              `• Esquiva de combate: *${dodgeChance}%* por asalto.\n` +
-             `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
+             `• Esquiva de trampas: *${trapDodge}%* de éxito (máx: 60%).\n` +
              `• Cooldown de descanso: *${restCooldownMin} min*.\n\n` +
              `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
+             `• Golpe Crítico Afortunado: *${critChance}%* (-35% daño recibido, +20% EXP).\n` +
              `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n` +
              `• Bono de drop de pociones: *+${dropBonus}%*.\n\n`;
 
@@ -385,7 +391,7 @@ bot.action('menu_ranking', async (ctx) => {
   }
 });
 
-// Acción status: edición limpia sin alterar la barra inferior
+// Acción status: edición limpia para mantener el mensaje interactivo completo con sus botones
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   pendingMarketSales.delete(ctx.from.id);
@@ -931,12 +937,13 @@ async function startExpedition(ctx, dungeonKey) {
 
           const luckVal = p.luck || 0;
           const agiVal = p.agility || 0;
+          const strVal = p.strength || 0;
 
           // Probabilidad de tesoro pacífico: 10% base + (Suerte * 0.20%), tope 30%
           const peacefulChance = Math.min(0.30, 0.10 + (luckVal * 0.002));
 
           const maxStrBonus = Math.floor(enemy.maxGold * 0.5);
-          const strBonus = Math.min(p.strength, maxStrBonus);
+          const strBonus = Math.min(strVal, maxStrBonus);
 
           let resultMsg = '';
 
@@ -960,9 +967,9 @@ async function startExpedition(ctx, dungeonKey) {
             let trapMsg = '';
             let trapDmg = 0;
 
-            // Evento de Trampas (20% de probabilidad en Cripta y Dragón)
+            // Evento de Trampas (tope máximo del 60%)
             if (dungeon.hasTraps && Math.random() < 0.20) {
-              const dodgeTrapChance = Math.min(0.65, 0.15 + (agiVal * 0.005));
+              const dodgeTrapChance = Math.min(0.60, 0.15 + (agiVal * 0.0045));
               if (Math.random() < dodgeTrapChance) {
                 trapMsg = `🤸 ¡Tus reflejos de Agilidad te permitieron esquivar una trampa mortal en el camino!\n\n`;
               } else {
@@ -974,7 +981,7 @@ async function startExpedition(ctx, dungeonKey) {
 
             if (p.hp > 0) {
               const hitsCount = enemy.hits || 1;
-              let totalCombatDmg = 0;
+              let rawCombatDmg = 0;
               let dodgedHits = 0;
 
               for (let i = 0; i < hitsCount; i++) {
@@ -982,17 +989,36 @@ async function startExpedition(ctx, dungeonKey) {
                 if (Math.random() < dodgeChance) {
                   dodgedHits++;
                 } else {
-                  const rawDmg = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
-                  const netDmg = Math.max(1, rawDmg - Math.floor(p.strength / (hitsCount > 1 ? 4 : 2)));
-                  totalCombatDmg += netDmg;
+                  const singleHit = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
+                  rawCombatDmg += singleHit;
                 }
               }
 
+              // Mitigación porcentual de daño físico por Fuerza (máximo 25% a 100 STR)
+              const strMitigationRatio = (strVal / (strVal + 60)) * 0.40;
+              let mitigatedCombatDmg = Math.round(rawCombatDmg * (1 - strMitigationRatio));
+
+              // Golpe Crítico por Suerte (5% base hasta 25% a 100 LUK)
+              const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002));
+              let isCrit = false;
+              let critMsg = '';
+
+              if (rawCombatDmg > 0 && Math.random() < critChance) {
+                isCrit = true;
+                mitigatedCombatDmg = Math.round(mitigatedCombatDmg * 0.65); // Reduce 35% el daño sufrido
+                critMsg = `✨ ¡Asestaste un *Golpe Crítico Afortunado*! Redujiste el ataque enemigo y ganaste +20% EXP.\n`;
+              }
+
+              const totalCombatDmg = Math.max(rawCombatDmg > 0 ? 1 : 0, mitigatedCombatDmg);
               p.hp = Math.max(0, p.hp - totalCombatDmg);
 
               const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
               const goldGained = baseGold + strBonus;
-              const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+
+              let expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
+              if (isCrit) {
+                expGained = Math.round(expGained * 1.20);
+              }
 
               if (p.hp === 0) {
                 const lostExp = p.applyDeathPenalty();
@@ -1018,6 +1044,7 @@ async function startExpedition(ctx, dungeonKey) {
                 const dropMsg = rollDungeonDrops(dungeon, p);
 
                 resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                            critMsg +
                             `Derrotaste a un ${enemy.name}.\n` +
                             (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
                             `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
