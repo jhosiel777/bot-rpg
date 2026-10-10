@@ -611,8 +611,7 @@ bot.action('adm_boss_review', async (ctx) => {
     buttons.push([Markup.button.callback('🔄 Restaurar Mensaje por Defecto', 'adm_boss_reset_msg')]);
   }
 
-  buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]
-  );
+  buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
@@ -994,13 +993,12 @@ async function distributeBossRewards(boss) {
     const totalDmgAll = parts.reduce((acc, p) => acc + p.totalDamage, 0) || 1;
     const participantCount = parts.length;
 
-    // Pool dinámica escalada por jugadores y vida: evita pools gigantescas para pocos jugadores
-    // Si son pocos jugadores, la pool es moderada y el resto se quema
-    const goldMultiplier = Math.min(2.0, 0.40 * participantCount);
-    const expMultiplier = Math.min(2.5, 0.50 * participantCount);
+    // Escala equilibrada y progresiva para la Pool
+    const goldMultiplier = 0.8 + Math.min(1.2, participantCount * 0.25);
+    const expMultiplier = 1.0 + Math.min(1.5, participantCount * 0.30);
 
-    const baseGoldPool = Math.round(boss.maxHp * goldMultiplier);
-    const baseExpPool = Math.round(boss.maxHp * expMultiplier);
+    const baseGoldPool = 350 + Math.round(boss.maxHp * goldMultiplier);
+    const baseExpPool = 450 + Math.round(boss.maxHp * expMultiplier);
 
     const top1 = parts[0];
     const top2 = parts.length > 1 ? parts[1] : null;
@@ -1057,24 +1055,24 @@ async function distributeBossRewards(boss) {
 
       // Bonos de posición MUTUAMENTE EXCLUSIVOS (no se acumulan Top 1, Top 2 y Top 3 entre sí)
       if (p.userId === top1.userId) {
-        earnedGold += 200;
-        rawExp += 250;
+        earnedGold += 250;
+        rawExp += 350;
       } else if (top2 && p.userId === top2.userId) {
-        earnedGold += 120;
-        rawExp += 150;
+        earnedGold += 150;
+        rawExp += 200;
       } else if (top3 && p.userId === top3.userId) {
-        earnedGold += 60;
-        rawExp += 80;
+        earnedGold += 80;
+        rawExp += 100;
       }
 
       // Hazañas específicas
       if (lastHitter && p.userId === lastHitter.userId) {
-        earnedGold += 100;
-        rawExp += 120;
+        earnedGold += 150;
+        rawExp += 200;
       }
       if (firstHitter && p.userId === firstHitter.userId) {
-        earnedGold += 60;
-        rawExp += 80;
+        earnedGold += 100;
+        rawExp += 150;
       }
 
       // CAP ESTRICTO DE EXP: Máximo equivalente a subir 3 niveles desde su nivel actual
@@ -1086,7 +1084,6 @@ async function distributeBossRewards(boss) {
         }
       }
 
-      // La EXP neta que puede ganar no superará el cap calculado para 3 niveles
       const earnedExp = Math.min(rawExp, maxAllowedExp);
 
       playerDoc.gold += earnedGold;
@@ -1100,6 +1097,7 @@ async function distributeBossRewards(boss) {
 
       const individualMsg = `🏆 *¡Recompensas del Coloso: ${boss.name}!* \n\n` +
                             `• Tu daño aportado: *${p.totalDamage.toLocaleString()}*\n` +
+                            `• Bolsa Global (Pool): *${baseGoldPool.toLocaleString()}g* | *${baseExpPool.toLocaleString()} EXP*\n` +
                             `💰 Oro ganado: *+${earnedGold.toLocaleString()}g*\n` +
                             `🔮 EXP ganada: *+${earnedExp.toLocaleString()}*\n` +
                             (elixirWinners.has(p.userId) ? `🩸 *¡Obtuviste 1x Elixir de Sangre de Dragón!*\n` : '') +
@@ -1111,6 +1109,7 @@ async function distributeBossRewards(boss) {
     }
 
     const publicMsg = `🎉 *¡${boss.name} HA SIDO ANIQUILADO!*\n\n` +
+                      `📊 *Bolsa Total (Pool):* 💰 ${baseGoldPool.toLocaleString()}g | 🔮 ${baseExpPool.toLocaleString()} EXP\n\n` +
                       `🥇 *Top 1 en Daño:* ${top1.name} (${top1.totalDamage.toLocaleString()} daño)\n` +
                       (top2 ? `🥈 *Top 2 en Daño:* ${top2.name} (${top2.totalDamage.toLocaleString()} daño)\n` : '') +
                       `⚡ *Primer Golpe:* ${firstHitter ? firstHitter.name : 'N/A'}\n` +
@@ -2297,7 +2296,7 @@ async function startExpedition(ctx, dungeonKey) {
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
             p.gold += bonusGold;
             const leveledUp = p.addExp(expGained);
-            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
+            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
             const dropMsg = rollDungeonDrops(dungeon, p);
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
@@ -2375,12 +2374,7 @@ async function startExpedition(ctx, dungeonKey) {
               } else {
                 p.gold += goldGained;
                 const leveledUp = p.addExp(expGained);
-                let levelUpNotice = '';
-
-                if (leveledUp) {
-                  levelUpNotice = `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
-                }
-
+                const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
                 const dropMsg = rollDungeonDrops(dungeon, p);
 
                 resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
