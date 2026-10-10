@@ -196,8 +196,8 @@ bot.hears('🎒 Inventario', async (ctx) => {
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
                `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
                `*Objetos:*\n` +
-               `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
-               `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
+               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
                `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
                `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                `Toca un botón para consumir un objeto:`;
