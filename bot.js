@@ -6,6 +6,8 @@ const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
 const { getRankingText } = require('./ranking');
 const {
+  initMarketPrices,
+  evaluateDynamicPrice,
   getMarketView,
   createListing,
   buyListing,
@@ -29,7 +31,11 @@ const {
 const ADMIN_ID = 835648800;
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ Base de datos MongoDB conectada'))
+  .then(async () => {
+    console.log('✅ Base de datos MongoDB conectada');
+    await initMarketPrices();
+    scheduleNextUtcCycle();
+  })
   .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -41,6 +47,29 @@ const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 let adminBroadcastWaiting = false;
+
+// Planificador exacto de ciclos fijos de 4 horas UTC (00, 04, 08, 12, 16, 20)
+function scheduleNextUtcCycle() {
+  const now = new Date();
+  const currentHour = now.getUTCHours();
+  const nextCycleHour = Math.floor(currentHour / 4) * 4 + 4;
+
+  const target = new Date(now);
+  target.setUTCHours(nextCycleHour, 0, 0, 0);
+
+  const delayMs = target.getTime() - now.getTime();
+
+  setTimeout(async () => {
+    try {
+      const cycleEnd = new Date();
+      const cycleStart = new Date(cycleEnd.getTime() - 4 * 60 * 60 * 1000);
+      await evaluateDynamicPrice(cycleStart, cycleEnd);
+    } catch (err) {
+      console.error('Error ejecutando ciclo dinámico de 4h UTC:', err.message);
+    }
+    scheduleNextUtcCycle();
+  }, delayMs);
+}
 
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
@@ -356,7 +385,7 @@ bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Detalle individual de un usuario con opción de revivirlo
+// Detalle individual de un usuario
 bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -374,7 +403,6 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
 
   const today = new Date().toISOString().slice(0, 10);
   const adsToday = (u.lastAdClaimDate === today) ? (u.adsClaimedToday || 0) : 0;
-  // Si vio anuncios hoy antes de la actualización, asegura que el total refleje al menos los de hoy
   const adsTotal = Math.max(u.totalAdsClaimed || 0, adsToday);
 
   let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
@@ -519,7 +547,7 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
-// Manejo de mensajes de texto: Broadcast global o venta en Mercado P2P
+// Mensajes de texto: Broadcast global o fijación de precio en Mercado P2P
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
@@ -687,7 +715,7 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
     });
 
     buttons.push([
-      Markup.button.callback('📊 Tendencias (24h)', 'mkt_trends'),
+      Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'),
       Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')
     ]);
     buttons.push([
@@ -770,7 +798,7 @@ async function renderMarket(ctx) {
   });
 
   buttons.push([
-    Markup.button.callback('📊 Tendencias (24h)', 'mkt_trends'),
+    Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'),
     Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')
   ]);
   buttons.push([
