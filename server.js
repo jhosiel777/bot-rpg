@@ -1,14 +1,17 @@
 const express = require('express');
 const https = require('https');
+const { Markup } = require('telegraf');
 const { Player } = require('./playerModel');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 const APP_URL = 'https://bot-rpg-wu42.onrender.com';
+const ADMIN_ID = 835648800;
+
+let botInstance = null;
 
 app.use(express.json());
 
-// Block ID de Adsgram asignado
 const ADSGRAM_BLOCK_ID = process.env.ADSGRAM_BLOCK_ID || '53014';
 
 // Ruta raíz para health checks de Render
@@ -169,16 +172,38 @@ app.post('/api/claim-ad-drink', async (req, res) => {
     const player = await Player.findOne({ userId });
     if (!player) return res.status(404).json({ success: false, msg: 'Jugador no encontrado.' });
 
+    const isCreator = (Number(userId) === ADMIN_ID);
+
     // Regla 1: Máximo 5 bebidas en mochila
     const currentDrinks = player.potionsEnergyDrink || 0;
     if (currentDrinks >= 5) {
+      if (isCreator && botInstance) {
+        try {
+          await botInstance.telegram.sendMessage(
+            ADMIN_ID,
+            `👑 *Atención Creador:*\nViste un anuncio pero tu mochila ya tiene el tope de *${currentDrinks}/5* bebidas.\n\n¿Deseas agregar la bebida a tu inventario igualmente?`,
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🥤 Sí, agregar a mi inventario', 'adm_claim_overflow_drink')]
+              ])
+            }
+          );
+        } catch (e) {}
+
+        return res.json({
+          success: false,
+          msg: '👑 Límite alcanzado. Revisa tu chat con el bot para confirmar si la agregas.'
+        });
+      }
+
       return res.json({
         success: false,
         msg: '⚠️ Ya tienes el máximo de 5 Bebidas en tu inventario.'
       });
     }
 
-    // Regla 2: Máximo 3 al día (reseteo diario)
+    // Regla 2: Máximo 3 al día
     const today = new Date().toISOString().slice(0, 10);
     if (player.lastAdClaimDate !== today) {
       player.lastAdClaimDate = today;
@@ -186,13 +211,33 @@ app.post('/api/claim-ad-drink', async (req, res) => {
     }
 
     if (player.adsClaimedToday >= 3) {
+      if (isCreator && botInstance) {
+        try {
+          await botInstance.telegram.sendMessage(
+            ADMIN_ID,
+            `👑 *Atención Creador:*\nViste un anuncio pero alcanzaste tus *3/3* bebidas de hoy.\n\n¿Deseas agregar la bebida a tu inventario igualmente?`,
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🥤 Sí, agregar a mi inventario', 'adm_claim_overflow_drink')]
+              ])
+            }
+          );
+        } catch (e) {}
+
+        return res.json({
+          success: false,
+          msg: '👑 Límite diario alcanzado. Revisa tu chat con el bot para confirmar si la agregas.'
+        });
+      }
+
       return res.json({
         success: false,
         msg: '⚠️ Ya reclamaste tus 3 bebidas de hoy. Vuelve mañana.'
       });
     }
 
-    // Acreditar bebida
+    // Acreditar bebida normalmente
     player.potionsEnergyDrink = currentDrinks + 1;
     player.adsClaimedToday += 1;
     await player.save();
@@ -208,7 +253,9 @@ app.post('/api/claim-ad-drink', async (req, res) => {
   }
 });
 
-function startServer() {
+function startServer(bot) {
+  if (bot) botInstance = bot;
+
   app.listen(PORT, () => {
     console.log(`🌐 Servidor HTTP activo en puerto ${PORT}`);
 
