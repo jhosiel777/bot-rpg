@@ -30,9 +30,9 @@ const DUNGEONS = {
     travelSec: 35,
     hasTraps: true,
     enemies: [
-      { name: 'Cría de Dragón Volcánico', minDmg: 10, maxDmg: 16, minGold: 40, maxGold: 75, minExp: 80, maxExp: 130, hits: 3 },
-      { name: 'Guardián Dragontino', minDmg: 12, maxDmg: 18, minGold: 55, maxGold: 100, minExp: 110, maxExp: 170, hits: 3 },
-      { name: 'Dragón del Abismo', minDmg: 10, maxDmg: 20, minGold: 70, maxGold: 140, minExp: 150, maxExp: 230, hits: 3 }
+      { name: 'Cría de Dragón Volcánico', minDmg: 6, maxDmg: 10, minGold: 40, maxGold: 75, minExp: 80, maxExp: 130, hits: 3 },
+      { name: 'Guardián Dragontino', minDmg: 10, maxDmg: 15, minGold: 55, maxGold: 100, minExp: 110, maxExp: 170, hits: 3 },
+      { name: 'Dragón del Abismo', minDmg: 15, maxDmg: 22, minGold: 70, maxGold: 140, minExp: 150, maxExp: 230, hits: 3 }
     ]
   }
 };
