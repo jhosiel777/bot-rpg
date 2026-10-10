@@ -372,6 +372,10 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
   const hpPoints = Math.max(0, Math.floor(((u.maxHp || 50) - 50) / 5));
   const isKO = (u.knockedOutUntil && Date.now() < u.knockedOutUntil) || u.hp <= 0;
 
+  const today = new Date().toISOString().slice(0, 10);
+  const adsToday = (u.lastAdClaimDate === today) ? (u.adsClaimedToday || 0) : 0;
+  const adsTotal = u.totalAdsClaimed || 0;
+
   let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
              `🆔 Telegram ID: ` + u.userId + `\n` +
              `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
@@ -395,7 +399,10 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
           `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
           `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
           `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
-          `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}\n\n` +
+          `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n\n` +
+          `📺 *Anuncios Vistos:*\n` +
+          `• Hoy: *${adsToday}*\n` +
+          `• Total Histórico: *${adsTotal}*\n\n` +
           `🛡️ *Equipamiento Actual:*\n` +
           `_Próximamente disponible._`;
 
@@ -405,7 +412,7 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
     buttons.push([Markup.button.callback('✨ Revivir Aventurero (Admin)', `adm_revive_target_${u.userId}_${backPage}`)]);
   }
 
-  buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)] );
+  buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
