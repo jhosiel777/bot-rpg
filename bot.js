@@ -249,13 +249,18 @@ bot.hears('🎒 Inventario', async (ctx) => {
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
-               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-               `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
-               `Toca un botón para consumir un objeto:`;
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
+
+    if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
+      text += `🚶 *En expedición:* Pociones de salud usadas: ${player.potionsUsedInMission || 0}/2\n\n`;
+    }
+
+    text += `*Objetos:*\n` +
+            `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+            `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+            `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+            `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
     if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
@@ -582,7 +587,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Inventario
+// Inventario y uso de objetos con límite de 2 pociones en expedición
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -590,13 +595,18 @@ bot.action('menu_inv', async (ctx) => {
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
-               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-               `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-               `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
-               `Toca un botón para consumir un objeto:`;
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
+
+    if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
+      text += `🚶 *En expedición:* Pociones de salud usadas: ${player.potionsUsedInMission || 0}/2\n\n`;
+    }
+
+    text += `*Objetos:*\n` +
+            `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+            `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+            `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+            `Toca un botón para consumir un objeto:`;
 
     const buttons = [];
     if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
@@ -622,12 +632,30 @@ Object.keys(ITEMS).forEach((key) => {
       }
 
       if (item.type === 'hp') {
+        const inMission = player.onMissionUntil && Date.now() < player.onMissionUntil;
+
+        // Límite de 2 pociones de salud durante una expedición
+        if (inMission && (player.potionsUsedInMission || 0) >= 2) {
+          return await safeAnswerCb(
+            ctx,
+            '⚠️ Solo puedes usar un máximo de 2 pociones de salud durante una expedición.',
+            true
+          );
+        }
+
         if (player.hp >= player.maxHp) {
           return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
         }
+
         player[item.field] -= 1;
         player.hp = Math.min(player.maxHp, player.hp + item.value);
-        await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
+
+        if (inMission) {
+          player.potionsUsedInMission = (player.potionsUsedInMission || 0) + 1;
+          await safeAnswerCb(ctx, `Recuperaste +${item.value} HP. (Pociones en viaje: ${player.potionsUsedInMission}/2)`, true);
+        } else {
+          await safeAnswerCb(ctx, `Recuperaste +${item.value} HP.`, true);
+        }
       } else if (item.type === 'energy') {
         if (player.energy >= MAX_ENERGY) {
           return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
@@ -641,13 +669,18 @@ Object.keys(ITEMS).forEach((key) => {
 
       let text = `🎒 *Mochila de Aventurero*\n\n` +
                  `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-                 `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
-                 `*Objetos:*\n` +
-                 `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
-                 `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-                 `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-                 `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
-                 `Toca un botón para consumir un objeto:`;
+                 `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
+
+      if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
+        text += `🚶 *En expedición:* Pociones de salud usadas: ${player.potionsUsedInMission || 0}/2\n\n`;
+      }
+
+      text += `*Objetos:*\n` +
+              `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+              `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+              `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+              `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
+              `Toca un botón para consumir un objeto:`;
 
       const buttons = [];
       if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Menor', 'use_potion_small')]);
@@ -846,6 +879,7 @@ async function startExpedition(ctx, dungeonKey) {
 
     player.energy -= dungeon.cost;
     player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
+    player.potionsUsedInMission = 0; // Se reinicia el contador al comenzar nueva expedición
     await player.save();
     await safeAnswerCb(ctx);
 
@@ -859,6 +893,7 @@ async function startExpedition(ctx, dungeonKey) {
         const p = await Player.findOne({ userId });
         if (p) {
           p.onMissionUntil = 0;
+          p.potionsUsedInMission = 0;
           const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
           const roll = Math.random();
 
