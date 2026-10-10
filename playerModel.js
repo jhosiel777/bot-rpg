@@ -26,6 +26,7 @@ const playerSchema = new mongoose.Schema({
   energy: { type: Number, default: MAX_ENERGY },
   lastEnergyUpdate: { type: Number, default: () => Date.now() },
   onMissionUntil: { type: Number, default: 0 },
+  potionsUsedInMission: { type: Number, default: 0 }, // Límite de pociones de salud en expedición
   lastRestTime: { type: Number, default: 0 },
 
   // Inventario básico
