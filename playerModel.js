@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const MAX_LEVEL = 50;
+const MAX_LEVEL = 101;
 const MAX_STAT = 100;
 const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
@@ -89,8 +89,9 @@ const globalStatsSchema = new mongoose.Schema({
 
 const GlobalStats = mongoose.model('GlobalStats', globalStatsSchema);
 
+// Curva de EXP con mayor dificultad progresiva (escala x1.22)
 function getRequiredExp(level) {
-  return Math.floor(100 * Math.pow(1.15, level - 1));
+  return Math.floor(100 * Math.pow(1.22, level - 1));
 }
 
 async function getPlayer(userId, name = 'Aventurero') {
