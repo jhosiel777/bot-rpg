@@ -524,8 +524,8 @@ bot.action('menu_inv', async (ctx) => {
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
                `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
                `*Objetos:*\n` +
-               `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
-               `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
+               `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+               `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
                `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
                `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                `Toca un botón para consumir un objeto:`;
@@ -575,8 +575,8 @@ Object.keys(ITEMS).forEach((key) => {
                  `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
                  `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
                  `*Objetos:*\n` +
-                 `• Poción Menor de Vida (+15 HP): ${player.potionsSmall || 0}\n` +
-                 `• Poción Mayor de Vida (+30 HP): ${player.potionsMedium || 0}\n` +
+                 `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+                 `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
                  `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
                  `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n\n` +
                  `Toca un botón para consumir un objeto:`;
@@ -640,15 +640,24 @@ bot.action('menu_stats', async (ctx) => {
     const agi = player.agility || 0;
     const luk = player.luck || 0;
     const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
+    const dodgeChance = (agi * 0.3).toFixed(1);
+    const trapDodge = (15 + (agi * 0.5)).toFixed(1);
     const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
 
     const text = `📈 *Distribución de Atributos*\n\n` +
                  `Puntos Disponibles: *${player.statPoints}*\n\n` +
-                 `💪 *Fuerza:* ${player.strength}/${MAX_STAT} (+Oro, Mitiga daño)\n` +
-                 `❤️ *Salud Máxima:* ${player.maxHp}/${MAX_BASE_HP} HP\n` +
-                 `🏃 *Agilidad:* ${agi}/${MAX_STAT} (Esquiva, Descanso: ${restCooldownMin}m)\n` +
-                 `🍀 *Suerte:* ${luk}/${MAX_STAT} (Tesoro pacífico: ${peacefulChance}%)\n\n` +
-                 `Selecciona qué estadística deseas aumentar:`;
+                 `💪 *Fuerza (${player.strength}/100):*\n` +
+                 `• +Oro extra en botín (hasta un 50% de tope).\n` +
+                 `• Reduce el daño físico que recibes de los enemigos.\n\n` +
+                 `❤️ *Salud Máxima (${player.maxHp}/300 HP):*\n` +
+                 `• Cada punto añade +5 de vida máxima para resistir mazmorras.\n\n` +
+                 `🏃 *Agilidad (${agi}/100):*\n` +
+                 `• Esquiva de combate: *${dodgeChance}%* por golpe.\n` +
+                 `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
+                 `• Cooldown de descanso: reducido a *${restCooldownMin} min*.\n\n` +
+                 `🍀 *Suerte (${luk}/100):*\n` +
+                 `• Probabilidad de hallar tesoros pacíficos sin pelear: *${peacefulChance}%*.\n\n` +
+                 `Elige qué atributo mejorar:`;
 
     const buttons = [];
     if (player.statPoints > 0) {
