@@ -34,9 +34,9 @@ const activeExpeditions = new Set();
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 
-// Menú persistente inferior
+// Menú persistente inferior con pestaña Atributos
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
-  ['⚔️ Estado', '🎒 Inventario'],
+  ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
   ['🏪 Mercado P2P', '🏆 Salón de la Fama']
 ]).resize();
 
@@ -82,7 +82,7 @@ function formatHoursMinutes(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m ${s}s`;
+  return `${m}s`;
 }
 
 function getStatusView(player) {
@@ -96,7 +96,7 @@ function getStatusView(player) {
              `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
              `💰 Oro: ${player.gold}\n\n`;
 
-  // Comprobar si está en expedición
+  // Tiempo restante de expedición
   if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
     const missionSecLeft = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
     text += `🚶 *En expedición:* Regresa en ${missionSecLeft}s\n`;
@@ -135,19 +135,61 @@ function getStatusView(player) {
     [
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
-    ]
+    ],
+    [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
-
-  if (player.statPoints > 0) {
-    buttons.push([Markup.button.callback(`📈 Distribuir Puntos (${player.statPoints})`, 'menu_stats')]);
-  }
-
-  buttons.push([Markup.button.callback('🔄 Actualizar Estado', 'status')]);
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Handler general para iniciar o abrir menú (/start, /menu)
+// Vista detallada de Atributos
+function getStatsView(player) {
+  const agi = player.agility || 0;
+  const luk = player.luck || 0;
+  const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
+  const dodgeChance = (agi * 0.3).toFixed(1);
+  const trapDodge = (15 + (agi * 0.5)).toFixed(1);
+  const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
+
+  let text = `📈 *Distribución de Atributos*\n\n` +
+             `Puntos Disponibles: *${player.statPoints}*\n\n` +
+             `💪 *Fuerza (${player.strength}/${MAX_STAT}):*\n` +
+             `• +Oro extra en botín (hasta 50% de tope).\n` +
+             `• Reduce el daño físico recibido.\n\n` +
+             `❤️ *Salud Máxima (${player.maxHp}/${MAX_BASE_HP} HP):*\n` +
+             `• Cada mejora suma +5 HP de vida máxima.\n\n` +
+             `🏃 *Agilidad (${agi}/${MAX_STAT}):*\n` +
+             `• Esquiva de combate: *${dodgeChance}%* por asalto.\n` +
+             `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
+             `• Cooldown de descanso: *${restCooldownMin} min*.\n\n` +
+             `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
+             `• Probabilidad de tesoro pacífico: *${peacefulChance}%*.\n\n`;
+
+  if (player.statPoints > 0) {
+    text += `Elige qué atributo mejorar:`;
+  } else {
+    text += `_No tienes puntos para asignar. Sube de nivel para ganar más._`;
+  }
+
+  const buttons = [];
+  if (player.statPoints > 0) {
+    const row1 = [];
+    if (player.strength < MAX_STAT) row1.push(Markup.button.callback('💪 +1 Fuerza', 'add_str'));
+    if (player.maxHp < MAX_BASE_HP) row1.push(Markup.button.callback('❤️ +5 HP', 'add_hp'));
+    if (row1.length) buttons.push(row1);
+
+    const row2 = [];
+    if (agi < MAX_STAT) row2.push(Markup.button.callback('🏃 +1 Agilidad', 'add_agi'));
+    if (luk < MAX_STAT) row2.push(Markup.button.callback('🍀 +1 Suerte', 'add_luk'));
+    if (row2.length) buttons.push(row2);
+  }
+
+  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+  return { text, keyboard: Markup.inlineKeyboard(buttons) };
+}
+
+// Handlers /start y /menu
 async function handleStartMenu(ctx) {
   try {
     const userId = ctx.from.id;
@@ -175,6 +217,7 @@ async function handleStartMenu(ctx) {
 bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
+// Teclado inferior fijo
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
     pendingMarketSales.delete(ctx.from.id);
@@ -184,6 +227,18 @@ bot.hears('⚔️ Estado', async (ctx) => {
     lastUserMessages.set(ctx.from.id, sent.message_id);
   } catch (err) {
     console.error('Error en botón Estado:', err);
+  }
+});
+
+bot.hears('📈 Atributos', async (ctx) => {
+  try {
+    pendingMarketSales.delete(ctx.from.id);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const view = getStatsView(player);
+    const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
+    lastUserMessages.set(ctx.from.id, sent.message_id);
+  } catch (err) {
+    console.error('Error en botón Atributos:', err);
   }
 });
 
@@ -295,7 +350,7 @@ bot.action('status', async (ctx) => {
   }
 });
 
-// Mercado
+// Mercado P2P
 async function renderMarket(ctx) {
   const { text, listings } = await getMarketView(ctx.from.id);
   const buttons = [];
@@ -451,6 +506,7 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
+// Tienda NPC
 function getShopView(player) {
   let text = `🛒 *Tienda del Aventurero*\n` +
              `💰 Tu Oro: ${player.gold}\n\n` +
@@ -515,6 +571,7 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
+// Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -632,49 +689,13 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Menú de Atributos (4 Stats)
+// Atributos y subida de stats
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-    const agi = player.agility || 0;
-    const luk = player.luck || 0;
-    const peacefulChance = (10 + (luk * 0.20)).toFixed(1);
-    const dodgeChance = (agi * 0.3).toFixed(1);
-    const trapDodge = (15 + (agi * 0.5)).toFixed(1);
-    const restCooldownMin = (player.getRestCooldownMs() / 60000).toFixed(1);
-
-    const text = `📈 *Distribución de Atributos*\n\n` +
-                 `Puntos Disponibles: *${player.statPoints}*\n\n` +
-                 `💪 *Fuerza (${player.strength}/100):*\n` +
-                 `• +Oro extra en botín (hasta un 50% de tope).\n` +
-                 `• Reduce el daño físico que recibes de los enemigos.\n\n` +
-                 `❤️ *Salud Máxima (${player.maxHp}/300 HP):*\n` +
-                 `• Cada punto añade +5 de vida máxima para resistir mazmorras.\n\n` +
-                 `🏃 *Agilidad (${agi}/100):*\n` +
-                 `• Esquiva de combate: *${dodgeChance}%* por golpe.\n` +
-                 `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
-                 `• Cooldown de descanso: reducido a *${restCooldownMin} min*.\n\n` +
-                 `🍀 *Suerte (${luk}/100):*\n` +
-                 `• Probabilidad de hallar tesoros pacíficos sin pelear: *${peacefulChance}%*.\n\n` +
-                 `Elige qué atributo mejorar:`;
-
-    const buttons = [];
-    if (player.statPoints > 0) {
-      const row1 = [];
-      if (player.strength < MAX_STAT) row1.push(Markup.button.callback('💪 +1 Fuerza', 'add_str'));
-      if (player.maxHp < MAX_BASE_HP) row1.push(Markup.button.callback('❤️ +5 HP', 'add_hp'));
-      if (row1.length) buttons.push(row1);
-
-      const row2 = [];
-      if (agi < MAX_STAT) row2.push(Markup.button.callback('🏃 +1 Agilidad', 'add_agi'));
-      if (luk < MAX_STAT) row2.push(Markup.button.callback('🍀 +1 Suerte', 'add_luk'));
-      if (row2.length) buttons.push(row2);
-    }
-
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    const view = getStatsView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en menu_stats:', err);
   }
@@ -689,10 +710,10 @@ bot.action('add_str', async (ctx) => {
     player.statPoints -= 1;
     player.strength += 1;
     await player.save();
-    await safeAnswerCb(ctx, `+1 Fuerza asignado (${player.strength}/${MAX_STAT})`);
+    await safeAnswerCb(ctx, `+1 Fuerza asignado`);
 
-    const view = getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    const view = getStatsView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en add_str:', err);
   }
@@ -708,10 +729,10 @@ bot.action('add_hp', async (ctx) => {
     player.maxHp = Math.min(MAX_BASE_HP, player.maxHp + 5);
     player.hp = Math.min(player.maxHp, player.hp + 5);
     await player.save();
-    await safeAnswerCb(ctx, `+5 Salud Máxima asignado (${player.maxHp}/${MAX_BASE_HP})`);
+    await safeAnswerCb(ctx, `+5 Salud Máxima asignado`);
 
-    const view = getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    const view = getStatsView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en add_hp:', err);
   }
@@ -726,10 +747,10 @@ bot.action('add_agi', async (ctx) => {
     player.statPoints -= 1;
     player.agility = (player.agility || 0) + 1;
     await player.save();
-    await safeAnswerCb(ctx, `+1 Agilidad asignado (${player.agility}/${MAX_STAT})`);
+    await safeAnswerCb(ctx, `+1 Agilidad asignado`);
 
-    const view = getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    const view = getStatsView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en add_agi:', err);
   }
@@ -744,10 +765,10 @@ bot.action('add_luk', async (ctx) => {
     player.statPoints -= 1;
     player.luck = (player.luck || 0) + 1;
     await player.save();
-    await safeAnswerCb(ctx, `+1 Suerte asignado (${player.luck}/${MAX_STAT})`);
+    await safeAnswerCb(ctx, `+1 Suerte asignado`);
 
-    const view = getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    const view = getStatsView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en add_luk:', err);
   }
@@ -842,47 +863,46 @@ async function startExpedition(ctx, dungeonKey) {
           let resultMsg = '';
 
           if (roll < peacefulChance) {
-            // Evento pacífico (Tesoro)
+            // Evento pacífico
             const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
             const bonusGold = baseGold + strBonus;
             const expGained = Math.floor(Math.random() * (enemy.maxExp - enemy.minExp + 1)) + enemy.minExp;
             p.gold += bonusGold;
-            p.addExp(expGained);
+            const leveledUp = p.addExp(expGained);
+            const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
 
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
                         `🍀 ¡Tu suerte te permitió sortear peligros y hallar un tesoro pacíficamente!\n` +
                         `💰 Oro: +${bonusGold} (Bono Fuerza: +${strBonus})\n` +
-                        `🔮 EXP: +${expGained}`;
+                        `🔮 EXP: +${expGained}` +
+                        levelUpNotice;
           } else {
             let trapMsg = '';
             let trapDmg = 0;
 
-            // Evento de Trampas en Cripta y Dragón (20% de probabilidad)
+            // Evento de Trampas (20% de probabilidad en Cripta y Dragón)
             if (dungeon.hasTraps && Math.random() < 0.20) {
               const dodgeTrapChance = Math.min(0.65, 0.15 + (agiVal * 0.005));
               if (Math.random() < dodgeTrapChance) {
                 trapMsg = `🤸 ¡Tus reflejos de Agilidad te permitieron esquivar una trampa mortal en el camino!\n\n`;
               } else {
-                trapDmg = Math.floor(Math.random() * 8) + 5; // 5 a 12 de daño de trampa
+                trapDmg = Math.floor(Math.random() * 8) + 5;
                 p.hp = Math.max(0, p.hp - trapDmg);
                 trapMsg = `⚠️ ¡Pisaste una trampa de pinchos y perdiste ${trapDmg} HP antes del combate!\n\n`;
               }
             }
 
-            // Si sobrevivió a la trampa, combate contra el enemigo
             if (p.hp > 0) {
               const hitsCount = enemy.hits || 1;
               let totalCombatDmg = 0;
               let dodgedHits = 0;
 
               for (let i = 0; i < hitsCount; i++) {
-                // Esquiva por Agilidad: 0.3% por punto
                 const dodgeChance = Math.min(0.35, agiVal * 0.003);
                 if (Math.random() < dodgeChance) {
                   dodgedHits++;
                 } else {
                   const rawDmg = Math.floor(Math.random() * (enemy.maxDmg - enemy.minDmg + 1)) + enemy.minDmg;
-                  // Reducción por Fuerza (mínimo 1 por golpe conectado)
                   const netDmg = Math.max(1, rawDmg - Math.floor(p.strength / (hitsCount > 1 ? 4 : 2)));
                   totalCombatDmg += netDmg;
                 }
@@ -906,25 +926,24 @@ async function startExpedition(ctx, dungeonKey) {
                             `⏳ No podrás explorar durante las próximas 2 horas.\n` +
                             `⚠️ Perdiste ${lostExp} de EXP acumulada.\n` +
                             `Descansa en el campamento o usa pociones para reponerte.`;
-          } else {
-  p.gold += goldGained;
-  const leveledUp = p.addExp(expGained);
-  let levelUpNotice = '';
+              } else {
+                p.gold += goldGained;
+                const leveledUp = p.addExp(expGained);
+                let levelUpNotice = '';
 
-  if (leveledUp) {
-    levelUpNotice = `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
-  }
+                if (leveledUp) {
+                  levelUpNotice = `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!`;
+                }
 
-  resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
-              `Derrotaste a un ${enemy.name}.\n` +
-              (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
-              `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
-              `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
-              `🔮 EXP: +${expGained}` +
-              levelUpNotice;
-}
+                resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
+                            `Derrotaste a un ${enemy.name}.\n` +
+                            (hitsCount > 1 ? `💥 Daño recibido en ${hitsCount} asaltos: ${totalCombatDmg} (Esquivaste ${dodgedHits})\n` : `💥 Daño recibido: ${totalCombatDmg}\n`) +
+                            `❤️ Salud: ${p.hp}/${p.maxHp}\n` +
+                            `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
+                            `🔮 EXP: +${expGained}` +
+                            levelUpNotice;
+              }
             } else {
-              // Murió por la trampa
               const lostExp = p.applyDeathPenalty();
               const KNOCKOUT_MS = 2 * 60 * 60 * 1000;
               p.knockedOutUntil = Date.now() + KNOCKOUT_MS;
