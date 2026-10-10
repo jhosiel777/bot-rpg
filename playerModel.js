@@ -1,16 +1,9 @@
 const mongoose = require('mongoose');
 
-const MAX_LEVEL = 101;
+const MAX_LEVEL = 50;
 const MAX_STAT = 100;
-const MAX_BASE_HP = 300;
+const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
-const BASE_REST_COOLDOWN_MS = 15 * 60 * 1000;
-
-function getRequiredExp(level) {
-  if (level >= MAX_LEVEL) return 'MAX';
-  if (level === 100) return 50000;
-  return Math.floor(20 * Math.pow(level, 1.5));
-}
 
 const playerSchema = new mongoose.Schema({
   userId: { type: Number, required: true, unique: true },
@@ -19,99 +12,76 @@ const playerSchema = new mongoose.Schema({
   exp: { type: Number, default: 0 },
   hp: { type: Number, default: 50 },
   maxHp: { type: Number, default: 50 },
-  strength: { type: Number, default: 5 },
+  energy: { type: Number, default: 10 },
+  gold: { type: Number, default: 0 },
+  statPoints: { type: Number, default: 0 },
+  strength: { type: Number, default: 0 },
   agility: { type: Number, default: 0 },
   luck: { type: Number, default: 0 },
-  statPoints: { type: Number, default: 0 },
-  gold: { type: Number, default: 0 },
-  energy: { type: Number, default: MAX_ENERGY },
-  lastEnergyUpdate: { type: Number, default: () => Date.now() },
-  onMissionUntil: { type: Number, default: 0 },
-  potionsUsedInMission: { type: Number, default: 0 },
-  lastRestTime: { type: Number, default: 0 },
 
+  // Inventario de consumibles
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
   potionsEnergy: { type: Number, default: 0 },
-
-  knockedOutUntil: { type: Number, default: 0 },
-
   potionsEnergyDrink: { type: Number, default: 0 },
+
+  // Control de expediciones y estados
+  onMissionUntil: { type: Number, default: 0 },
+  knockedOutUntil: { type: Number, default: 0 },
+  lastRestTime: { type: Number, default: 0 },
+  potionsUsedInMission: { type: Number, default: 0 },
+
+  // Anuncios y recompensas
   adsClaimedToday: { type: Number, default: 0 },
-  lastAdClaimDate: { type: String, default: '' }
+  lastAdClaimDate: { type: String, default: '' },
+  totalAdsClaimed: { type: Number, default: 0 }
 });
 
-playerSchema.methods.getRestCooldownMs = function () {
+// Cooldown de descanso según nivel de agilidad
+playerSchema.methods.getRestCooldownMs = function() {
   const agi = this.agility || 0;
-  const reductionMs = agi * 3 * 1000;
-  return Math.max(10 * 60 * 1000, BASE_REST_COOLDOWN_MS - reductionMs);
+  const minutes = Math.max(2, 5 - (agi * 0.03));
+  return Math.round(minutes * 60 * 1000);
 };
 
-// Regeneración pasiva con sincronización para evitar energía fantasma
-playerSchema.methods.updateEnergy = function () {
-  const now = Date.now();
-  const REGEN_TIME_MS = 10 * 60 * 1000;
-
-  if (this.energy >= MAX_ENERGY) {
-    this.energy = MAX_ENERGY;
-    this.lastEnergyUpdate = now;
-    return;
-  }
-
-  const timePassed = now - this.lastEnergyUpdate;
-  if (timePassed >= REGEN_TIME_MS) {
-    const energyToAdd = Math.floor(timePassed / REGEN_TIME_MS);
-    this.energy = Math.min(MAX_ENERGY, this.energy + energyToAdd);
-    this.lastEnergyUpdate = now - (timePassed % REGEN_TIME_MS);
-  }
+// Penalización al caer inconsciente (10% de EXP acumulada)
+playerSchema.methods.applyDeathPenalty = function() {
+  const lostExp = Math.floor(this.exp * 0.10);
+  this.exp = Math.max(0, this.exp - lostExp);
+  return lostExp;
 };
 
-playerSchema.methods.checkLevelUp = function () {
-  if (this.level >= MAX_LEVEL) {
-    this.level = MAX_LEVEL;
-    return false;
-  }
-
-  let req = getRequiredExp(this.level);
+// Suma de EXP y subida de nivel
+playerSchema.methods.addExp = function(amount) {
   let leveledUp = false;
+  this.exp += amount;
 
-  while (typeof req === 'number' && this.exp >= req && this.level < MAX_LEVEL) {
-    this.exp -= req;
-    this.level += 1;
-
-    if (this.level === 101) {
-      this.statPoints += 5;
-    } else if (this.level % 10 === 0) {
-      this.statPoints += 3;
-    } else {
+  while (this.level < MAX_LEVEL) {
+    const reqExp = getRequiredExp(this.level);
+    if (this.exp >= reqExp) {
+      this.exp -= reqExp;
+      this.level += 1;
       this.statPoints += 2;
+      this.hp = this.maxHp;
+      this.energy = MAX_ENERGY;
+      leveledUp = true;
+    } else {
+      break;
     }
+  }
 
-    this.hp = this.maxHp;
-    this.energy = MAX_ENERGY;
-    req = getRequiredExp(this.level);
-    leveledUp = true;
+  if (this.level >= MAX_LEVEL) {
+    this.exp = 0;
   }
 
   return leveledUp;
 };
 
-playerSchema.methods.addExp = function (amount) {
-  if (this.level >= MAX_LEVEL) return false;
-  this.exp += amount;
-  return this.checkLevelUp();
-};
-
-playerSchema.methods.applyDeathPenalty = function () {
-  const lostExp = Math.floor(this.exp * 0.20);
-  this.exp -= lostExp;
-  return lostExp;
-};
-
 const Player = mongoose.model('Player', playerSchema);
 
+// Esquema de estadísticas globales de drops
 const globalStatsSchema = new mongoose.Schema({
-  key: { type: String, default: 'main', unique: true },
+  key: { type: String, default: 'global', unique: true },
   totalDropsSmall: { type: Number, default: 0 },
   totalDropsMedium: { type: Number, default: 0 },
   totalDropsEnergy: { type: Number, default: 0 }
@@ -119,53 +89,49 @@ const globalStatsSchema = new mongoose.Schema({
 
 const GlobalStats = mongoose.model('GlobalStats', globalStatsSchema);
 
+function getRequiredExp(level) {
+  return Math.floor(100 * Math.pow(1.15, level - 1));
+}
+
+async function getPlayer(userId, name = 'Aventurero') {
+  let player = await Player.findOne({ userId });
+  if (!player) {
+    player = await Player.create({ userId, name });
+  } else if (name && player.name !== name) {
+    player.name = name;
+    await player.save();
+  }
+  return player;
+}
+
 async function recordDrop(type) {
   try {
-    const incField = {};
-    if (type === 'small') incField.totalDropsSmall = 1;
-    if (type === 'medium') incField.totalDropsMedium = 1;
-    if (type === 'energy') incField.totalDropsEnergy = 1;
-
-    await GlobalStats.findOneAndUpdate(
-      { key: 'main' },
-      { $inc: incField },
-      { upsert: true, new: true }
-    );
+    let stats = await GlobalStats.findOne({ key: 'global' });
+    if (!stats) {
+      stats = await GlobalStats.create({ key: 'global' });
+    }
+    if (type === 'small') stats.totalDropsSmall += 1;
+    if (type === 'medium') stats.totalDropsMedium += 1;
+    if (type === 'energy') stats.totalDropsEnergy += 1;
+    await stats.save();
   } catch (err) {
     console.error('Error registrando drop global:', err.message);
   }
 }
 
 async function getGlobalStats() {
-  let stats = await GlobalStats.findOne({ key: 'main' });
+  let stats = await GlobalStats.findOne({ key: 'global' });
   if (!stats) {
-    stats = await GlobalStats.create({ key: 'main' });
+    stats = await GlobalStats.create({ key: 'global' });
   }
   return stats;
 }
 
-async function getPlayer(userId, name) {
-  let player = await Player.findOne({ userId });
-  if (!player) {
-    player = new Player({
-      userId,
-      name: name || 'Aventurero',
-      lastEnergyUpdate: Date.now()
-    });
-    await player.save();
-  } else {
-    player.updateEnergy();
-    player.checkLevelUp();
-    await player.save();
-  }
-  return player;
-}
-
 module.exports = {
   Player,
+  GlobalStats,
   getPlayer,
   getRequiredExp,
-  GlobalStats,
   recordDrop,
   getGlobalStats,
   MAX_LEVEL,
