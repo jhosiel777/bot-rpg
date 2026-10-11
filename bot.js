@@ -7,6 +7,12 @@ const ITEMS = require('./shop');
 const { getRankingText } = require('./ranking');
 const { WorldBoss, getWorldBoss } = require('./bossModel');
 const {
+  getBountyBoardView,
+  startBountyTravel,
+  renderBountyView,
+  executeManualBountyAttack
+} = require('./bountyService');
+const {
   initMarketPrices,
   evaluateDynamicPrice,
   getMarketView,
@@ -50,10 +56,11 @@ const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 const confirmedBossWarning = new Map();
 
-// Variables de configuración en Staging para el Administrador
+// Variables de configuración para Administrador
 let adminBroadcastWaiting = false;
 let adminBossCustomHpWaiting = false;
 let adminBossCustomMsgWaiting = false;
+let adminTargetLevelChangeId = null;
 
 let bossWaitMinutesConfig = 30;
 let bossDurationMinutesConfig = 90;
@@ -102,7 +109,7 @@ function initBossScheduler() {
 
       const now = Date.now();
 
-      // Alerta a los 5 minutos antes de la batalla
+      // Alerta 5 minutos antes
       if (boss.status === 'scheduled' && boss.battleStartsAt) {
         const msUntilStart = new Date(boss.battleStartsAt).getTime() - now;
 
@@ -125,7 +132,7 @@ function initBossScheduler() {
           await broadcastToAll(alertMsg);
         }
 
-        // Inicio oficial de la batalla
+        // Inicio oficial
         if (msUntilStart <= 0) {
           boss.status = 'active';
           const duration = boss.battleDurationMinutes || 90;
@@ -142,7 +149,7 @@ function initBossScheduler() {
         }
       }
 
-      // Tiempo expirado: El jefe escapa
+      // Tiempo expirado
       if (boss.status === 'active' && boss.battleEndsAt) {
         if (now > new Date(boss.battleEndsAt).getTime()) {
           boss.status = 'escaped';
@@ -297,7 +304,7 @@ function getStatusView(player) {
   text += `\n¿Qué decides hacer?`;
 
   const buttons = [
-    [Markup.button.callback('🗺️ Aventuras & Eventos', 'menu_adventures')],
+    [Markup.button.callback('🧭 Explorar el Reino', 'menu_explore')],
     [
       Markup.button.callback(
         restSecLeft > 0 ? `🏕️ Descanso (${formatSeconds(restSecLeft)})` : '🏕️ Descansar (+30% Salud)',
@@ -318,20 +325,75 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-bot.action('menu_adventures', async (ctx) => {
+// Menú principal de exploración del reino
+bot.action('menu_explore', async (ctx) => {
   await safeAnswerCb(ctx);
-  const text = `🗺️ *Aventuras y Eventos del Reino*\n\n` +
-               `Selecciona el desafío al que deseas enfrentarte:\n\n` +
-               `• 🌲 *Expediciones y Mazmorras:* Explora el Bosque Umbrío, Cripta o Guarida del Dragón.\n` +
-               `• 🐲 *Jefe Mundial:* Asalta a los temibles Colosos convocados en el reino.`;
+  const text = `🧭 *Exploración y Desafíos del Reino*\n\n` +
+               `Selecciona el camino que deseas emprender hoy:\n\n` +
+               `• 🌲 *Expediciones y Mazmorras:* Mazmorras clásicas de exploración rápida.\n` +
+               `• 📜 *Tablón de Caza Diaria:* Contrato diario por forajidos o bestias (Reinicio: 00:00 UTC).\n` +
+               `• 🐲 *Jefe Mundial (Coloso):* Enfréntate a los colosos ancestrales convocados en el reino.`;
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🌲 Expediciones y Mazmorras', 'menu_dungeons')],
+    [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
+    [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
     [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+// SUBSECCIÓN: TABLÓN DE CAZA DIARIA
+bot.action('menu_bounty', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const view = await getBountyBoardView(ctx.from.id, player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('bounty_refresh', async (ctx) => {
+  await safeAnswerCb(ctx, 'Actualizando estado...');
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  return await renderBountyView(ctx, player);
+});
+
+bot.action('bounty_depart_prompt', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const text = `🧭 *Modo de Caza*\n\n` +
+               `Elige cómo deseas abordar este contrato:\n\n` +
+               `• 🤖 *Modo Automático:* Viajas recibiendo avisos del sendero. Al llegar, se resuelve la pelea automáticamente usando pociones si tu salud baja demasiado.\n\n` +
+               `• ⚔️ *Modo Manual:* Viajas recibiendo avisos del sendero. Al llegar, peleas turno por turno decidiendo asalto a asalto.`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🤖 Modo Automático (Pociones auto)', 'bounty_go_auto')],
+    [Markup.button.callback('⚔️ Modo Manual (Turno por turno)', 'bounty_go_manual')],
+    [Markup.button.callback('⬅️ Volver al Tablón', 'menu_bounty')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action('bounty_go_auto', async (ctx) => {
+  return await startBountyTravel(ctx, bot, 'auto');
+});
+
+bot.action('bounty_go_manual', async (ctx) => {
+  return await startBountyTravel(ctx, bot, 'manual');
+});
+
+bot.action('bounty_start_manual', async (ctx) => {
+  return await executeManualBountyAttack(ctx, bot);
+});
+
+bot.action('bounty_manual_hit', async (ctx) => {
+  return await executeManualBountyAttack(ctx, bot);
+});
+
+bot.action('bounty_start_auto', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  return await startBountyTravel(ctx, bot, 'auto');
 });
 
 function getStatsView(player) {
@@ -361,12 +423,13 @@ function getStatsView(player) {
              `• Cada mejora suma +5 HP de vida máxima.\n\n` +
              `🏃 *Agilidad (${agi}/${MAX_STAT}):*\n` +
              `• Esquiva de combate: *${dodgeChance}%* por asalto.\n` +
-             `• Esquiva de trampas: *${trapDodge}%* de éxito.\n` +
+             `• Esquiva de trampas y accidentes: *${trapDodge}%* de éxito.\n` +
              `• Impacto rozante en Jefe Mundial: 50% de reducción.\n` +
              `• Cooldown de descanso: *${restCooldownMin} min* (base 15 min).\n\n` +
              `🍀 *Suerte (${luk}/${MAX_STAT}):*\n` +
              `• Golpe Crítico Ofensivo: *${critChance}%* (Multiplica daño por 1.4x).\n` +
-             `• Bono de drop de pociones: *+${dropBonus}%*.\n\n`;
+             `• Bono de drop de pociones: *+${dropBonus}%*.\n` +
+             `• Incrementa la probabilidad de fortunas y gemas en Caza Diaria.\n\n`;
 
   if (player.statPoints > 0) {
     text += `Elige qué atributo mejorar:`;
@@ -438,6 +501,7 @@ function getAdminHomeView() {
                `Bienvenido al panel de control del reino. Opciones de gestión:`;
 
   const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', `adm_change_lvl_${ADMIN_ID}`)],
     [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
@@ -457,6 +521,7 @@ bot.command('admin', async (ctx) => {
   adminBroadcastWaiting = false;
   adminBossCustomHpWaiting = false;
   adminBossCustomMsgWaiting = false;
+  adminTargetLevelChangeId = null;
   const view = getAdminHomeView();
   await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -467,11 +532,33 @@ bot.action('adm_home', async (ctx) => {
   adminBroadcastWaiting = false;
   adminBossCustomHpWaiting = false;
   adminBossCustomMsgWaiting = false;
+  adminTargetLevelChangeId = null;
   const view = getAdminHomeView();
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
-// Panel de configuración previa del Jefe Mundial
+// Acción para cambiar nivel de un usuario
+bot.action(/adm_change_lvl_(\d+)/, async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  const targetId = parseInt(ctx.match[1], 10);
+  adminTargetLevelChangeId = targetId;
+
+  const u = await Player.findOne({ userId: targetId });
+  const name = u ? u.name : 'Usuario';
+
+  const text = `⭐ *Cambiar Nivel de ${name}*\n\n` +
+               `Nivel actual: *${u ? u.level : 'N/A'}*\n\n` +
+               `💬 *Escribe en el chat el nuevo nivel (1 - ${MAX_LEVEL})* que deseas asignarle.\n` +
+               `_Nota: Su EXP se reseteará a 1 / reqExp de ese nivel._`;
+
+  return await safeEditMessage(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'adm_home')]])
+  });
+});
+
+// Configuración del Jefe Mundial
 async function renderAdminBossPanel(ctx) {
   const boss = await getWorldBoss();
   const census = await getBossCensus();
@@ -506,9 +593,7 @@ async function renderAdminBossPanel(ctx) {
   const buttons = [];
 
   if (boss.status === 'idle' || boss.status === 'defeated' || boss.status === 'escaped') {
-    buttons.push([
-      Markup.button.callback('🚀 Revisar y Comenzar Evento', 'adm_boss_review')
-    ]);
+    buttons.push([Markup.button.callback('🚀 Revisar y Comenzar Evento', 'adm_boss_review')]);
     buttons.push([
       Markup.button.callback(`💡 Usar Recomendada (${census.recommendedHp} HP)`, `adm_boss_sel_hp_${census.recommendedHp}`),
       Markup.button.callback('✏️ Salud Manual', 'adm_boss_custom_hp')
@@ -581,7 +666,6 @@ bot.action('adm_boss_custom_hp', async (ctx) => {
   });
 });
 
-// Pantalla de Resumen y Confirmación
 bot.action('adm_boss_review', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -659,7 +743,6 @@ bot.action('adm_boss_reset_msg', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-// Lanzamiento tras confirmar
 bot.action('adm_boss_launch_confirmed', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
 
@@ -668,7 +751,6 @@ bot.action('adm_boss_launch_confirmed', async (ctx) => {
   return await scheduleBossFight(ctx, hpToUse, bossWaitMinutesConfig, bossDurationMinutesConfig);
 });
 
-// Cancelar o forzar fin con broadcast de retirada
 bot.action('adm_boss_force_end', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
 
@@ -759,7 +841,7 @@ bot.action('menu_boss', async (ctx) => {
       `Debes alcanzar al menos el *Nivel 5* para participar en las batallas de Colosos. (Tu nivel: ${player.level})`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]])
       }
     );
   }
@@ -778,7 +860,7 @@ bot.action('menu_boss', async (ctx) => {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
-        [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
+        [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
       ])
     });
   }
@@ -803,7 +885,7 @@ bot.action('menu_boss', async (ctx) => {
       [Markup.button.callback('⚔️ Atacar al Coloso (2 ⚡)', 'boss_attack')],
       [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
       [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
-      [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
+      [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
     ];
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -812,7 +894,7 @@ bot.action('menu_boss', async (ctx) => {
   text += `_Actualmente ningún coloso amenaza las tierras. El Creador anunciará la próxima convocatoria._`;
   return await safeEditMessage(ctx, text, {
     parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]])
   });
 });
 
@@ -846,12 +928,10 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
     return await safeAnswerCb(ctx, 'Estás sin salud. Cúrate primero.', true);
   }
 
-  // Coste de 2 puntos de Energía
   if (player.energy < 2) {
     return await safeAnswerCb(ctx, 'Necesitas al menos 2 puntos de Energía para atacar al Coloso.', true);
   }
 
-  // Advertencia solo si la salud actual no resiste el ataque máximo del coloso
   const sessionConfirmed = (confirmedBossWarning.get(userId) === String(boss._id));
   const isVulnerable = (player.hp <= boss.maxDmg);
 
@@ -880,7 +960,7 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
   const luk = player.luck || 0;
   const agi = player.agility || 0;
 
-  // Daño del jugador con dispersión ampliada +-20%
+  // Daño del jugador con dispersión +-20%
   const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
   const variation = (Math.random() * 0.40) - 0.20;
   let playerDmg = Math.round(dañoBase * (1 + variation));
@@ -978,7 +1058,7 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
   const nextBtns = [
     [Markup.button.callback('⚔️ Atacar de Nuevo (2 ⚡)', 'boss_attack')],
     [Markup.button.callback('🎒 Mochila / Pociones', 'menu_inv')],
-    [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
+    [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
   ];
 
   return await safeEditMessage(ctx, combatReport, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(nextBtns) });
@@ -993,7 +1073,6 @@ async function distributeBossRewards(boss) {
     const totalDmgAll = parts.reduce((acc, p) => acc + p.totalDamage, 0) || 1;
     const participantCount = parts.length;
 
-    // Escala equilibrada y progresiva para la Pool
     const goldMultiplier = 0.8 + Math.min(1.2, participantCount * 0.25);
     const expMultiplier = 1.0 + Math.min(1.5, participantCount * 0.30);
 
@@ -1009,13 +1088,13 @@ async function distributeBossRewards(boss) {
     const elixirWinners = new Set();
     const dropsSummary = [];
 
-    // 1. Primer Elixir: 100% GARANTIZADO al Top 1 en daño
+    // 1. Primer Elixir: Top 1 en daño
     if (top1) {
       elixirWinners.add(top1.userId);
       dropsSummary.push(`• 🩸 *${top1.name}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
     }
 
-    // 2. Segundo Elixir: 100% GARANTIZADO al Remate (o al Top 2 / siguiente jugador libre)
+    // 2. Segundo Elixir: Remate (o Top 2 / siguiente jugador libre)
     let secondRecipient = lastHitter;
     if (elixirWinners.has(secondRecipient.userId)) {
       secondRecipient = parts.find(p => !elixirWinners.has(p.userId));
@@ -1027,7 +1106,7 @@ async function distributeBossRewards(boss) {
       dropsSummary.push(`• 🩸 *${secondRecipient.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
     }
 
-    // 3. Tercer Elixir (Opcional por sorteo si hay más de 2 participantes, máx 1 por persona)
+    // 3. Tercer Elixir (Opcional por sorteo)
     if (parts.length >= 3 && elixirWinners.size < 3) {
       const candidates = parts.filter(p => !elixirWinners.has(p.userId));
       for (const cand of candidates) {
@@ -1049,11 +1128,10 @@ async function distributeBossRewards(boss) {
 
       const dmgRatio = p.totalDamage / totalDmgAll;
 
-      // Base moderada para cubrir gastos
       let earnedGold = 80 + Math.round(baseGoldPool * dmgRatio);
       let rawExp = 100 + Math.round(baseExpPool * dmgRatio);
 
-      // Bonos de posición MUTUAMENTE EXCLUSIVOS (no se acumulan Top 1, Top 2 y Top 3 entre sí)
+      // Bonos de posición MUTUAMENTE EXCLUSIVOS
       if (p.userId === top1.userId) {
         earnedGold += 250;
         rawExp += 350;
@@ -1065,7 +1143,6 @@ async function distributeBossRewards(boss) {
         rawExp += 100;
       }
 
-      // Hazañas específicas
       if (lastHitter && p.userId === lastHitter.userId) {
         earnedGold += 150;
         rawExp += 200;
@@ -1075,7 +1152,7 @@ async function distributeBossRewards(boss) {
         rawExp += 150;
       }
 
-      // CAP ESTRICTO DE EXP: Máximo equivalente a subir 3 niveles desde su nivel actual
+      // CAP ESTRICTO DE EXP: Máximo 3 niveles por evento
       let maxAllowedExp = 0;
       let tempLvl = playerDoc.level;
       for (let i = 0; i < 3; i++) {
@@ -1257,6 +1334,8 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
 
   const buttons = [];
 
+  buttons.push([Markup.button.callback('⭐ Cambiar Nivel (Admin)', `adm_change_lvl_${u.userId}`)]);
+
   if (isKO) {
     buttons.push([Markup.button.callback('✨ Revivir Aventurero (Admin)', `adm_revive_target_${u.userId}_${backPage}`)]);
   }
@@ -1376,6 +1455,37 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
+  // Modificación de nivel por Admin
+  if (userId === ADMIN_ID && adminTargetLevelChangeId !== null) {
+    const targetUserId = adminTargetLevelChangeId;
+    adminTargetLevelChangeId = null;
+
+    const newLevel = parseInt(ctx.message.text.trim(), 10);
+    if (isNaN(newLevel) || newLevel < 1 || newLevel > MAX_LEVEL) {
+      return await ctx.reply(`⚠️ Por favor introduce un número válido entre 1 y ${MAX_LEVEL}.`);
+    }
+
+    const u = await Player.findOne({ userId: targetUserId });
+    if (!u) {
+      return await ctx.reply('⚠️ No se encontró al jugador en la base de datos.');
+    }
+
+    u.level = newLevel;
+    u.exp = 1; // Reseteado exactamente a 1/reqExp para pruebas
+    await u.save();
+
+    return await ctx.reply(
+      `✅ *Nivel actualizado con éxito:*\n\n` +
+      `• Jugador: *${u.name}* (ID: ${u.userId})\n` +
+      `• Nuevo Nivel: *${u.level}*\n` +
+      `• EXP: *${u.exp}/${getRequiredExp(u.level)}*`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+      }
+    );
+  }
+
   if (userId === ADMIN_ID && adminBroadcastWaiting) {
     adminBroadcastWaiting = false;
     const msgContent = ctx.message.text.trim();
@@ -1474,6 +1584,7 @@ async function handleStartMenu(ctx) {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
+      adminTargetLevelChangeId = null;
     }
 
     const oldMsgId = lastUserMessages.get(userId);
@@ -1505,6 +1616,7 @@ bot.hears('⚔️ Estado', async (ctx) => {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
+      adminTargetLevelChangeId = null;
     }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
@@ -1522,6 +1634,7 @@ bot.hears('📈 Atributos', async (ctx) => {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
+      adminTargetLevelChangeId = null;
     }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatsView(player);
@@ -1539,6 +1652,7 @@ bot.hears('🎒 Inventario', async (ctx) => {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
+      adminTargetLevelChangeId = null;
     }
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
@@ -1579,6 +1693,7 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
+      adminTargetLevelChangeId = null;
     }
     const { text, listings } = await getMarketView(ctx.from.id);
     const buttons = [];
@@ -1654,6 +1769,7 @@ bot.action('status', async (ctx) => {
     adminBroadcastWaiting = false;
     adminBossCustomHpWaiting = false;
     adminBossCustomMsgWaiting = false;
+    adminTargetLevelChangeId = null;
   }
   try {
     const userId = ctx.from.id;
@@ -2201,7 +2317,7 @@ bot.action('add_luk', async (ctx) => {
   }
 });
 
-// Expediciones
+// Mazmorras y Rutas
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -2219,7 +2335,7 @@ bot.action('menu_dungeons', async (ctx) => {
     [Markup.button.callback('🌲 Explorar Bosque (10s)', 'go_bosque')],
     [Markup.button.callback('🪦 Explorar Cripta (20s)', 'go_cripta')],
     [Markup.button.callback('🌋 Explorar Dragón (35s)', 'go_dragon')],
-    [Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]
+    [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
   ]);
 
   return await safeEditMessage(ctx, text, keyboard);
@@ -2403,7 +2519,7 @@ async function startExpedition(ctx, dungeonKey) {
           const sent = await ctx.telegram.sendMessage(
             userId,
             resultMsg,
-            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Aventuras', 'menu_adventures')]])
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]])
           );
           lastUserMessages.set(userId, sent.message_id);
         }
