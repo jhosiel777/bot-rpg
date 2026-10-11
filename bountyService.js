@@ -60,7 +60,7 @@ async function getOrCreateDailyBounty(userId, playerLevel) {
 async function getBountyBoardView(userId, player) {
   const todayUtc = getTodayUtcString();
   const bounty = await getOrCreateDailyBounty(userId, player.level);
-  const clock = getUniversalTimeData();
+ const clock = getUniversalTimeData();
 
   let text = `📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n` +
              `🕰️ *Reloj Universal:* \`\${clock.timeStr}\`\n` +
