@@ -7,10 +7,13 @@ const ITEMS = require('./shop');
 const { getRankingText } = require('./ranking');
 const { WorldBoss, getWorldBoss } = require('./bossModel');
 const {
+  getUniversalTimeData,
   getBountyBoardView,
+  getAutoSelectionView,
   startBountyTravel,
   renderBountyView,
-  executeManualBountyAttack
+  executeManualBountyAttack,
+  resetBountyForAdmin
 } = require('./bountyService');
 const {
   initMarketPrices,
@@ -48,7 +51,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Servidor HTTP web
 startServer(bot);
 
 const activeExpeditions = new Set();
@@ -56,7 +58,6 @@ const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 const confirmedBossWarning = new Map();
 
-// Variables de configuración para Administrador
 let adminBroadcastWaiting = false;
 let adminBossCustomHpWaiting = false;
 let adminBossCustomMsgWaiting = false;
@@ -68,16 +69,15 @@ let bossHpConfig = null;
 let bossCustomEpicMessage = null;
 
 function getDefaultEpicMessage(bossName, waitMinutes, hp, durationMin) {
-  return `⚡🌋 *¡UNA CATÁSTROFE ANCESTRAL SE AVECINA!*\n\n` +
-         `El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo nuestros pies. Las antiguas leyendas no mentían: *${bossName}* está abriendo los ojos tras milenios de letargo.\n\n` +
-         `⏳ *Tiempo para su despertar:* ${waitMinutes} minutos\n` +
-         `⏱️ *Duración del asalto:* ${durationMin} minutos de combate\n` +
-         `❤️ *Vitalidad del Coloso:* ${hp.toLocaleString()} HP\n` +
-         `⚔️ *Requisito de entrada:* Nivel 5 o superior\n\n` +
-         `_¡Reúnan sus armas, forjen sus estrategias y preparen sus pociones! La supervivencia del reino depende de todos._`;
+  return '⚡🌋 *¡UNA CATÁSTROFE ANCESTRAL SE AVECINA!*\n\n' +
+         'El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo nuestros pies. Las antiguas leyendas no mentían: *' + bossName + '* está abriendo los ojos tras milenios de letargo.\n\n' +
+         '⏳ *Tiempo para su despertar:* ' + waitMinutes + ' minutos\n' +
+         '⏱️ *Duración del asalto:* ' + durationMin + ' minutos de combate\n' +
+         '❤️ *Vitalidad del Coloso:* ' + hp.toLocaleString() + ' HP\n' +
+         '⚔️ *Requisito de entrada:* Nivel 5 o superior\n\n' +
+         '_¡Reúnan sus armas, forjen sus estrategias y preparen sus pociones! La supervivencia del reino depende de todos._';
 }
 
-// Planificador de ciclos de mercado (00, 04, 08, 12, 16, 20 UTC)
 function scheduleNextUtcCycle() {
   const now = new Date();
   const currentHour = now.getUTCHours();
@@ -100,7 +100,6 @@ function scheduleNextUtcCycle() {
   }, delayMs);
 }
 
-// Revisor periódico del estado del Jefe Mundial (cada 15s)
 function initBossScheduler() {
   setInterval(async () => {
     try {
@@ -109,7 +108,6 @@ function initBossScheduler() {
 
       const now = Date.now();
 
-      // Alerta 5 minutos antes
       if (boss.status === 'scheduled' && boss.battleStartsAt) {
         const msUntilStart = new Date(boss.battleStartsAt).getTime() - now;
 
@@ -117,46 +115,44 @@ function initBossScheduler() {
           boss.alert5MinSent = true;
           await boss.save();
 
-          const alertMsg = `⚠️ *¡ALERTA MÁXIMA EN EL REINO!*\n\n` +
-                           `Faltan *5 minutos* para la llegada del Coloso ancestral.\n\n` +
-                           `📋 *Ficha Técnica del Coloso:*\n` +
-                           `• Nombre: *${boss.name}*\n` +
-                           `• Nivel de Amenaza: *Lv. ${boss.level}*\n` +
-                           `• Salud Total: *${boss.maxHp.toLocaleString()} HP*\n` +
-                           `• Rango de Ataque: *${boss.minDmg} - ${boss.maxDmg}*\n` +
-                           `• Ataques por Asalto: *${boss.attacksPerTurn} golpe(s)*\n` +
-                           `• Naturaleza del Daño: *${boss.damageType}*\n` +
-                           `• Tiempo Límite de Combate: *${boss.battleDurationMinutes || 90} minutos*\n\n` +
-                           `🛡️ _¡Prepárense aventureros de nivel 5 o superior!_`;
+          const alertMsg = '⚠️ *¡ALERTA MÁXIMA EN EL REINO!*\n\n' +
+                           'Faltan *5 minutos* para la llegada del Coloso ancestral.\n\n' +
+                           '📋 *Ficha Técnica del Coloso:*\n' +
+                           '• Nombre: *' + boss.name + '*\n' +
+                           '• Nivel de Amenaza: *Lv. ' + boss.level + '*\n' +
+                           '• Salud Total: *' + boss.maxHp.toLocaleString() + ' HP*\n' +
+                           '• Rango de Ataque: *' + boss.minDmg + ' - ' + boss.maxDmg + '*\n' +
+                           '• Ataques por Asalto: *' + boss.attacksPerTurn + ' golpe(s)*\n' +
+                           '• Naturaleza del Daño: *' + boss.damageType + '*\n' +
+                           '• Tiempo Límite de Combate: *' + (boss.battleDurationMinutes || 90) + ' minutos*\n\n' +
+                           '🛡️ _¡Prepárense aventureros de nivel 5 o superior!_';
 
           await broadcastToAll(alertMsg);
         }
 
-        // Inicio oficial
         if (msUntilStart <= 0) {
           boss.status = 'active';
           const duration = boss.battleDurationMinutes || 90;
           boss.battleEndsAt = new Date(now + duration * 60 * 1000);
           await boss.save();
 
-          const startMsg = `🐲 *¡EL JEFE MUNDIAL HA DESPERTADO!*\n\n` +
-                           `*${boss.name}* ruge y desata el caos en las tierras centrales.\n` +
-                           `❤️ Salud: *${boss.currentHp}/${boss.maxHp} HP*\n` +
-                           `⏳ Tiempo restante: *${duration} minutos*\n\n` +
-                           `⚔️ ¡Unan sus fuerzas en el campamento para derrotarlo!`;
+          const startMsg = '🐲 *¡EL JEFE MUNDIAL HA DESPERTADO!*\n\n' +
+                           '*' + boss.name + '* ruge y desata el caos en las tierras centrales.\n' +
+                           '❤️ Salud: *' + boss.currentHp + '/' + boss.maxHp + ' HP*\n' +
+                           '⏳ Tiempo restante: *' + duration + ' minutos*\n\n' +
+                           '⚔️ ¡Unan sus fuerzas en el campamento para derrotarlo!';
 
           await broadcastToAll(startMsg);
         }
       }
 
-      // Tiempo expirado
       if (boss.status === 'active' && boss.battleEndsAt) {
         if (now > new Date(boss.battleEndsAt).getTime()) {
           boss.status = 'escaped';
           await boss.save();
 
-          const escapeMsg = `💨 *El Jefe Mundial ha escapado...*\n\n` +
-                            `El tiempo límite de combate concluyó y *${boss.name}* regresó a su guarida subterránea.`;
+          const escapeMsg = '💨 *El Jefe Mundial ha escapado...*\n\n' +
+                            'El tiempo límite de combate concluyó y *' + boss.name + '* regresó a su guarida subterránea.';
 
           await broadcastToAll(escapeMsg);
         }
@@ -325,14 +321,17 @@ function getStatusView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Menú principal de exploración del reino
 bot.action('menu_explore', async (ctx) => {
   await safeAnswerCb(ctx);
-  const text = `🧭 *Exploración y Desafíos del Reino*\n\n` +
-               `Selecciona el camino que deseas emprender hoy:\n\n` +
-               `• 🌲 *Expediciones y Mazmorras:* Mazmorras clásicas de exploración rápida.\n` +
-               `• 📜 *Tablón de Caza Diaria:* Contrato diario por forajidos o bestias (Reinicio: 00:00 UTC).\n` +
-               `• 🐲 *Jefe Mundial (Coloso):* Enfréntate a los colosos ancestrales convocados en el reino.`;
+  const clock = getUniversalTimeData();
+  const text = '🧭 *Exploración y Desafíos del Reino*\n\n' +
+               '🕰️ *Reloj Universal:* `' + clock.timeStr + '`\n' +
+               '⏳ *Reinicio del Reino:* en `' + clock.countdownStr + '`\n' +
+               '──────────────────────────\n\n' +
+               'Selecciona el camino que deseas emprender hoy:\n\n' +
+               '• 🌲 *Expediciones y Mazmorras:* Mazmorras clásicas de exploración rápida.\n' +
+               '• 📜 *Tablón de Caza Diaria:* Contrato diario por forajidos o bestias.\n' +
+               '• 🐲 *Jefe Mundial (Coloso):* Asalta a los colosos ancestrales del reino.';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
@@ -344,7 +343,6 @@ bot.action('menu_explore', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// SUBSECCIÓN: TABLÓN DE CAZA DIARIA
 bot.action('menu_bounty', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -360,10 +358,10 @@ bot.action('bounty_refresh', async (ctx) => {
 
 bot.action('bounty_depart_prompt', async (ctx) => {
   await safeAnswerCb(ctx);
-  const text = `🧭 *Modo de Caza*\n\n` +
-               `Elige cómo deseas abordar este contrato:\n\n` +
-               `• 🤖 *Modo Automático:* Viajas recibiendo avisos del sendero. Al llegar, se resuelve la pelea automáticamente usando pociones si tu salud baja demasiado.\n\n` +
-               `• ⚔️ *Modo Manual:* Viajas recibiendo avisos del sendero. Al llegar, peleas turno por turno decidiendo asalto a asalto.`;
+  const text = '🧭 *Modo de Caza*\n\n' +
+               'Elige cómo deseas abordar este contrato:\n\n' +
+               '• 🤖 *Modo Automático:* Viajas recibiendo avisos del sendero. Al llegar, se resuelve la pelea automáticamente usando pociones si tu salud baja demasiado.\n\n' +
+               '• ⚔️ *Modo Manual:* Viajas recibiendo avisos del sendero. Al llegar, peleas turno por turno decidiendo asalto a asalto.';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🤖 Modo Automático (Configurar)', 'bounty_auto_select')],
@@ -467,7 +465,6 @@ function getStatsView(player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Censo de jugadores aptos (Nivel >= 5)
 async function getBossCensus() {
   const aptPlayers = await Player.find({ level: { $gte: 5 } });
   const totalAptos = aptPlayers.length;
@@ -507,7 +504,6 @@ async function getBossCensus() {
   };
 }
 
-// PANEL DE ADMINISTRADOR
 function getAdminHomeView() {
   const text = `👑 *Panel de Creador (Admin)*\n\n` +
                `Bienvenido al panel de control del reino. Opciones de gestión:`;
@@ -549,7 +545,6 @@ bot.action('adm_home', async (ctx) => {
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
-// Acción para cambiar nivel de un usuario
 bot.action(/adm_change_lvl_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -570,7 +565,6 @@ bot.action(/adm_change_lvl_(\d+)/, async (ctx) => {
   });
 });
 
-// Configuración del Jefe Mundial
 async function renderAdminBossPanel(ctx) {
   const boss = await getWorldBoss();
   const census = await getBossCensus();
@@ -840,7 +834,6 @@ async function scheduleBossFight(ctx, hp, waitMinutes, durationMinutes) {
   );
 }
 
-// Menú del Jefe Mundial para jugadores
 bot.action('menu_boss', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -910,7 +903,6 @@ bot.action('menu_boss', async (ctx) => {
   });
 });
 
-// Combate contra el Jefe Mundial
 bot.action('boss_attack', async (ctx) => {
   return await executeBossAttack(ctx, false);
 });
@@ -972,7 +964,6 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
   const luk = player.luck || 0;
   const agi = player.agility || 0;
 
-  // Daño del jugador con dispersión +-20%
   const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
   const variation = (Math.random() * 0.40) - 0.20;
   let playerDmg = Math.round(dañoBase * (1 + variation));
@@ -1010,7 +1001,6 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
     boss.status = 'defeated';
   }
 
-  // Contraataque del Coloso
   let bossDmg1 = Math.floor(Math.random() * (boss.maxDmg - boss.minDmg + 1)) + boss.minDmg;
   let attacksTaken = 1;
   let extraDmg = 0;
@@ -1076,7 +1066,6 @@ async function executeBossAttack(ctx, confirmedWarning = false) {
   return await safeEditMessage(ctx, combatReport, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(nextBtns) });
 }
 
-// Distribución equilibrada de recompensas con límite estricto de subida de niveles
 async function distributeBossRewards(boss) {
   try {
     const parts = [...boss.participants].sort((a, b) => b.totalDamage - a.totalDamage);
@@ -1100,13 +1089,11 @@ async function distributeBossRewards(boss) {
     const elixirWinners = new Set();
     const dropsSummary = [];
 
-    // 1. Primer Elixir: Top 1 en daño
     if (top1) {
       elixirWinners.add(top1.userId);
       dropsSummary.push(`• 🩸 *${top1.name}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
     }
 
-    // 2. Segundo Elixir: Remate (o Top 2 / siguiente jugador libre)
     let secondRecipient = lastHitter;
     if (elixirWinners.has(secondRecipient.userId)) {
       secondRecipient = parts.find(p => !elixirWinners.has(p.userId));
@@ -1118,7 +1105,6 @@ async function distributeBossRewards(boss) {
       dropsSummary.push(`• 🩸 *${secondRecipient.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
     }
 
-    // 3. Tercer Elixir (Opcional por sorteo)
     if (parts.length >= 3 && elixirWinners.size < 3) {
       const candidates = parts.filter(p => !elixirWinners.has(p.userId));
       for (const cand of candidates) {
@@ -1133,7 +1119,6 @@ async function distributeBossRewards(boss) {
       }
     }
 
-    // Reparto a cada participante
     for (const p of parts) {
       const playerDoc = await Player.findOne({ userId: p.userId });
       if (!playerDoc) continue;
@@ -1143,7 +1128,6 @@ async function distributeBossRewards(boss) {
       let earnedGold = 80 + Math.round(baseGoldPool * dmgRatio);
       let rawExp = 100 + Math.round(baseExpPool * dmgRatio);
 
-      // Bonos de posición MUTUAMENTE EXCLUSIVOS
       if (p.userId === top1.userId) {
         earnedGold += 250;
         rawExp += 350;
@@ -1164,7 +1148,6 @@ async function distributeBossRewards(boss) {
         rawExp += 150;
       }
 
-      // CAP ESTRICTO DE EXP: Máximo 3 niveles por evento
       let maxAllowedExp = 0;
       let tempLvl = playerDoc.level;
       for (let i = 0; i < 3; i++) {
@@ -1212,7 +1195,6 @@ async function distributeBossRewards(boss) {
   }
 }
 
-// Estadísticas de Drops
 bot.action('adm_drops', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -1248,7 +1230,6 @@ bot.action('adm_prompt_broadcast', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// Paginación de Usuarios
 bot.action(/adm_users_page_(\d+)/, async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
   await safeAnswerCb(ctx);
@@ -1463,11 +1444,9 @@ bot.action('adm_claim_overflow_drink', async (ctx) => {
   } catch (e) {}
 });
 
-// Mensajes de texto
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
 
-  // Modificación de nivel por Admin
   if (userId === ADMIN_ID && adminTargetLevelChangeId !== null) {
     const targetUserId = adminTargetLevelChangeId;
     adminTargetLevelChangeId = null;
@@ -1483,7 +1462,7 @@ bot.on('text', async (ctx, next) => {
     }
 
     u.level = newLevel;
-    u.exp = 1; // Reseteado exactamente a 1/reqExp para pruebas
+    u.exp = 1;
     await u.save();
 
     return await ctx.reply(
@@ -1930,7 +1909,6 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   }
 });
 
-// Tienda NPC
 function getShopView(player) {
   let text = `🛒 *Tienda del Aventurero*\n` +
              `💰 Tu Oro: ${player.gold}\n\n` +
@@ -1995,7 +1973,6 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Inventario
 bot.action('menu_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -2109,7 +2086,6 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Consumo con confirmación del Elixir de Sangre de Dragón
 bot.action('use_dragon_blood', async (ctx) => {
   try {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -2207,7 +2183,6 @@ bot.action('use_dragon_blood_confirm', async (ctx) => {
   }
 });
 
-// Descanso dinámico
 bot.action('rest', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
@@ -2244,7 +2219,6 @@ bot.action('rest', async (ctx) => {
   }
 });
 
-// Atributos
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
@@ -2329,7 +2303,6 @@ bot.action('add_luk', async (ctx) => {
   }
 });
 
-// Mazmorras y Rutas
 bot.action('menu_dungeons', async (ctx) => {
   const userId = ctx.from.id;
   if (activeExpeditions.has(userId)) {
