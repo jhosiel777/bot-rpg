@@ -366,7 +366,7 @@ bot.action('bounty_depart_prompt', async (ctx) => {
                `• ⚔️ *Modo Manual:* Viajas recibiendo avisos del sendero. Al llegar, peleas turno por turno decidiendo asalto a asalto.`;
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🤖 Modo Automático (Pociones auto)', 'bounty_go_auto')],
+    [Markup.button.callback('🤖 Modo Automático (Configurar)', 'bounty_auto_select')],
     [Markup.button.callback('⚔️ Modo Manual (Turno por turno)', 'bounty_go_manual')],
     [Markup.button.callback('⬅️ Volver al Tablón', 'menu_bounty')]
   ]);
@@ -374,8 +374,26 @@ bot.action('bounty_depart_prompt', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-bot.action('bounty_go_auto', async (ctx) => {
-  return await startBountyTravel(ctx, bot, 'auto');
+bot.action('bounty_auto_select', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const view = await getAutoSelectionView(ctx.from.id);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('bounty_go_auto_normal', async (ctx) => {
+  return await startBountyTravel(ctx, bot, 'auto', false);
+});
+
+bot.action('bounty_go_auto_plus', async (ctx) => {
+  return await startBountyTravel(ctx, bot, 'auto', true);
+});
+
+bot.action('bounty_admin_reset', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await resetBountyForAdmin(ctx.from.id);
+  await safeAnswerCb(ctx, '👑 Contrato reseteado exitosamente para pruebas.');
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  return await renderBountyView(ctx, player);
 });
 
 bot.action('bounty_go_manual', async (ctx) => {
@@ -388,12 +406,6 @@ bot.action('bounty_start_manual', async (ctx) => {
 
 bot.action('bounty_manual_hit', async (ctx) => {
   return await executeManualBountyAttack(ctx, bot);
-});
-
-bot.action('bounty_start_auto', async (ctx) => {
-  await safeAnswerCb(ctx);
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  return await startBountyTravel(ctx, bot, 'auto');
 });
 
 function getStatsView(player) {
