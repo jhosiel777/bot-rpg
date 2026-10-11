@@ -5,7 +5,7 @@ const { Player, getRequiredExp, MAX_LEVEL, MAX_ENERGY } = require('./playerModel
 
 const ADMIN_ID = 835648800;
 
-// Almacén de temporizadores en memoria
+// Temporizadores en memoria
 const activeTravelTimers = new Map();
 const manualAfkTimers = new Map();
 
@@ -15,7 +15,6 @@ function getUniversalTimeData() {
   const utcMins = String(now.getUTCMinutes()).padStart(2, '0');
   const utcSecs = String(now.getUTCSeconds()).padStart(2, '0');
 
-  // Tiempo restante para las 00:00:00 UTC
   const resetTarget = new Date(now);
   resetTarget.setUTCHours(24, 0, 0, 0);
   const diffSec = Math.max(0, Math.floor((resetTarget.getTime() - now.getTime()) / 1000));
@@ -24,12 +23,11 @@ function getUniversalTimeData() {
   const rSecs = diffSec % 60;
 
   return {
-    timeStr: `${utcHours}:${utcMins}:${utcSecs} UTC`,
-    countdownStr: `${rHours}h ${rMins}m ${rSecs}s`
+    timeStr: utcHours + ':' + utcMins + ':' + utcSecs + ' UTC',
+    countdownStr: rHours + 'h ' + rMins + 'm ' + rSecs + 's'
   };
 }
 
-// Obtener o inicializar contrato diario
 async function getOrCreateDailyBounty(userId, playerLevel) {
   const todayUtc = getTodayUtcString();
   let bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
@@ -56,21 +54,20 @@ async function getOrCreateDailyBounty(userId, playerLevel) {
   return bounty;
 }
 
-// Vista principal del Tablón
 async function getBountyBoardView(userId, player) {
   const todayUtc = getTodayUtcString();
   const bounty = await getOrCreateDailyBounty(userId, player.level);
- const clock = getUniversalTimeData();
+  const clock = getUniversalTimeData();
 
-  let text = `📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n` +
-             `🕰️ *Reloj Universal:* \`\${clock.timeStr}\`\n` +
-             `⏳ *Reinicio del Reino:* en \`\${clock.countdownStr}\`\n` +
-             `──────────────────────────\n\n`;
+  let text = '📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n' +
+             '🕰️ *Reloj Universal:* `' + clock.timeStr + '`\n' +
+             '⏳ *Reinicio del Reino:* en `' + clock.countdownStr + '`\n' +
+             '──────────────────────────\n\n';
 
   if (bounty.status === 'completed') {
-    text += `✅ *¡Caza de hoy completada!*\n\n` +
-            `Neutralizaste a *${bounty.enemyName}* y cobraste el botín.\n` +
-            `El gremio colocará nuevos contratos a las 00:00 UTC.`;
+    text += '✅ *¡Caza de hoy completada!*\n\n' +
+            'Neutralizaste a *' + bounty.enemyName + '* y cobraste el botín.\n' +
+            'El gremio colocará nuevos contratos a las 00:00 UTC.';
 
     const buttons = [];
     if (userId === ADMIN_ID) {
@@ -84,12 +81,15 @@ async function getBountyBoardView(userId, player) {
     const secLeft = Math.max(0, Math.ceil((new Date(bounty.arrivesAt).getTime() - Date.now()) / 1000));
     const mins = Math.floor(secLeft / 60);
     const secs = secLeft % 60;
+    const modeDesc = bounty.mode === 'auto'
+      ? (bounty.adsClaimedForBounty >= 2 ? 'Automático Plus ⚡' : 'Automático Normal')
+      : 'Manual';
 
-    text += `🚶 *EN CAMINO HACIA EL OBJETIVO*\n\n` +
-            `🎯 *Presa:* ${bounty.enemyName}\n` +
-            `⏳ *Llegada estimada:* ${mins}m ${secs < 10 ? '0' : ''}${secs}s\n` +
-            `⚙️ *Modo:* ${bounty.mode === 'auto' ? (bounty.adsClaimedForBounty >= 2 ? 'Automático Plus ⚡' : 'Automático Normal') : 'Manual'}\n\n` +
-            `_Tus sentidos vigilan el camino. Recibirás avisos si algo ocurre._`;
+    text += '🚶 *EN CAMINO HACIA EL OBJETIVO*\n\n' +
+            '🎯 *Presa:* ' + bounty.enemyName + '\n' +
+            '⏳ *Llegada estimada:* ' + mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's\n' +
+            '⚙️ *Modo:* ' + modeDesc + '\n\n' +
+            '_Tus sentidos vigilan el camino. Recibirás avisos si algo ocurre._';
 
     const buttons = [
       [Markup.button.callback('🔄 Actualizar Trayecto', 'bounty_refresh')],
@@ -99,12 +99,12 @@ async function getBountyBoardView(userId, player) {
   }
 
   if (bounty.status === 'arrived') {
-    text += `⚔️ *¡HAS ALCANZADO LA GUARIDA!*\n\n` +
-            `🎯 *Objetivo:* ${bounty.enemyName}\n` +
-            `❤️ Salud enemiga: *${bounty.enemyCurrentHp}/${bounty.enemyMaxHp} HP*\n` +
-            `⚔️ Daño estimado: *${bounty.enemyMinDmg} - ${bounty.enemyMaxDmg}*\n` +
-            `💰 Botín base: *${bounty.baseGold}g*\n\n` +
-            `¿Cómo deseas proceder?`;
+    text += '⚔️ *¡HAS ALCANZADO LA GUARIDA!*\n\n' +
+            '🎯 *Objetivo:* ' + bounty.enemyName + '\n' +
+            '❤️ Salud enemiga: *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n' +
+            '⚔️ Daño estimado: *' + bounty.enemyMinDmg + ' - ' + bounty.enemyMaxDmg + '*\n' +
+            '💰 Botín base: *' + bounty.baseGold + 'g*\n\n' +
+            '¿Cómo deseas proceder?';
 
     const buttons = [
       [Markup.button.callback('⚔️ Pelear Manualmente (Asalto por Asalto)', 'bounty_start_manual')],
@@ -114,26 +114,23 @@ async function getBountyBoardView(userId, player) {
     return { text, keyboard: Markup.inlineKeyboard(buttons) };
   }
 
-  const tierCfg = BOUNTY_TIERS[bounty.tierKey];
-
-  text += `🎯 *Contrato del Día:* *${bounty.enemyName}*\n\n` +
-          `📝 *Informe del Encargo:*\n${bounty.description}\n\n` +
-          `📊 *Ficha del Peligro:*\n` +
-          `• Nivel de amenaza: *Tier ${bounty.tierKey.replace('tier', '')}*\n` +
-          `• Duración del viaje: *${bounty.durationMinutes} minuto(s)*\n` +
-          `• Botín base estimado: *~${bounty.baseGold}g*\n` +
-          `• Salud enemiga: *${bounty.enemyMaxHp} HP*\n\n` +
-          `¿Deseas aceptar el encargo y partir?`;
+  text += '🎯 *Contrato del Día:* *' + bounty.enemyName + '*\n\n' +
+          '📝 *Informe del Encargo:*\n' + bounty.description + '\n\n' +
+          '📊 *Ficha del Peligro:*\n' +
+          '• Nivel de amenaza: *Tier ' + bounty.tierKey.replace('tier', '') + '*\n' +
+          '• Duración del viaje: *' + bounty.durationMinutes + ' minuto(s)*\n' +
+          '• Botín base estimado: *~' + bounty.baseGold + 'g*\n' +
+          '• Salud enemiga: *' + bounty.enemyMaxHp + ' HP*\n\n' +
+          '¿Deseas aceptar el encargo y partir?';
 
   const buttons = [
-    [Markup.button.callback(`🚀 Iniciar Caza (${bounty.durationMinutes} min)`, 'bounty_depart_prompt')],
+    [Markup.button.callback('🚀 Iniciar Caza (' + bounty.durationMinutes + ' min)', 'bounty_depart_prompt')],
     [Markup.button.callback('⬅️ Volver a Explorar el Reino', 'menu_explore')]
   ];
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Pantalla para elegir entre Auto Normal o Auto Plus
 async function getAutoSelectionView(userId) {
   const todayUtc = getTodayUtcString();
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
@@ -142,23 +139,22 @@ async function getAutoSelectionView(userId) {
   const normalLimit = tierCfg.autoPotionsBase;
   const plusLimit = tierCfg.autoPotionsWithAds;
 
-  const text = `🤖 *Configuración de Asalto Automático*\n\n` +
-               `Elige el protocolo de supervivencia para tu expedición:\n\n` +
-               `🔹 *Modo Normal:* Consume hasta *${normalLimit}* poción(es) de salud si tu vida cae por debajo del 40%.\n\n` +
-               `⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *${plusLimit}* pociones de salud si el combate se complica.\n\n` +
-               `¿Cuál deseas emplear?`;
+  const text = '🤖 *Configuración de Asalto Automático*\n\n' +
+               'Elige el protocolo de supervivencia para tu expedición:\n\n' +
+               '🔹 *Modo Normal:* Consume hasta *' + normalLimit + '* poción(es) de salud si tu vida cae por debajo del 40%.\n\n' +
+               '⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *' + plusLimit + '* pociones de salud si el combate se complica.\n\n' +
+               '¿Cuál deseas emplear?';
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback(`🔹 Iniciar Auto Normal (Máx. ${normalLimit})`, 'bounty_go_auto_normal')],
-    [Markup.button.webApp(`⚡ Activar Auto Plus (Ver Anuncios)`, 'https://bot-rpg-wu42.onrender.com/ad-reward')],
-    [Markup.button.callback(`⚡ Iniciar Auto Plus (Si ya viste 2 ads)`, 'bounty_go_auto_plus')],
+    [Markup.button.callback('🔹 Iniciar Auto Normal (Máx. ' + normalLimit + ')', 'bounty_go_auto_normal')],
+    [Markup.button.webApp('⚡ Activar Auto Plus (Ver Anuncios)', 'https://bot-rpg-wu42.onrender.com/ad-reward')],
+    [Markup.button.callback('⚡ Iniciar Auto Plus (Si ya viste 2 ads)', 'bounty_go_auto_plus')],
     [Markup.button.callback('⬅️ Volver', 'menu_bounty')]
   ]);
 
   return { text, keyboard };
 }
 
-// Iniciar viaje de rastreo
 async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   const userId = ctx.from.id;
   const player = await Player.findOne({ userId });
@@ -170,9 +166,9 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   if (!bounty) {
     bounty = await getOrCreateDailyBounty(userId, player.level);
     return await ctx.reply(
-      `🌌 *¡El Tablón cambió ante tus ojos!*\n\n` +
-      `Las campanas marcaron las 00:00 UTC y los contratos fueron renovados.\n` +
-      `Tu nuevo objetivo es: *${bounty.enemyName}*.`,
+      '🌌 *¡El Tablón cambió ante tus ojos!*\n\n' +
+      'Las campanas marcaron las 00:00 UTC y los contratos fueron renovados.\n' +
+      'Tu nuevo objetivo es: *' + bounty.enemyName + '*.',
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([[Markup.button.callback('📜 Ver Nuevo Contrato', 'menu_bounty')]])
@@ -246,14 +242,13 @@ function scheduleTravelEvents(bot, userId, bountyId, durationMinutes, totalMs) {
         if (bounty.mode === 'auto') {
           await resolveAutoCombat(bot, userId, bounty);
         } else {
-          // Activar temporizador AFK para modo manual
           armManualAfkTimer(bot, userId, bounty);
           try {
             await bot.telegram.sendMessage(
               userId,
-              `📍 *¡Llegaste a la guarida de ${bounty.enemyName}!* \n\n` +
-              `El enemigo está frente a ti. Entra al tablón para combatir.\n` +
-              `⚠️ _¡No tardes demasiado o el enemigo te sorprenderá!_`,
+              '📍 *¡Llegaste a la guarida de ' + bounty.enemyName + '!* \n\n' +
+              'El enemigo está frente a ti. Entra al tablón para combatir.\n' +
+              '⚠️ _¡No tardes demasiado o el enemigo te sorprenderá!_',
               {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Iniciar Asalto Manual', 'menu_bounty')]])
@@ -279,7 +274,6 @@ function scheduleTravelEvents(bot, userId, bountyId, durationMinutes, totalMs) {
   activeTravelTimers.set(userId, timer);
 }
 
-// Temporizador AFK en Modo Manual (5 min en T1-T2, 10 min en T3-T5)
 function armManualAfkTimer(bot, userId, bounty) {
   if (manualAfkTimers.has(userId)) {
     clearTimeout(manualAfkTimers.get(userId));
@@ -294,29 +288,27 @@ function armManualAfkTimer(bot, userId, bounty) {
       const p = await Player.findOne({ userId });
       if (!b || b.status !== 'arrived' || !p) return;
 
-      // Primer aviso AFK: Golpe de castigo
       const penaltyDmg = Math.max(10, Math.round(b.enemyMaxDmg * 0.7));
       p.hp = Math.max(1, p.hp - penaltyDmg);
       await p.save();
 
       await bot.telegram.sendMessage(
         userId,
-        `⚠️ *¡EL ENEMIGO TE SORPRENDIÓ POR INACCIÓN!*\n\n` +
-        `Te quedaste quieto demasiado tiempo frente a *${b.enemyName}* y te asestó un golpe de castigo perdiendo *-${penaltyDmg} HP*.\n\n` +
-        `_Si no atacas pronto, el enemigo te despojará y escapará._`,
+        '⚠️ *¡EL ENEMIGO TE SORPRENDIÓ POR INACCIÓN!*\n\n' +
+        'Te quedaste quieto demasiado tiempo frente a *' + b.enemyName + '* y te asestó un golpe de castigo perdiendo *-' + penaltyDmg + ' HP*.\n\n' +
+        '_Si no atacas pronto, el enemigo te despojará y escapará._',
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Atacar Ahora', 'bounty_start_manual')]])
         }
       );
 
-      // Segundo aviso AFK: Golpe de gracia y huida con el botín
       const t2 = setTimeout(async () => {
         const b2 = await PlayerBounty.findById(bounty._id);
         const p2 = await Player.findOne({ userId });
         if (!b2 || b2.status !== 'arrived' || !p2) return;
 
-        p2.hp = 1; // Queda a 1 HP
+        p2.hp = 1;
         b2.status = 'failed';
         await p2.save();
         await b2.save();
@@ -325,15 +317,15 @@ function armManualAfkTimer(bot, userId, bounty) {
 
         await bot.telegram.sendMessage(
           userId,
-          `💨 *¡EL ENEMIGO HA ESCAPADO!*\n\n` +
-          `Aprovechando tu prolongada ausencia, *${b2.enemyName}* te propinó un golpe devastador dejándote a *1 HP* y huyó llevándose casi todo el botín.\n\n` +
-          `La misión de hoy ha fallado. Podrás reintentarla cuando recuperes salud.`,
+          '💨 *¡EL ENEMIGO HA ESCAPADO!*\n\n' +
+          'Aprovechando tu prolongada ausencia, *' + b2.enemyName + '* te propinó un golpe devastador dejándote a *1 HP* y huyó llevándose casi todo el botín.\n\n' +
+          'La misión de hoy ha fallado. Podrás reintentarla cuando recuperes salud.',
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([[Markup.button.callback('🏕️ Volver al Campamento', 'status')]])
           }
         );
-      }, Math.max( afkMs / 2, 90000));
+      }, Math.max(afkMs / 2, 90000));
 
       manualAfkTimers.set(userId, t2);
     } catch (e) {
@@ -371,8 +363,8 @@ async function processSingleTravelEvent(bot, player, bounty, tierCfg) {
     const goldEvents = TRAVEL_EVENTS.filter(e => e.type === 'gold_gain');
     const ev = goldEvents[Math.floor(Math.random() * goldEvents.length)];
 
-    eventMsg = `🧭 *Suceso en el camino:*\n${ev.text}\n` +
-               `💰 *+${gained}g* sumados para el botín final.`;
+    eventMsg = '🧭 *Suceso en el camino:*\n' + ev.text + '\n' +
+               '💰 *+' + gained + 'g* sumados para el botín final.';
   } else {
     const hazardEvents = TRAVEL_EVENTS.filter(e => e.type !== 'gold_gain');
     const ev = hazardEvents[Math.floor(Math.random() * hazardEvents.length)];
@@ -380,35 +372,35 @@ async function processSingleTravelEvent(bot, player, bounty, tierCfg) {
     if (ev.type === 'accident_dmg') {
       const avoidChance = Math.min(0.65, ev.avoidChanceBase + (agiVal * ev.avoidBonusPerAgi));
       if (Math.random() < avoidChance) {
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.dodgeText}`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.dodgeText;
       } else {
         const hpLoss = Math.floor(Math.random() * (tierCfg.hpLossRange[1] - tierCfg.hpLossRange[0] + 1)) + tierCfg.hpLossRange[0];
         player.hp = Math.max(1, player.hp - hpLoss);
         hpDelta = -hpLoss;
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.failText}\n` +
-                   `🩸 Perdiste *-${hpLoss} HP* por el tropiezo.`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.failText + '\n' +
+                   '🩸 Perdiste *-' + hpLoss + ' HP* por el tropiezo.';
       }
     } else if (ev.type === 'accident_gold_loss') {
       const avoidChance = Math.min(0.60, ev.avoidChanceBase + (agiVal * ev.avoidBonusPerAgi));
       if (Math.random() < avoidChance) {
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.dodgeText}`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.dodgeText;
       } else {
         const goldLoss = Math.floor(Math.random() * (tierCfg.goldLossRange[1] - tierCfg.goldLossRange[0] + 1)) + tierCfg.goldLossRange[0];
         goldDelta = -goldLoss;
         bounty.netGoldBonus -= goldLoss;
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.failText}\n` +
-                   `💸 Perdiste *-${goldLoss}g* en el camino.`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.failText + '\n' +
+                   '💸 Perdiste *-' + goldLoss + 'g* en el camino.';
       }
     } else if (ev.type === 'ambush') {
       const avoidChance = Math.min(0.60, ev.avoidChanceBase + (strVal * ev.avoidBonusPerStr));
       if (Math.random() < avoidChance) {
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.dodgeText}`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.dodgeText;
       } else {
         const hpLoss = Math.floor(Math.random() * (tierCfg.hpLossRange[1] - tierCfg.hpLossRange[0] + 1)) + tierCfg.hpLossRange[0];
         player.hp = Math.max(1, player.hp - hpLoss);
         hpDelta = -hpLoss;
-        eventMsg = `🧭 *Suceso en el camino:*\n${ev.failText}\n` +
-                   `🩸 Recibiste un arañazo perdiendo *-${hpLoss} HP*.`;
+        eventMsg = '🧭 *Suceso en el camino:*\n' + ev.failText + '\n' +
+                   '🩸 Recibiste un arañazo perdiendo *-' + hpLoss + ' HP*.';
       }
     }
   }
@@ -485,12 +477,12 @@ async function resolveAutoCombat(bot, userId, bounty) {
     await player.save();
     await bounty.save();
 
-    const failMsg = `💀 *Caza Fallida: ${bounty.enemyName}*\n\n` +
-                    `Caíste inconsciente durante la resolución automática.\n` +
-                    (potionsUsedCount > 0 ? `• Pociones usadas: ${potionsUsedDetails.join(', ')}\n` : '') +
-                    `⏳ Quedaste inconsciente por 2 horas.\n` +
-                    `⚠️ Perdiste ${lostExp} de EXP acumulada.\n\n` +
-                    `_Podrás reintentar el asalto cuando te recuperes antes de las 00:00 UTC._`;
+    const failMsg = '💀 *Caza Fallida: ' + bounty.enemyName + '*\n\n' +
+                    'Caíste inconsciente durante la resolución automática.\n' +
+                    (potionsUsedCount > 0 ? '• Pociones usadas: ' + potionsUsedDetails.join(', ') + '\n' : '') +
+                    '⏳ Quedaste inconsciente por 2 horas.\n' +
+                    '⚠️ Perdiste ' + lostExp + ' de EXP acumulada.\n\n' +
+                    '_Podrás reintentar el asalto cuando te recuperes antes de las 00:00 UTC._';
 
     try {
       await bot.telegram.sendMessage(userId, failMsg, { parse_mode: 'Markdown' });
@@ -505,15 +497,15 @@ async function resolveAutoCombat(bot, userId, bounty) {
   await player.save();
   await bounty.save();
 
-  const successMsg = `🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n` +
-                     `Derrotaste a *${bounty.enemyName}* tras ${turns} asaltos.\n\n` +
-                     (potionsUsedCount > 0 ? `🧪 *Pociones de salud utilizadas:* ${potionsUsedDetails.join(', ')}\n\n` : `✨ _No fue necesario usar ninguna poción._\n\n`) +
-                     `📊 *Informe de Recompensa:*\n` +
-                     `• Botín base: *${bounty.baseGold}g*\n` +
-                     (bounty.netGoldBonus >= 0 ? `• Incidentes de viaje: *+${bounty.netGoldBonus}g*\n` : `• Incidentes de viaje: *${bounty.netGoldBonus}g*\n`) +
-                     `💰 *Oro neto cobrado:* *+${rewardReport.finalGold}g*\n` +
-                     `🔮 *EXP ganada:* *+${rewardReport.finalExp}*\n` +
-                     (rewardReport.leveledUp ? `\n🎉 *¡Subiste a Nivel ${player.level}!*` : '');
+  const successMsg = '🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n' +
+                     'Derrotaste a *' + bounty.enemyName + '* tras ' + turns + ' asaltos.\n\n' +
+                     (potionsUsedCount > 0 ? '🧪 *Pociones de salud utilizadas:* ' + potionsUsedDetails.join(', ') + '\n\n' : '✨ _No fue necesario usar ninguna poción._\n\n') +
+                     '📊 *Informe de Recompensa:*\n' +
+                     '• Botín base: *' + bounty.baseGold + 'g*\n' +
+                     (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
+                     '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
+                     '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
+                     (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
 
   try {
     await bot.telegram.sendMessage(
@@ -609,7 +601,6 @@ async function executeManualBountyAttack(ctx, bot) {
     return await ctx.answerCbQuery('No tienes ningún objetivo localizado listo para combatir.', { show_alert: true });
   }
 
-  // Desactivar temporalmente timer AFK al interactuar
   if (manualAfkTimers.has(userId)) {
     clearTimeout(manualAfkTimers.get(userId));
     manualAfkTimers.delete(userId);
@@ -644,14 +635,14 @@ async function executeManualBountyAttack(ctx, bot) {
     await bounty.save();
     await ctx.answerCbQuery();
 
-    const victoryMsg = `🎉 *¡VICTORIA CONTRA ${bounty.enemyName}!*\n\n` +
-                       `Asestaste el golpe final terminando la cacería.\n\n` +
-                       `📊 *Informe de Recompensa:*\n` +
-                       `• Botín base: *${bounty.baseGold}g*\n` +
-                       (bounty.netGoldBonus >= 0 ? `• Incidentes de viaje: *+${bounty.netGoldBonus}g*\n` : `• Incidentes de viaje: *${bounty.netGoldBonus}g*\n`) +
-                       `💰 *Oro neto cobrado:* *+${rewardReport.finalGold}g*\n` +
-                       `🔮 *EXP ganada:* *+${rewardReport.finalExp}*\n` +
-                       (rewardReport.leveledUp ? `\n🎉 *¡Subiste a Nivel ${player.level}!*` : '');
+    const victoryMsg = '🎉 *¡VICTORIA CONTRA ' + bounty.enemyName + '!*\n\n' +
+                       'Asestaste el golpe final terminando la cacería.\n\n' +
+                       '📊 *Informe de Recompensa:*\n' +
+                       '• Botín base: *' + bounty.baseGold + 'g*\n' +
+                       (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
+                       '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
+                       '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
+                       (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
 
     return await ctx.editMessageText(victoryMsg, {
       parse_mode: 'Markdown',
@@ -672,11 +663,11 @@ async function executeManualBountyAttack(ctx, bot) {
     await bounty.save();
     await ctx.answerCbQuery();
 
-    const defeatMsg = `💀 *¡Has caído derrotado por ${bounty.enemyName}!* \n\n` +
-                      `El enemigo te asestó un golpe de ${finalEnemyDmg} de daño.\n` +
-                      `⏳ Quedaste inconsciente por 2 horas.\n` +
-                      `⚠️ Perdiste ${lostExp} de EXP acumulada.\n\n` +
-                      `_Podrás reintentar el asalto cuando recuperes salud antes de las 00:00 UTC._`;
+    const defeatMsg = '💀 *¡Has caído derrotado por ' + bounty.enemyName + '!* \n\n' +
+                      'El enemigo te asestó un golpe de ' + finalEnemyDmg + ' de daño.\n' +
+                      '⏳ Quedaste inconsciente por 2 horas.\n' +
+                      '⚠️ Perdiste ' + lostExp + ' de EXP acumulada.\n\n' +
+                      '_Podrás reintentar el asalto cuando recuperes salud antes de las 00:00 UTC._';
 
     return await ctx.editMessageText(defeatMsg, {
       parse_mode: 'Markdown',
@@ -688,17 +679,16 @@ async function executeManualBountyAttack(ctx, bot) {
   await bounty.save();
   await ctx.answerCbQuery();
 
-  // Re-armar temporizador AFK para el siguiente asalto
   armManualAfkTimer(bot, userId, bounty);
 
-  const combatText = `⚔️ *Combate contra ${bounty.enemyName}*\n\n` +
-                     (isCrit ? `✨ *¡Golpe Crítico!* (1.4x)\n` : '') +
-                     `💥 Daño infligido: *${pDmg}*\n` +
-                     `🛡️ Daño recibido: *${finalEnemyDmg} HP*\n\n` +
-                     `❤️ Tu salud: *${player.hp}/${player.maxHp} HP*\n` +
-                     `⚡ Tu energía: *${player.energy}/${MAX_ENERGY}*\n` +
-                     `❤️ Salud de ${bounty.enemyName}: *${bounty.enemyCurrentHp}/${bounty.enemyMaxHp} HP*\n\n` +
-                     `¿Qué decides hacer?`;
+  const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
+                     (isCrit ? '✨ *¡Golpe Crítico!* (1.4x)\n' : '') +
+                     '💥 Daño infligido: *' + pDmg + '*\n' +
+                     '🛡️ Daño recibido: *' + finalEnemyDmg + ' HP*\n\n' +
+                     '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
+                     '⚡ Tu energía: *' + player.energy + '/' + MAX_ENERGY + '*\n' +
+                     '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
+                     '¿Qué decides hacer?';
 
   const buttons = [
     [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'bounty_manual_hit')],
@@ -709,7 +699,6 @@ async function executeManualBountyAttack(ctx, bot) {
   return await ctx.editMessageText(combatText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
-// Reset de Admin para repetir la caza
 async function resetBountyForAdmin(userId) {
   const todayUtc = getTodayUtcString();
   await PlayerBounty.deleteOne({ userId, bountyDateUtc: todayUtc });
