@@ -1,11 +1,10 @@
 const { Markup } = require('telegraf');
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 const { BOUNTY_TIERS, TRAVEL_EVENTS, getTierKey, generateBounty } = require('./bountyData');
-const { Player, getRequiredExp, MAX_LEVEL, MAX_ENERGY } = require('./playerModel');
+const { Player, getRequiredExp, creditReferralBonus, MAX_LEVEL, MAX_ENERGY } = require('./playerModel');
 
 const ADMIN_ID = 835648800;
 
-// Temporizadores en memoria
 const activeTravelTimers = new Map();
 const manualAfkTimers = new Map();
 
@@ -28,12 +27,14 @@ function getUniversalTimeData() {
   };
 }
 
-async function getOrCreateDailyBounty(userId, playerLevel) {
+async function getOrCreateDailyBounty(userId, player) {
   const todayUtc = getTodayUtcString();
   let bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
 
   if (!bounty) {
-    const generated = generateBounty(playerLevel);
+    const baseAtk = Math.round(20 + ((player.strength || 0) * 1.2) + Math.floor(Math.sqrt(player.strength || 0) * 3));
+    const generated = generateBounty(player.level, player.maxHp, baseAtk);
+
     bounty = await PlayerBounty.create({
       userId,
       bountyDateUtc: todayUtc,
@@ -56,7 +57,7 @@ async function getOrCreateDailyBounty(userId, playerLevel) {
 
 async function getBountyBoardView(userId, player) {
   const todayUtc = getTodayUtcString();
-  const bounty = await getOrCreateDailyBounty(userId, player.level);
+  const bounty = await getOrCreateDailyBounty(userId, player);
   const clock = getUniversalTimeData();
 
   let text = '📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n' +
@@ -77,6 +78,20 @@ async function getBountyBoardView(userId, player) {
     return { text, keyboard: Markup.inlineKeyboard(buttons) };
   }
 
+  if (bounty.retreatCooldownUntil && Date.now() < new Date(bounty.retreatCooldownUntil).getTime()) {
+    const minLeft = Math.ceil((new Date(bounty.retreatCooldownUntil).getTime() - Date.now()) / 60000);
+    text += '⚠️ *¡EL ENEMIGO ESCAPÓ TRAS TU RETIRADA!*\n\n' +
+            'Decidiste huir del enfrentamiento. *' + bounty.enemyName + '* se ocultó en la maleza.\n' +
+            '⏳ Tiempo de espera para reintentar rastrearlo: *' + minLeft + ' minuto(s)*.\n' +
+            '💸 _Penalización aplicada: Se ha perdido el 90% del botín base._';
+
+    const buttons = [
+      [Markup.button.callback('🔄 Actualizar Tiempo', 'bounty_refresh')],
+      [Markup.button.callback('⬅️ Volver a Explorar el Reino', 'menu_explore')]
+    ];
+    return { text, keyboard: Markup.inlineKeyboard(buttons) };
+  }
+
   if (bounty.status === 'traveling') {
     const secLeft = Math.max(0, Math.ceil((new Date(bounty.arrivesAt).getTime() - Date.now()) / 1000));
     const mins = Math.floor(secLeft / 60);
@@ -88,7 +103,7 @@ async function getBountyBoardView(userId, player) {
     text += '🚶 *EN CAMINO HACIA EL OBJETIVO*\n\n' +
             '🎯 *Presa:* ' + bounty.enemyName + '\n' +
             '⏳ *Llegada estimada:* ' + mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's\n' +
-            '⚙️ *Modo:* ' + modeDesc + '\n\n' +
+            '⚙️ *Modo asignado:* ' + modeDesc + '\n\n' +
             '_Tus sentidos vigilan el camino. Recibirás avisos si algo ocurre._';
 
     const buttons = [
@@ -99,19 +114,22 @@ async function getBountyBoardView(userId, player) {
   }
 
   if (bounty.status === 'arrived') {
-    text += '⚔️ *¡HAS ALCANZADO LA GUARIDA!*\n\n' +
-            '🎯 *Objetivo:* ' + bounty.enemyName + '\n' +
-            '❤️ Salud enemiga: *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n' +
-            '⚔️ Daño estimado: *' + bounty.enemyMinDmg + ' - ' + bounty.enemyMaxDmg + '*\n' +
-            '💰 Botín base: *' + bounty.baseGold + 'g*\n\n' +
-            '¿Cómo deseas proceder?';
+    if (bounty.mode === 'manual') {
+      text += '⚔️ *¡HAS ALCANZADO LA GUARIDA!*\n\n' +
+              '🎯 *Objetivo:* ' + bounty.enemyName + '\n' +
+              '❤️ Salud enemiga: *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n' +
+              '⚔️ Daño estimado: *' + bounty.enemyMinDmg + ' - ' + bounty.enemyMaxDmg + '*\n' +
+              '💰 Botín base: *' + bounty.baseGold + 'g*\n\n' +
+              'Tu objetivo está frente a ti con el arma desenvainada.';
 
-    const buttons = [
-      [Markup.button.callback('⚔️ Pelear Manualmente (Asalto por Asalto)', 'bounty_start_manual')],
-      [Markup.button.callback('🤖 Resolver en Automático', 'bounty_auto_select')],
-      [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
-    ];
-    return { text, keyboard: Markup.inlineKeyboard(buttons) };
+      const buttons = [
+        [Markup.button.callback('⚔️ Atacar (1 ⚡)', 'bounty_manual_hit')],
+        [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
+        [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
+        [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
+      ];
+      return { text, keyboard: Markup.inlineKeyboard(buttons) };
+    }
   }
 
   text += '🎯 *Contrato del Día:* *' + bounty.enemyName + '*\n\n' +
@@ -131,6 +149,58 @@ async function getBountyBoardView(userId, player) {
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
+async function getMerchantView(userId) {
+  const player = await Player.findOne({ userId });
+
+  const text = '🛒 *MERCADER AMBULANTE DE LA RUTA*\n\n' +
+               '_"No puedes volver a la ciudad en plena cacería, camarada. Te vendo lo que cargo en mi carreta, pero el flete en territorio salvaje cuesta más caro..."_\n\n' +
+               '💰 Tu Oro: *' + (player ? player.gold : 0) + 'g*\n\n' +
+               '• 🧪 *Poción Menor (+10 HP):* 💰 35g _(Normal: 25g)_\n' +
+               '• 🧪 *Poción Mayor (+35 HP):* 💰 105g _(Normal: 75g)_\n' +
+               '• ⚡ *Elixir de Energía (+1 ⚡):* 💰 190g _(Normal: 140g)_\n\n' +
+               '💡 _Todo el oro que inviertas aquí será considerado en la recompensa final (recuperas del 80% al 130% de tu gasto)._';
+
+  const buttons = [
+    [Markup.button.callback('Comprar Poción Menor (35g)', 'bounty_buy_pot_small')],
+    [Markup.button.callback('Comprar Poción Mayor (105g)', 'bounty_buy_pot_medium')],
+    [Markup.button.callback('Comprar Elixir Energía (190g)', 'bounty_buy_pot_energy')],
+    [Markup.button.callback('⬅️ Volver al Combate', 'menu_bounty')]
+  ];
+
+  return { text, keyboard: Markup.inlineKeyboard(buttons) };
+}
+
+async function buyFromMerchant(ctx, itemKey) {
+  const userId = ctx.from.id;
+  const player = await Player.findOne({ userId });
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
+  if (!player || !bounty) return;
+
+  const catalog = {
+    small: { name: 'Poción Menor', cost: 35, field: 'potionsSmall' },
+    medium: { name: 'Poción Mayor', cost: 105, field: 'potionsMedium' },
+    energy: { name: 'Elixir de Energía', cost: 190, field: 'potionsEnergy' }
+  };
+
+  const item = catalog[itemKey];
+  if (!item) return;
+
+  if (player.gold < item.cost) {
+    return await ctx.answerCbQuery('❌ Oro insuficiente para pagarle al mercader.', { show_alert: true });
+  }
+
+  player.gold -= item.cost;
+  player[item.field] = (player[item.field] || 0) + 1;
+  bounty.goldSpentOnMerchant = (bounty.goldSpentOnMerchant || 0) + item.cost;
+
+  await player.save();
+  await bounty.save();
+
+  await ctx.answerCbQuery('✅ Adquiriste 1x ' + item.name);
+  const view = await getMerchantView(userId);
+  return await ctx.editMessageText(view.text, { parse_mode: 'Markdown', ...view.keyboard });
+}
+
 async function getAutoSelectionView(userId) {
   const todayUtc = getTodayUtcString();
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
@@ -138,17 +208,19 @@ async function getAutoSelectionView(userId) {
 
   const normalLimit = tierCfg.autoPotionsBase;
   const plusLimit = tierCfg.autoPotionsWithAds;
+  const adsWatched = bounty ? (bounty.adsClaimedForBounty || 0) : 0;
 
   const text = '🤖 *Configuración de Asalto Automático*\n\n' +
                'Elige el protocolo de supervivencia para tu expedición:\n\n' +
                '🔹 *Modo Normal:* Consume hasta *' + normalLimit + '* poción(es) de salud si tu vida cae por debajo del 40%.\n\n' +
-               '⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *' + plusLimit + '* pociones de salud si el combate se complica.\n\n' +
+               '⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *' + plusLimit + '* pociones de salud si el combate se complica.\n' +
+               '📺 *Progreso de anuncios hoy:* ' + adsWatched + ' / 2\n\n' +
                '¿Cuál deseas emplear?';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🔹 Iniciar Auto Normal (Máx. ' + normalLimit + ')', 'bounty_go_auto_normal')],
-    [Markup.button.webApp('⚡ Activar Auto Plus (Ver Anuncios)', 'https://bot-rpg-wu42.onrender.com/ad-reward')],
-    [Markup.button.callback('⚡ Iniciar Auto Plus (Si ya viste 2 ads)', 'bounty_go_auto_plus')],
+    [Markup.button.webApp('⚡ Activar Auto Plus (Ver Anuncios)', 'https://bot-rpg-wu42.onrender.com/ad-reward?purpose=bounty_plus&userId=' + userId)],
+    [Markup.button.callback('⚡ Iniciar Auto Plus (' + adsWatched + '/2)', 'bounty_go_auto_plus')],
     [Markup.button.callback('⬅️ Volver', 'menu_bounty')]
   ]);
 
@@ -164,7 +236,7 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   let bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
 
   if (!bounty) {
-    bounty = await getOrCreateDailyBounty(userId, player.level);
+    bounty = await getOrCreateDailyBounty(userId, player);
     return await ctx.reply(
       '🌌 *¡El Tablón cambió ante tus ojos!*\n\n' +
       'Las campanas marcaron las 00:00 UTC y los contratos fueron renovados.\n' +
@@ -174,6 +246,15 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
         ...Markup.inlineKeyboard([[Markup.button.callback('📜 Ver Nuevo Contrato', 'menu_bounty')]])
       }
     );
+  }
+
+  if (isPlus && (bounty.adsClaimedForBounty || 0) < 2) {
+    return await ctx.answerCbQuery('⚠️ Te falta ver ' + (2 - (bounty.adsClaimedForBounty || 0)) + ' anuncio(s) para activar el Modo Plus.', { show_alert: true });
+  }
+
+  if (bounty.retreatCooldownUntil && Date.now() < new Date(bounty.retreatCooldownUntil).getTime()) {
+    const minLeft = Math.ceil((new Date(bounty.retreatCooldownUntil).getTime() - Date.now()) / 60000);
+    return await ctx.answerCbQuery('Debes esperar ' + minLeft + ' min tras haberte retirado.', { show_alert: true });
   }
 
   if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
@@ -197,9 +278,6 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
 
   bounty.status = 'traveling';
   bounty.mode = mode;
-  if (isPlus) {
-    bounty.adsClaimedForBounty = 2;
-  }
   bounty.startedAt = new Date(now);
   bounty.arrivesAt = new Date(now + travelMs);
   bounty.eventsLog = [];
@@ -295,11 +373,11 @@ function armManualAfkTimer(bot, userId, bounty) {
       await bot.telegram.sendMessage(
         userId,
         '⚠️ *¡EL ENEMIGO TE SORPRENDIÓ POR INACCIÓN!*\n\n' +
-        'Te quedaste quieto demasiado tiempo frente a *' + b.enemyName + '* y te asestó un golpe de castigo perdiendo *-' + penaltyDmg + ' HP*.\n\n' +
+        'Te quedaste inmóvil demasiado tiempo frente a *' + b.enemyName + '* y te asestó un golpe de castigo perdiendo *-' + penaltyDmg + ' HP*.\n\n' +
         '_Si no atacas pronto, el enemigo te despojará y escapará._',
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Atacar Ahora', 'bounty_start_manual')]])
+          ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Atacar Ahora', 'menu_bounty')]])
         }
       );
 
@@ -318,8 +396,7 @@ function armManualAfkTimer(bot, userId, bounty) {
         await bot.telegram.sendMessage(
           userId,
           '💨 *¡EL ENEMIGO HA ESCAPADO!*\n\n' +
-          'Aprovechando tu prolongada ausencia, *' + b2.enemyName + '* te propinó un golpe devastador dejándote a *1 HP* y huyó llevándose casi todo el botín.\n\n' +
-          'La misión de hoy ha fallado. Podrás reintentarla cuando recuperes salud.',
+          'Aprovechando tu prolongada ausencia, *' + b2.enemyName + '* te propinó un golpe devastador dejándote a *1 HP* y huyó llevándose la recompensa.',
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([[Markup.button.callback('🏕️ Volver al Campamento', 'status')]])
@@ -426,12 +503,13 @@ async function resolveAutoCombat(bot, userId, bounty) {
   if (!player) return;
 
   const tierCfg = BOUNTY_TIERS[bounty.tierKey];
-  const maxPotions = bounty.adsClaimedForBounty >= 2 
+  const maxPotions = (bounty.adsClaimedForBounty || 0) >= 2 
     ? tierCfg.autoPotionsWithAds 
     : tierCfg.autoPotionsBase;
 
   let potionsUsedCount = 0;
   const potionsUsedDetails = [];
+  let searchedPotionAndFailed = false;
 
   let enemyHp = bounty.enemyMaxHp;
   let playerHp = player.hp;
@@ -458,12 +536,16 @@ async function resolveAutoCombat(bot, userId, bounty) {
     const finalDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigation)));
     playerHp -= finalDmg;
 
-    if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40) && potionsUsedCount < maxPotions) {
-      const consumed = tryConsumeHealthPotion(player, tierCfg.smartPotionChoice);
-      if (consumed) {
-        potionsUsedCount++;
-        playerHp = Math.min(player.maxHp, playerHp + consumed.heal);
-        potionsUsedDetails.push(consumed.name);
+    if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40)) {
+      if (potionsUsedCount < maxPotions) {
+        const consumed = tryConsumeHealthPotion(player);
+        if (consumed) {
+          potionsUsedCount++;
+          playerHp = Math.min(player.maxHp, playerHp + consumed.heal);
+          potionsUsedDetails.push(consumed.name);
+        } else {
+          searchedPotionAndFailed = true;
+        }
       }
     }
   }
@@ -477,8 +559,17 @@ async function resolveAutoCombat(bot, userId, bounty) {
     await player.save();
     await bounty.save();
 
+    let narrativeKOFail = '';
+    if (searchedPotionAndFailed) {
+      narrativeKOFail = '🎒 _Buscaste con desesperación una poción en tu mochila hasta quedar noqueado... Nunca la encontraste._\n\n';
+    } else if (potionsUsedCount >= maxPotions) {
+      narrativeKOFail = '⚠️ _Agotaste tu cupo máximo de pociones automáticas (' + maxPotions + ') y el enemigo no te dio respiro._\n\n';
+    }
+
     const failMsg = '💀 *Caza Fallida: ' + bounty.enemyName + '*\n\n' +
-                    'Caíste inconsciente durante la resolución automática.\n' +
+                    'Caíste inconsciente tras ' + turns + ' asaltos de combate.\n' +
+                    '• Salud enemiga restante: *' + Math.max(0, enemyHp) + '/' + bounty.enemyMaxHp + ' HP*\n' +
+                    narrativeKOFail +
                     (potionsUsedCount > 0 ? '• Pociones usadas: ' + potionsUsedDetails.join(', ') + '\n' : '') +
                     '⏳ Quedaste inconsciente por 2 horas.\n' +
                     '⚠️ Perdiste ' + lostExp + ' de EXP acumulada.\n\n' +
@@ -497,12 +588,15 @@ async function resolveAutoCombat(bot, userId, bounty) {
   await player.save();
   await bounty.save();
 
+  await creditReferralBonus(userId, rewardReport.finalGold);
+
   const successMsg = '🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n' +
                      'Derrotaste a *' + bounty.enemyName + '* tras ' + turns + ' asaltos.\n\n' +
                      (potionsUsedCount > 0 ? '🧪 *Pociones de salud utilizadas:* ' + potionsUsedDetails.join(', ') + '\n\n' : '✨ _No fue necesario usar ninguna poción._\n\n') +
                      '📊 *Informe de Recompensa:*\n' +
                      '• Botín base: *' + bounty.baseGold + 'g*\n' +
                      (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
+                     (bounty.goldSpentOnMerchant > 0 ? '• Compensación Mercader: *+' + rewardReport.merchantComp + 'g*\n' : '') +
                      '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
                      '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                      (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
@@ -519,55 +613,47 @@ async function resolveAutoCombat(bot, userId, bounty) {
   } catch (e) {}
 }
 
-function tryConsumeHealthPotion(player, smartChoice) {
-  if (smartChoice) {
-    if (player.potionsMedium > 0) {
-      player.potionsMedium -= 1;
-      return { heal: 35, name: 'Poción Mayor (+35 HP)' };
-    }
-    if (player.potionsSmall > 0) {
-      player.potionsSmall -= 1;
-      return { heal: 10, name: 'Poción Menor (+10 HP)' };
-    }
-  } else {
-    const hasSmall = player.potionsSmall > 0;
-    const hasMed = player.potionsMedium > 0;
-    if (hasSmall && hasMed) {
-      if (Math.random() < 0.5) {
-        player.potionsSmall -= 1;
-        return { heal: 10, name: 'Poción Menor (+10 HP)' };
-      } else {
-        player.potionsMedium -= 1;
-        return { heal: 35, name: 'Poción Mayor (+35 HP)' };
-      }
-    } else if (hasMed) {
-      player.potionsMedium -= 1;
-      return { heal: 35, name: 'Poción Mayor (+35 HP)' };
-    } else if (hasSmall) {
-      player.potionsSmall -= 1;
-      return { heal: 10, name: 'Poción Menor (+10 HP)' };
-    }
+function tryConsumeHealthPotion(player) {
+  if (player.potionsMedium > 0) {
+    player.potionsMedium -= 1;
+    return { heal: 35, name: 'Poción Mayor (+35 HP)' };
+  }
+  if (player.potionsSmall > 0) {
+    player.potionsSmall -= 1;
+    return { heal: 10, name: 'Poción Menor (+10 HP)' };
   }
   return null;
 }
 
 function applyBountyRewards(player, bounty) {
-  const finalGold = Math.max(50, bounty.baseGold + bounty.netGoldBonus);
-  const rawExp = Math.round(bounty.baseGold * 1.35);
-
-  let maxExpCap = 0;
-  const currentLvl = player.level;
-  if (currentLvl < MAX_LEVEL) {
-    maxExpCap += (getRequiredExp(currentLvl) - player.exp);
-    if (currentLvl + 1 < MAX_LEVEL) {
-      maxExpCap += getRequiredExp(currentLvl + 1);
-      if (currentLvl + 2 < MAX_LEVEL) {
-        maxExpCap += Math.round(getRequiredExp(currentLvl + 2) * 0.15);
-      }
-    }
+  let merchantComp = 0;
+  if (bounty.goldSpentOnMerchant > 0) {
+    const compRate = 0.80 + (Math.random() * 0.50);
+    merchantComp = Math.round(bounty.goldSpentOnMerchant * compRate);
   }
 
-  const finalExp = Math.min(rawExp, maxExpCap > 0 ? maxExpCap : rawExp);
+  const finalGold = Math.max(30, bounty.baseGold + bounty.netGoldBonus + merchantComp);
+
+  let finalExp = 0;
+  const reqCurrent = getRequiredExp(player.level);
+
+  if (['tier4', 'tier5'].includes(bounty.tierKey)) {
+    finalExp = Math.round(reqCurrent * (0.25 + Math.random() * 0.10));
+  } else {
+    const rawExp = Math.round(bounty.baseGold * 1.35);
+    let maxExpCap = 0;
+    const currentLvl = player.level;
+    if (currentLvl < MAX_LEVEL) {
+      maxExpCap += (reqCurrent - player.exp);
+      if (currentLvl + 1 < MAX_LEVEL) {
+        maxExpCap += getRequiredExp(currentLvl + 1);
+        if (currentLvl + 2 < MAX_LEVEL) {
+          maxExpCap += Math.round(getRequiredExp(currentLvl + 2) * 0.15);
+        }
+      }
+    }
+    finalExp = Math.min(rawExp, maxExpCap > 0 ? maxExpCap : rawExp);
+  }
 
   player.gold += finalGold;
   const leveledUp = player.addExp(finalExp);
@@ -575,7 +661,37 @@ function applyBountyRewards(player, bounty) {
   bounty.totalGoldClaimed = finalGold;
   bounty.totalExpClaimed = finalExp;
 
-  return { finalGold, finalExp, leveledUp };
+  return { finalGold, finalExp, leveledUp, merchantComp };
+}
+
+async function handleBountyRetreat(ctx) {
+  const userId = ctx.from.id;
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
+  if (!bounty || bounty.status !== 'arrived') {
+    return await ctx.answerCbQuery('No puedes retirarte ahora.', { show_alert: true });
+  }
+
+  if (manualAfkTimers.has(userId)) {
+    clearTimeout(manualAfkTimers.get(userId));
+    manualAfkTimers.delete(userId);
+  }
+
+  bounty.baseGold = Math.max(10, Math.round(bounty.baseGold * 0.10));
+  bounty.status = 'idle';
+  bounty.retreatCooldownUntil = new Date(Date.now() + 30 * 60 * 1000);
+  await bounty.save();
+
+  await ctx.answerCbQuery('Te retiraste del asalto.');
+  const text = '🏃 *¡TE RETIRASTE DEL COMBATE!*\n\n' +
+               'Huiste de la guarida para salvar el pellejo.\n' +
+               '• *' + bounty.enemyName + '* se replegó a una nueva posición.\n' +
+               '• ⏳ Debes esperar *30 minutos* para reintentar rastrearlo hoy.\n' +
+               '• 💸 El botín garantizado cayó un 90% (queda en ' + bounty.baseGold + 'g).';
+
+  return await ctx.editMessageText(text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+  });
 }
 
 async function renderBountyView(ctx, player) {
@@ -635,11 +751,14 @@ async function executeManualBountyAttack(ctx, bot) {
     await bounty.save();
     await ctx.answerCbQuery();
 
+    await creditReferralBonus(userId, rewardReport.finalGold);
+
     const victoryMsg = '🎉 *¡VICTORIA CONTRA ' + bounty.enemyName + '!*\n\n' +
                        'Asestaste el golpe final terminando la cacería.\n\n' +
                        '📊 *Informe de Recompensa:*\n' +
                        '• Botín base: *' + bounty.baseGold + 'g*\n' +
                        (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
+                       (bounty.goldSpentOnMerchant > 0 ? '• Compensación Mercader: *+' + rewardReport.merchantComp + 'g*\n' : '') +
                        '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
                        '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                        (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
@@ -693,7 +812,8 @@ async function executeManualBountyAttack(ctx, bot) {
   const buttons = [
     [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'bounty_manual_hit')],
     [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
-    [Markup.button.callback('🏃 Retirarme', 'menu_bounty')]
+    [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
+    [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
   ];
 
   return await ctx.editMessageText(combatText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -715,5 +835,8 @@ module.exports = {
   startBountyTravel,
   renderBountyView,
   executeManualBountyAttack,
+  handleBountyRetreat,
+  getMerchantView,
+  buyFromMerchant,
   resetBountyForAdmin
 };
