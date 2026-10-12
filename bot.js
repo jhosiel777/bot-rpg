@@ -318,19 +318,17 @@ function getStatusView(player) {
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
     ],
-    [Markup.button.callback('📜 Reclutar Aventureros', 'menu_referrals')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
 
-// Pantalla para Reclutar Aventureros / Referidos
 function getReferralView(player) {
   player.checkAndBurnReferralGold();
   const unclimed = (player.referralGoldToday || 0) + (player.referralGoldUnclaimed || 0);
 
-  let text = '📜 *SISTEMA DE RECLUTAMIENTO DEL GREMIO*\n\n' +
+  let text = '🚩 *SISTEMA DE RECLUTAMIENTO DEL GREMIO*\n\n' +
              'Invita a nuevos aventureros a inscribirse en el reino bajo tu bandera.\n\n' +
              '🔑 *Tu Código de Recluta:* `' + player.referralCode + '`\n\n' +
              '🛡️ *Reclutas en tu hermandad:* ' + (player.recruitsCount || 0) + '\n\n' +
@@ -344,7 +342,7 @@ function getReferralView(player) {
   if (unclimed > 0) {
     buttons.push([Markup.button.callback('📥 Reclamar +' + unclimed + 'g a mi Bolsa', 'claim_referral_gold')]);
   }
-  buttons.push([Markup.button.callback('⬅️ Volver al Campamento', 'status')]);
+  buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
@@ -379,13 +377,13 @@ bot.action('menu_explore', async (ctx) => {
                '• 🌲 *Expediciones y Mazmorras:* Mazmorras clásicas de exploración rápida.\n' +
                '• 📜 *Tablón de Caza Diaria:* Contrato diario por forajidos o bestias.\n' +
                '• 🐲 *Jefe Mundial (Coloso):* Asalta a los colosos ancestrales del reino.\n' +
-               '• 📜 *Reclutar Aventureros:* Revisa tu código y los tributos de tus reclutas.';
+               '• 🚩 *Reclutar Aventureros:* Tu código de reclutamiento y tributos.';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
     [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
-    [Markup.button.callback('📜 Reclutar Aventureros', 'menu_referrals')],
+    [Markup.button.callback('🚩 Reclutar Aventureros', 'menu_referrals')],
     [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
 
@@ -1523,7 +1521,6 @@ bot.action('adm_give_dragon_blood', async (ctx) => {
   await safeAnswerCb(ctx, `🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ${p.potionsDragonBlood})`, true);
 });
 
-// Guardián de la Puerta (Mensaje para usuarios no verificados)
 function getGatekeeperMessage() {
   return '🏰 *PUERTAS DE LA CIUDADELA ANCESTRAL*\n\n' +
          '_Ante ti se alza una muralla colosal cubierta de líquenes y runas centelleantes. Dos gigantes acorazados bajan sus pesadas alabardas cruzándolas frente a tu pecho, haciendo temblar los adoquines._\n\n' +
@@ -1534,25 +1531,29 @@ function getGatekeeperMessage() {
 }
 
 bot.on('text', async (ctx, next) => {
+  const textMsg = ctx.message.text.trim();
+
+  // Ignorar comandos para que Telegraf los pase a bot.hears / bot.command
+  if (textMsg.startsWith('/')) {
+    return next();
+  }
+
   const userId = ctx.from.id;
   const player = await getPlayer(userId, ctx.from.first_name);
 
-  // Verificación estricta de nuevo usuario
+  // Verificación de nuevo aspirante
   if (!player.isVerified && userId !== ADMIN_ID) {
-    const rawInput = ctx.message.text.trim().toUpperCase();
-
-    // Comprobar si el texto ingresado coincide con un código de 6 caracteres válido
+    const rawInput = textMsg.toUpperCase();
     const recruiter = await Player.findOne({ referralCode: rawInput, isVerified: true });
 
     if (!recruiter || recruiter.userId === userId) {
       return await ctx.reply(
-        '⚔️ *Los guardianes sacuden sus cascos con severidad:*\n\n' +
+        '⚔️ *Los guardianes cruzan sus alabardas con severidad:*\n\n' +
         '— *"Ese sello no figura en el padrón del reino o es inválido. Verifica el código de 6 caracteres con quien te invitó y escríbelo con exactitud."*',
         { parse_mode: 'Markdown' }
       );
     }
 
-    // Código válido: Registrar y verificar
     player.isVerified = true;
     player.referredBy = recruiter.userId;
     recruiter.recruitsCount = (recruiter.recruitsCount || 0) + 1;
@@ -1563,7 +1564,7 @@ bot.on('text', async (ctx, next) => {
     try {
       await bot.telegram.sendMessage(
         recruiter.userId,
-        `🎉 *¡Nuevo recluta bajo tu estandarte!*\n\n*${player.name}* ha superado los muros del reino canjeando tu código de reclutamiento.\nRecibirás el 5% de sus botines.`,
+        `🎉 *¡Nuevo recluta bajo tu estandarte!*\n\n*${player.name}* ha superado los muros del reino canjeando tu código.\nRecibirás el 5% de sus botines.`,
         { parse_mode: 'Markdown' }
       );
     } catch (e) {}
@@ -1586,7 +1587,7 @@ bot.on('text', async (ctx, next) => {
     const targetUserId = adminTargetLevelChangeId;
     adminTargetLevelChangeId = null;
 
-    const newLevel = parseInt(ctx.message.text.trim(), 10);
+    const newLevel = parseInt(textMsg, 10);
     if (isNaN(newLevel) || newLevel < 1 || newLevel > MAX_LEVEL) {
       return await ctx.reply(`⚠️ Por favor introduce un número válido entre 1 y ${MAX_LEVEL}.`);
     }
@@ -1614,11 +1615,10 @@ bot.on('text', async (ctx, next) => {
 
   if (userId === ADMIN_ID && adminBroadcastWaiting) {
     adminBroadcastWaiting = false;
-    const msgContent = ctx.message.text.trim();
 
     const broadcastMsg = `🌌 *Una voz divina resuena en todo el reino...*\n` +
                          `📜 _El Creador les proclama:_\n\n` +
-                         `"${msgContent}"`;
+                         `"${textMsg}"`;
 
     const statusMsg = await ctx.reply('⏳ Transmitiendo mensaje a todos los aventureros...');
     await broadcastToAll(broadcastMsg);
@@ -1637,7 +1637,7 @@ bot.on('text', async (ctx, next) => {
 
   if (userId === ADMIN_ID && adminBossCustomHpWaiting) {
     adminBossCustomHpWaiting = false;
-    const customHp = parseInt(ctx.message.text.trim(), 10);
+    const customHp = parseInt(textMsg, 10);
     if (isNaN(customHp) || customHp < 50) {
       return await ctx.reply('⚠️ Escribe un número válido mayor a 50 para la salud del jefe.');
     }
@@ -1648,7 +1648,7 @@ bot.on('text', async (ctx, next) => {
 
   if (userId === ADMIN_ID && adminBossCustomMsgWaiting) {
     adminBossCustomMsgWaiting = false;
-    bossCustomEpicMessage = ctx.message.text.trim();
+    bossCustomEpicMessage = textMsg;
     await ctx.reply(`✅ *Mensaje de convocatoria actualizado.*`, { parse_mode: 'Markdown' });
 
     const census = await getBossCensus();
@@ -1681,7 +1681,7 @@ bot.on('text', async (ctx, next) => {
     return next();
   }
 
-  const price = parseInt(ctx.message.text.trim(), 10);
+  const price = parseInt(textMsg, 10);
   if (isNaN(price) || price <= 0) {
     return await ctx.reply('⚠️ Por favor escribe solo un número entero positivo para el precio.');
   }
@@ -1715,7 +1715,6 @@ async function handleStartMenu(ctx) {
 
     const player = await getPlayer(userId, ctx.from.first_name);
 
-    // Si no está verificado, le hablan los guardianes y no entra al menú
     if (!player.isVerified && userId !== ADMIN_ID) {
       return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
     }
@@ -1872,7 +1871,6 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
   }
 });
 
-// Salón de la Fama filtrado estrictamente por isVerified: true
 async function getCleanRankingText(myUserId) {
   const topPlayers = await Player.find({ isVerified: true })
     .sort({ level: -1, exp: -1 })
