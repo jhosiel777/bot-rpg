@@ -1,20 +1,20 @@
-// Catálogo procedural modular con coherencia espacial y balance de eventos
-
 const BOUNTY_TIERS = {
   tier1: {
     minLevel: 1,
     maxLevel: 10,
     minTimeMinutes: 1,
     maxTimeMinutes: 5,
-    baseGoldMin: 180,
-    baseGoldMax: 280,
+    baseGoldMin: 70,
+    baseGoldMax: 120,
     eventCount: 1,
-    goldBonusRange: [20, 50],
-    goldLossRange: [10, 25],
-    hpLossRange: [6, 12],
+    goldBonusRange: [15, 30],
+    goldLossRange: [8, 18],
+    hpLossRange: [4, 8],
     autoPotionsBase: 1,
     autoPotionsWithAds: 2,
-    smartPotionChoice: false, // Aleatoria
+    smartPotionChoice: true,
+    dmgFloorMin: 8,
+    dmgFloorMax: 14,
     beastNames: ['Colmillitos', 'Rabioso', 'Pata-Tuerta', 'El Hocicos', 'Piel-Dura', 'Tronchador'],
     humanoidNames: ['Gorg el Manazas', 'Pulgoso Joe', 'Milo el Ratero', 'Garek Tragapanes', 'Bob el Descalzo', 'Tilo Pies-Ligeros'],
     beastParts: {
@@ -92,15 +92,17 @@ const BOUNTY_TIERS = {
     maxLevel: 25,
     minTimeMinutes: 6,
     maxTimeMinutes: 12,
-    baseGoldMin: 450,
-    baseGoldMax: 650,
+    baseGoldMin: 180,
+    baseGoldMax: 290,
     eventCount: 2,
-    goldBonusRange: [60, 120],
-    goldLossRange: [30, 60],
-    hpLossRange: [14, 25],
+    goldBonusRange: [35, 70],
+    goldLossRange: [20, 40],
+    hpLossRange: [8, 16],
     autoPotionsBase: 1,
     autoPotionsWithAds: 2,
-    smartPotionChoice: true, // Prioriza Poción Mayor
+    smartPotionChoice: true,
+    dmgFloorMin: 16,
+    dmgFloorMax: 24,
     beastNames: ['Garra-Sombra', 'Lobo Carmesí', 'Ojo-Sangrante', 'Mandíbula de Hierro', 'El Gran Oso Tuerto', 'Garras-de-Acero'],
     humanoidNames: ['Valeria la Sin Ley', 'Krag Dientes Podridos', 'Garrick el Desertor', 'Brog el Triturador', 'Sylas Mano-Negra', 'Darek el Tuerto'],
     beastParts: {
@@ -178,15 +180,17 @@ const BOUNTY_TIERS = {
     maxLevel: 50,
     minTimeMinutes: 15,
     maxTimeMinutes: 25,
-    baseGoldMin: 900,
-    baseGoldMax: 1300,
+    baseGoldMin: 450,
+    baseGoldMax: 700,
     eventCount: 3,
-    goldBonusRange: [150, 300],
-    goldLossRange: [80, 150],
-    hpLossRange: [25, 45],
+    goldBonusRange: [80, 150],
+    goldLossRange: [40, 90],
+    hpLossRange: [15, 28],
     autoPotionsBase: 2,
     autoPotionsWithAds: 3,
     smartPotionChoice: true,
+    dmgFloorMin: 28,
+    dmgFloorMax: 40,
     beastNames: ['Quimera del Cieno', 'Devorador Espectral', 'Gólem Descontrolado', 'Engendro de Cripta', 'Acechador Óseo', 'Gárgola Sangrienta'],
     humanoidNames: ['Morgana la Hereje', 'Malthor Ojos Muertos', 'Ignis el Pirómano', 'Vesper la Oscura', 'Eldrin el Apóstata', 'Belial el Renegado'],
     beastParts: {
@@ -264,15 +268,17 @@ const BOUNTY_TIERS = {
     maxLevel: 85,
     minTimeMinutes: 30,
     maxTimeMinutes: 45,
-    baseGoldMin: 1800,
-    baseGoldMax: 2500,
+    baseGoldMin: 1200,
+    baseGoldMax: 1800,
     eventCount: 4,
-    goldBonusRange: [350, 650],
-    goldLossRange: [180, 350],
-    hpLossRange: [40, 75],
+    goldBonusRange: [200, 400],
+    goldLossRange: [100, 220],
+    hpLossRange: [25, 50],
     autoPotionsBase: 3,
     autoPotionsWithAds: 4,
     smartPotionChoice: true,
+    dmgFloorMin: 45,
+    dmgFloorMax: 65,
     beastNames: ['Behemot de Plaga', 'Abominación del Abismo', 'Sierpe de Ceniza', 'Leviatán Menor', 'Hydra Corrupta', 'Tiranus del Páramo'],
     humanoidNames: ['Vrax el Desollador', 'Noxus Corazón Negro', 'Baelor el Azote', 'General Morvath', 'Zephyr Sangre-Fría', 'Lady Vesperia'],
     beastParts: {
@@ -350,15 +356,17 @@ const BOUNTY_TIERS = {
     maxLevel: 101,
     minTimeMinutes: 50,
     maxTimeMinutes: 60,
-    baseGoldMin: 3500,
-    baseGoldMax: 4800,
+    baseGoldMin: 2500,
+    baseGoldMax: 3600,
     eventCount: 5,
-    goldBonusRange: [700, 1200],
-    goldLossRange: [350, 700],
-    hpLossRange: [60, 110],
+    goldBonusRange: [400, 750],
+    goldLossRange: [200, 400],
+    hpLossRange: [35, 70],
     autoPotionsBase: 3,
     autoPotionsWithAds: 5,
     smartPotionChoice: true,
+    dmgFloorMin: 70,
+    dmgFloorMax: 95,
     beastNames: ['Titán de Discordia', 'Devorador de Soles', 'Heraldo del Colapso', 'Kraken Primordial', 'Dragón del Vacío', 'Vórtice Eterno'],
     humanoidNames: ['Azrak el Hereje Primordial', 'Lord Malakor el Usurpador', 'Señor del Ocaso', 'Archimago Vael', 'Kaelen el Regicida', 'El Apóstata Supremo'],
     beastParts: {
@@ -489,13 +497,11 @@ function getTierKey(level) {
   return 'tier1';
 }
 
-function generateBounty(playerLevel) {
+function generateBounty(playerLevel, playerMaxHp = 80, playerBaseAtk = 25) {
   const tierKey = getTierKey(playerLevel);
   const tierConfig = BOUNTY_TIERS[tierKey];
 
   const isBeast = Math.random() < 0.40;
-  const categoryKey = isBeast ? 'beast' : 'humanoid';
-
   const nameList = isBeast ? tierConfig.beastNames : tierConfig.humanoidNames;
   const parts = isBeast ? tierConfig.beastParts : tierConfig.humanoidParts;
 
@@ -507,20 +513,22 @@ function generateBounty(playerLevel) {
 
   const description = `${subject} conocido como *"${name}"* ${action} ${location} ${context}`;
 
-  // Duración aleatoria dentro del rango del Tier
   const durationMinutes = Math.floor(
     Math.random() * (tierConfig.maxTimeMinutes - tierConfig.minTimeMinutes + 1)
   ) + tierConfig.minTimeMinutes;
 
-  // Oro base estimado
   const baseGold = Math.floor(
     Math.random() * (tierConfig.baseGoldMax - tierConfig.baseGoldMin + 1)
   ) + tierConfig.baseGoldMin;
 
-  // Stats del enemigo escaladas al nivel del jugador
-  const enemyHp = Math.round((45 + playerLevel * 9) * (0.85 + Math.random() * 0.30));
-  const enemyMinDmg = Math.max(8, Math.round((10 + playerLevel * 2.2) * 0.80));
-  const enemyMaxDmg = Math.max(14, Math.round((14 + playerLevel * 2.8) * 1.15));
+  const estimatedPlayerDmg = Math.max(20, playerBaseAtk);
+  const enemyHp = Math.round((estimatedPlayerDmg * 3.8) * (0.90 + Math.random() * 0.20));
+
+  const relativeMinDmg = Math.round(playerMaxHp * 0.16);
+  const relativeMaxDmg = Math.round(playerMaxHp * 0.23);
+
+  const enemyMinDmg = Math.max(tierConfig.dmgFloorMin, relativeMinDmg);
+  const enemyMaxDmg = Math.max(tierConfig.dmgFloorMax, relativeMaxDmg);
 
   return {
     tierKey,
