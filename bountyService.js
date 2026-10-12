@@ -77,9 +77,39 @@ async function getOrCreateDailyBounty(userId, player) {
   return bounty;
 }
 
-async function getBountyBoardView(userId, player) {
+async function getBountyBoardView(userId, player, botInstance = null) {
   const todayUtc = getTodayUtcString();
   const bounty = await getOrCreateDailyBounty(userId, player);
+
+  // Failsafe: Si el trayecto quedó atascado por reinicio de servidor, destrabarlo automáticamente
+  if (bounty.status === 'traveling' && bounty.arrivesAt && Date.now() >= new Date(bounty.arrivesAt).getTime()) {
+    bounty.status = 'arrived';
+    await bounty.save();
+
+    if (bounty.mode === 'auto') {
+      if (botInstance) {
+        await resolveAutoCombat(botInstance, userId, bounty);
+      }
+    } else {
+      if (botInstance) {
+        try {
+          await botInstance.telegram.sendMessage(
+            userId,
+            '📍 *¡Llegaste a la guarida de ' + bounty.enemyName + '!*\n\n' +
+            'La criatura está justo frente a ti, alerta y lista para embestirte.\n' +
+            '⚠️ _¡No tardes demasiado o el enemigo te tomará desprevenido!_',
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Enfrentar al Objetivo', 'bounty_back_to_fight')]])
+            }
+          );
+        } catch (e) {}
+      }
+    }
+    // Volver a consultar el estado actualizado tras la autocorrección
+    return await getBountyBoardView(userId, player, botInstance);
+  }
+
   const clock = getUniversalTimeData();
 
   let text = '📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n' +
@@ -225,7 +255,7 @@ async function getCombatView(ctx) {
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
 
   if (!player || !bounty || bounty.status !== 'arrived') {
-    return await renderBountyView(ctx, player);
+    return await renderBountyView(ctx, player, ctx.telegram ? { telegram: ctx.telegram } : null);
   }
 
   const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
@@ -333,7 +363,7 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   await ctx.answerCbQuery('¡Partiste hacia la caza!');
 
   scheduleTravelEvents(bot, userId, bounty._id, bounty.durationMinutes, travelMs);
-  return await renderBountyView(ctx, player);
+  return await renderBountyView(ctx, player, bot);
 }
 
 function scheduleTravelEvents(bot, userId, bountyId, durationMinutes, totalMs) {
@@ -543,7 +573,6 @@ async function processSingleTravelEvent(bot, player, bounty, tierCfg) {
   } catch (e) {}
 }
 
-// Elección óptima de poción según la salud requerida
 function pickBestPotion(player, neededHp) {
   if (neededHp > 22) {
     if (player.potionsMedium > 0) {
@@ -578,7 +607,6 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
   let pathPotionUsed = null;
 
-  // 1. Curación de ruta independiente: Si llegó herido del viaje, toma 1 dosis de auxilio
   if (player.hp < player.maxHp) {
     const missingHp = player.maxHp - player.hp;
     const consumedPath = pickBestPotion(player, missingHp);
@@ -608,7 +636,6 @@ async function resolveAutoCombat(bot, userId, bounty) {
   while (enemyHp > 0 && playerHp > 0 && turns < maxTurns) {
     turns++;
 
-    // IA Preventiva: Si el próximo golpe máximo del enemigo puede noquearte, curarse antes de recibirlo
     if (playerHp <= maxPossibleEnemyHit && potionsUsedCount < maxCombatPotions) {
       const preHeal = pickBestPotion(player, player.maxHp - playerHp);
       if (preHeal) {
@@ -620,7 +647,6 @@ async function resolveAutoCombat(bot, userId, bounty) {
       }
     }
 
-    // Ataque del Jugador
     const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
     const variation = (Math.random() * 0.40) - 0.20;
     let pDmg = Math.round(baseAtk * (1 + variation));
@@ -635,14 +661,12 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
     if (enemyHp <= 0) break;
 
-    // Contraataque del Enemigo
     const eDmgRaw = Math.floor(Math.random() * (bounty.enemyMaxDmg - bounty.enemyMinDmg + 1)) + bounty.enemyMinDmg;
     const mitigation = (str / (str + 60)) * 0.40;
     const finalDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigation)));
     totalDmgTaken += finalDmg;
     playerHp -= finalDmg;
 
-    // Curación reactiva secundaria si cae bajo el 40%
     if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40) && potionsUsedCount < maxCombatPotions) {
       const reactHeal = pickBestPotion(player, player.maxHp - playerHp);
       if (reactHeal) {
@@ -733,7 +757,6 @@ function applyBountyRewards(player, bounty) {
   let merchantPhrase = 'Bono de comercio';
 
   if (bounty.goldSpentOnMerchant > 0) {
-    // Rango entre 65% y 125% del oro invertido
     const compRate = 0.65 + (Math.random() * 0.60);
     merchantComp = Math.round(bounty.goldSpentOnMerchant * compRate);
 
@@ -808,8 +831,8 @@ async function handleBountyRetreat(ctx) {
   });
 }
 
-async function renderBountyView(ctx, player) {
-  const view = await getBountyBoardView(ctx.from.id, player);
+async function renderBountyView(ctx, player, botInstance = null) {
+  const view = await getBountyBoardView(ctx.from.id, player, botInstance || ctx);
   try {
     return await ctx.editMessageText(view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
