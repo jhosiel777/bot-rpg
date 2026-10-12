@@ -5,6 +5,7 @@ const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
 const { WorldBoss, getWorldBoss } = require('./bossModel');
+const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 const {
   getUniversalTimeData,
   getBountyBoardView,
@@ -270,7 +271,7 @@ function rollDungeonDrops(dungeon, player) {
   return '';
 }
 
-function getStatusView(player) {
+async function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
 
@@ -303,6 +304,14 @@ function getStatusView(player) {
 
   text += `\n¿Qué decides hacer?`;
 
+  const todayUtc = getTodayUtcString();
+  const bounty = await PlayerBounty.findOne({ userId: player.userId, bountyDateUtc: todayUtc });
+  const isHuntingActive = bounty && (bounty.status === 'traveling' || bounty.status === 'arrived');
+
+  const shopButton = isHuntingActive
+    ? Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')
+    : Markup.button.callback('🛒 Tienda', 'menu_shop');
+
   const buttons = [
     [Markup.button.callback('🧭 Explorar el Reino', 'menu_explore')],
     [
@@ -312,7 +321,7 @@ function getStatusView(player) {
       )
     ],
     [
-      Markup.button.callback('🛒 Tienda', 'menu_shop'),
+      shopButton,
       Markup.button.callback('🎒 Inventario', 'menu_inv')
     ],
     [
@@ -408,7 +417,7 @@ bot.action('bounty_depart_prompt', async (ctx) => {
   await safeAnswerCb(ctx);
   const text = '🧭 *Modo de Caza*\n\n' +
                'Elige cómo deseas abordar este contrato:\n\n' +
-               '• 🤖 *Modo Automático:* Viajas recibiendo avisos del sendero. Al llegar, se resuelve la pelea automáticamente usando pociones si tu salud baja demasiado.\n\n' +
+               '• 🤖 *Modo Automático:* Viajas recibiendo avisos del sendero. Al llegar, se resuelve la pelea automáticamente con IA preventiva y auxilio de marcha.\n\n' +
                '• ⚔️ *Modo Manual:* Viajas recibiendo avisos del sendero. Al llegar, peleas turno por turno decidiendo asalto a asalto.';
 
   const keyboard = Markup.inlineKeyboard([
@@ -1654,7 +1663,6 @@ function getGatekeeperMessage() {
 bot.on('text', async (ctx, next) => {
   const textMsg = ctx.message.text.trim();
 
-  // Ignorar comandos con / para no bloquear /start o /admin
   if (textMsg.startsWith('/')) {
     return next();
   }
@@ -1662,7 +1670,6 @@ bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
   const player = await getPlayer(userId, ctx.from.first_name);
 
-  // Verificación del código de acceso
   if (!player.isVerified && userId !== ADMIN_ID) {
     const rawInput = textMsg.toUpperCase();
     const recruiter = await Player.findOne({ referralCode: rawInput, isVerified: true });
@@ -1712,7 +1719,7 @@ bot.on('text', async (ctx, next) => {
       );
     }
 
-    const view = getStatusView(player);
+    const view = await getStatusView(player);
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(userId, sent.message_id);
@@ -1862,7 +1869,7 @@ async function handleStartMenu(ctx) {
       } catch (e) {}
     }
 
-    const view = getStatusView(player);
+    const view = await getStatusView(player);
 
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
 
@@ -1890,7 +1897,7 @@ bot.hears('⚔️ Estado', async (ctx) => {
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
     }
-    const view = getStatusView(player);
+    const view = await getStatusView(player);
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(ctx.from.id, sent.message_id);
   } catch (err) {
@@ -1965,26 +1972,45 @@ bot.hears('🎒 Inventario', async (ctx) => {
   }
 });
 
+// Bloqueo inmersivo en el teclado inferior para Mercado P2P
 bot.hears('🏪 Mercado P2P', async (ctx) => {
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+    const userId = ctx.from.id;
+    const player = await getPlayer(userId, ctx.from.first_name);
+    if (!player.isVerified && userId !== ADMIN_ID) {
       return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
     }
 
-    pendingMarketSales.delete(ctx.from.id);
-    if (ctx.from.id === ADMIN_ID) {
+    const todayUtc = getTodayUtcString();
+    const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+    if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+      return await ctx.reply(
+        '🌫️ *Miras a tu alrededor...*\n\n' +
+        'No ves a nadie con quien comerciar en estas tierras desoladas.\n' +
+        '_Solo tienes al Mercader Ambulante cerca mientras dure la cacería._',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
+            [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+          ])
+        }
+      );
+    }
+
+    pendingMarketSales.delete(userId);
+    if (userId === ADMIN_ID) {
       adminBroadcastWaiting = false;
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
     }
-    const { text, listings } = await getMarketView(ctx.from.id);
+    const { text, listings } = await getMarketView(userId);
     const buttons = [];
 
     listings.forEach((item, idx) => {
       const idStr = String(item._id);
-      const isMine = String(item.sellerId) === String(ctx.from.id);
+      const isMine = String(item.sellerId) === String(userId);
       if (isMine) {
         buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
       } else {
@@ -2099,7 +2125,7 @@ bot.action('status', async (ctx) => {
   try {
     const userId = ctx.from.id;
     const player = await getPlayer(userId, ctx.from.first_name);
-    const view = getStatusView(player);
+    const view = await getStatusView(player);
     return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en status:', err);
@@ -2133,9 +2159,28 @@ async function renderMarket(ctx) {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
+// Bloqueo inmersivo en el callback de Mercado P2P
 bot.action('menu_market', async (ctx) => {
   await safeAnswerCb(ctx);
-  pendingMarketSales.delete(ctx.from.id);
+  const userId = ctx.from.id;
+  const todayUtc = getTodayUtcString();
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+  if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+    const text = '🌫️ *Miras a tu alrededor...*\n\n' +
+                 'No ves a nadie con quien comerciar en estas tierras desoladas.\n' +
+                 '_Solo tienes al Mercader Ambulante cerca mientras dure la cacería._';
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
+        [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+      ])
+    });
+  }
+
+  pendingMarketSales.delete(userId);
   await renderMarket(ctx);
 });
 
@@ -2149,12 +2194,21 @@ bot.action('mkt_trends', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
+// Bloqueo de publicación de objetos durante la cacería
 bot.action('mkt_sell_menu', async (ctx) => {
+  const userId = ctx.from.id;
+  const todayUtc = getTodayUtcString();
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+  if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+    return await safeAnswerCb(ctx, 'No ves a nadie con quien comerciar en estas tierras salvajes.', true);
+  }
+
   await safeAnswerCb(ctx);
-  pendingMarketSales.delete(ctx.from.id);
+  pendingMarketSales.delete(userId);
 
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const player = await getPlayer(userId, ctx.from.first_name);
     const buttons = [];
 
     for (const key in ITEMS) {
@@ -2188,10 +2242,18 @@ bot.action('mkt_sell_menu', async (ctx) => {
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`mkt_prep_${item.id}`, async (ctx) => {
+    const userId = ctx.from.id;
+    const todayUtc = getTodayUtcString();
+    const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+    if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+      return await safeAnswerCb(ctx, 'No ves a nadie con quien comerciar en estas tierras salvajes.', true);
+    }
+
     await safeAnswerCb(ctx);
 
     const bounds = getItemBounds(item.id);
-    pendingMarketSales.set(ctx.from.id, item.id);
+    pendingMarketSales.set(userId, item.id);
 
     const text = `📦 *Vender: ${item.name}*\n\n` +
                  `• Precio base actual: *${bounds.basePrice}g*\n` +
@@ -2207,10 +2269,19 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
+// Bloqueo de compra en el P2P durante la cacería
 bot.action(/mkt_buy_(.+)/, async (ctx) => {
   try {
+    const userId = ctx.from.id;
+    const todayUtc = getTodayUtcString();
+    const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+    if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+      return await safeAnswerCb(ctx, 'No ves a nadie con quien comerciar en estas tierras salvajes.', true);
+    }
+
     const listingId = ctx.match[1];
-    const res = await buyListing(listingId, ctx.from.id);
+    const res = await buyListing(listingId, userId);
 
     await safeAnswerCb(ctx, res.msg, true);
 
@@ -2270,7 +2341,16 @@ function getShopView(player) {
 bot.action('menu_shop', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    const userId = ctx.from.id;
+    const todayUtc = getTodayUtcString();
+    const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+    if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+      const view = await getMerchantView(userId);
+      return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+    }
+
+    const player = await getPlayer(userId, ctx.from.first_name);
     const view = getShopView(player);
     return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
@@ -2282,11 +2362,23 @@ Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
   bot.action(`buy_${item.id}`, async (ctx) => {
     try {
+      const userId = ctx.from.id;
+      const todayUtc = getTodayUtcString();
+      const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+      if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+        return await safeAnswerCb(
+          ctx,
+          '⚠️ Estás en territorio salvaje cazando a tu presa. Solo puedes comerciar con el Mercader Ambulante.',
+          true
+        );
+      }
+
       if (item.npcSell === false) {
         return await safeAnswerCb(ctx, '❌ Este objeto no se adquiere en el puesto comercial del NPC.', true);
       }
 
-      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+      const player = await getPlayer(userId, ctx.from.first_name);
 
       if (player.gold < item.cost) {
         return await safeAnswerCb(ctx, `❌ Oro insuficiente (${item.cost}g necesario).`, true);
@@ -2546,7 +2638,7 @@ bot.action('rest', async (ctx) => {
 
     await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`, true);
 
-    const view = getStatusView(player);
+    const view = await getStatusView(player);
     return await safeEditMessage(ctx, view.text, view.keyboard);
   } catch (err) {
     console.error('Error en rest:', err);
