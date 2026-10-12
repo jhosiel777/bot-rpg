@@ -31,7 +31,8 @@ function getUniversalTimeData() {
 function getMerchantCatalog(userId) {
   let rate = merchantRates.get(userId);
   if (!rate) {
-    rate = 1.25 + (Math.random() * 0.25);
+    // Margen justo entre 10% y 35% más caro (1.10 a 1.35)
+    rate = 1.10 + (Math.random() * 0.25);
     merchantRates.set(userId, rate);
   }
 
@@ -47,6 +48,19 @@ function getMerchantCatalog(userId) {
       energy: { name: 'Elixir de Energía (+1 ⚡)', cost: energyCost, field: 'potionsEnergy' }
     }
   };
+}
+
+function getTierProgressInfo(playerLevel) {
+  const tierKey = getTierKey(playerLevel);
+  const cfg = BOUNTY_TIERS[tierKey];
+  const tierNum = tierKey.replace('tier', '');
+
+  if (tierKey === 'tier5') {
+    return `Tier 5 (Máximo Rango)`;
+  }
+
+  const levelsLeft = (cfg.maxLevel - playerLevel) + 1;
+  return `Tier ${tierNum} (Nivel ${playerLevel}) — Faltan ${levelsLeft} nivel(es) para Tier ${parseInt(tierNum) + 1}`;
 }
 
 async function getOrCreateDailyBounty(userId, player) {
@@ -109,10 +123,12 @@ async function getBountyBoardView(userId, player, botInstance = null) {
   }
 
   const clock = getUniversalTimeData();
+  const tierProgressStr = getTierProgressInfo(player.level);
 
   let text = '📜 *TABLÓN DE RECOMPENSAS DEL REINO*\n' +
              '🕰️ *Reloj Universal:* `' + clock.timeStr + '`\n' +
              '⏳ *Reinicio del Reino:* en `' + clock.countdownStr + '`\n' +
+             '🛡️ *Tu Rango:* ' + tierProgressStr + '\n' +
              '──────────────────────────\n\n';
 
   if (bounty.status === 'completed') {
@@ -204,7 +220,7 @@ async function getMerchantView(userId) {
   const catalog = getMerchantCatalog(userId).items;
 
   const text = '🛒 *MERCADER AMBULANTE DE LA RUTA*\n\n' +
-               '_"No puedes volver a la ciudad en plena cacería, camarada. Te vendo lo que cargo en mi carreta, pero el flete en territorio salvaje cuesta más caro..."_\n\n' +
+               '_"No puedes volver a la ciudad en plena cacería, camarada. Te vendo lo que cargo en mi carreta, pero el flete en territorio salvaje cuesta un poco más..."_\n\n' +
                '💰 Tu Oro: *' + (player ? player.gold : 0) + 'g*\n\n' +
                '• 🧪 *Poción Menor (+10 HP):* 💰 ' + catalog.small.cost + 'g\n' +
                '• 🧪 *Poción Mayor (+35 HP):* 💰 ' + catalog.medium.cost + 'g\n' +
@@ -356,7 +372,6 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   bounty.eventsLog = [];
   bounty.netGoldBonus = 0;
   bounty.eventsProcessedCount = 0;
-  // Al reiniciar viaje, restauramos la salud del enemigo al máximo por si acaso
   bounty.enemyCurrentHp = bounty.enemyMaxHp;
   await bounty.save();
 
@@ -769,28 +784,22 @@ function applyBountyRewards(player, bounty) {
     merchantPhrase = phrases[Math.floor(Math.random() * phrases.length)];
   }
 
-  const finalGold = Math.max(30, bounty.baseGold + bounty.netGoldBonus + merchantComp);
+  // Oro base asegurado y fuerte para compensar el esfuerzo y las pociones
+  const finalGold = Math.max(150, bounty.baseGold + bounty.netGoldBonus + merchantComp);
 
   let finalExp = 0;
   const reqCurrent = getRequiredExp(player.level);
 
-  if (['tier4', 'tier5'].includes(bounty.tierKey)) {
-    finalExp = Math.round(reqCurrent * (0.25 + Math.random() * 0.10));
-  } else {
-    const rawExp = Math.round(bounty.baseGold * 1.35);
-    let maxExpCap = 0;
-    const currentLvl = player.level;
-    if (currentLvl < MAX_LEVEL) {
-      maxExpCap += (reqCurrent - player.exp);
-      if (currentLvl + 1 < MAX_LEVEL) {
-        maxExpCap += getRequiredExp(currentLvl + 1);
-        if (currentLvl + 2 < MAX_LEVEL) {
-          maxExpCap += Math.round(getRequiredExp(currentLvl + 2) * 0.15);
-        }
-      }
-    }
-    finalExp = Math.min(rawExp, maxExpCap > 0 ? maxExpCap : rawExp);
-  }
+  // Multiplicadores de EXP robustos (Tier 1 otorga un jugoso 35%-45% de la EXP para subir de nivel)
+  const tierMultiplier = {
+    tier1: 0.35,
+    tier2: 0.45,
+    tier3: 0.55,
+    tier4: 0.70,
+    tier5: 0.90
+  }[bounty.tierKey] || 0.35;
+
+  finalExp = Math.round(reqCurrent * (tierMultiplier + (Math.random() * 0.10)));
 
   player.gold += finalGold;
   const leveledUp = player.addExp(finalExp);
@@ -801,7 +810,6 @@ function applyBountyRewards(player, bounty) {
   return { finalGold, finalExp, leveledUp, merchantComp, merchantPhrase };
 }
 
-// 1. Mensaje de confirmación antes de retirarse
 async function promptBountyRetreat(ctx) {
   const userId = ctx.from.id;
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
@@ -824,7 +832,6 @@ async function promptBountyRetreat(ctx) {
   return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
-// 2. Ejecución real de la retirada manteniendo el botín base intacto
 async function handleBountyRetreat(ctx) {
   const userId = ctx.from.id;
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
@@ -837,10 +844,8 @@ async function handleBountyRetreat(ctx) {
     manualAfkTimers.delete(userId);
   }
 
-  // Mantenemos el baseGold intacto, solo ponemos estado idle y el cooldown de 30 min
   bounty.status = 'idle';
   bounty.retreatCooldownUntil = new Date(Date.now() + 30 * 60 * 1000);
-  // Al volver a pelear, la salud del enemigo se restablece a tope
   bounty.enemyCurrentHp = bounty.enemyMaxHp;
   await bounty.save();
 
