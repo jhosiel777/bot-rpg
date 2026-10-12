@@ -1554,8 +1554,12 @@ bot.on('text', async (ctx, next) => {
       );
     }
 
+  const isCreatorCode = (recruiter.userId === ADMIN_ID);
+    const starterGold = isCreatorCode ? 500 : 250;
+
     player.isVerified = true;
     player.referredBy = recruiter.userId;
+    player.gold = (player.gold || 0) + starterGold;
     recruiter.recruitsCount = (recruiter.recruitsCount || 0) + 1;
 
     await player.save();
@@ -1569,10 +1573,11 @@ bot.on('text', async (ctx, next) => {
       );
     } catch (e) {}
 
-if (recruiter.userId === ADMIN_ID) {
+    if (isCreatorCode) {
       await ctx.reply(
         '👑 *Los guardianes clavan sus alabardas en el suelo y se arrodillan con reverencia inmediata:*\n\n' +
         '— *"¡Por los antiguos dioses! Portas el sello divino del Creador del Reino. Las puertas de Abyss se abren de par en par ante su invitado de honor."*\n\n' +
+        '🪙 *Bolsa de inicio del Creador:* Has recibido *+500g* de oro para abastecer tu equipo.\n\n' +
         '¡Tu aventura legendaria comienza ahora!',
         { parse_mode: 'Markdown' }
       );
@@ -1580,6 +1585,7 @@ if (recruiter.userId === ADMIN_ID) {
       await ctx.reply(
         '✨ *Los guardianes alzan sus alabardas y el rastrillo de hierro se eleva lentamente con estruendo:*\n\n' +
         '— *"El sello de ' + recruiter.name + ' es auténtico. Bienvenido a Abyss Legend. Que tus armas nunca pierdan su filo."*\n\n' +
+        '🪙 *Bolsa de recluta:* Has recibido *+250g* de oro para tus primeras provisiones.\n\n' +
         '¡Tu aventura comienza ahora!',
         { parse_mode: 'Markdown' }
       );
