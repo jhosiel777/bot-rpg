@@ -6,7 +6,7 @@ const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
 const ADMIN_ID = 835648800;
 
-// 1 punto cada 10 minutos (600,000 ms)
+// 1 punto de energía cada 10 minutos (600,000 ms)
 const ENERGY_REGEN_INTERVAL_MS = 10 * 60 * 1000;
 
 const REFERRAL_CHARSET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -64,7 +64,7 @@ const playerSchema = new mongoose.Schema({
   lastAdClaimDate: { type: String, default: '' },
   totalAdsClaimed: { type: Number, default: 0 },
 
-  // Sistema de Reclutamiento / Referidos
+  // Reclutamiento / Referidos
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: Number, default: null },
   isVerified: { type: Boolean, default: false },
@@ -90,16 +90,14 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
-// Regeneración pasiva precisa sin saldo fantasma ni excedentes
 playerSchema.methods.checkAndRegenEnergy = function() {
   const now = Date.now();
 
-  if (!this.lastEnergyRegenTime) {
+  if (!this.lastEnergyRegenTime || typeof this.lastEnergyRegenTime !== 'number') {
     this.lastEnergyRegenTime = now;
-    return false;
+    return true;
   }
 
-  // Si ya está al tope, reseteamos la marca de tiempo para evitar acumulación invisible
   if (this.energy >= MAX_ENERGY) {
     this.energy = MAX_ENERGY;
     this.lastEnergyRegenTime = now;
@@ -107,6 +105,7 @@ playerSchema.methods.checkAndRegenEnergy = function() {
   }
 
   const elapsedMs = now - this.lastEnergyRegenTime;
+
   if (elapsedMs >= ENERGY_REGEN_INTERVAL_MS) {
     const pointsGained = Math.floor(elapsedMs / ENERGY_REGEN_INTERVAL_MS);
     const newEnergy = this.energy + pointsGained;
@@ -244,6 +243,7 @@ async function getPlayer(userId, name = 'Aventurero') {
       needsSave = true;
     }
 
+    // Al ejecutar la comprobación, si no tenía el campo se guarda de inmediato
     if (player.checkAndRegenEnergy()) {
       needsSave = true;
     }
