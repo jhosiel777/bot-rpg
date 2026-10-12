@@ -4,7 +4,6 @@ const mongoose = require('mongoose');
 const startServer = require('./server');
 const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
-const { getRankingText } = require('./ranking');
 const { WorldBoss, getWorldBoss } = require('./bossModel');
 const {
   getUniversalTimeData,
@@ -13,6 +12,9 @@ const {
   startBountyTravel,
   renderBountyView,
   executeManualBountyAttack,
+  handleBountyRetreat,
+  getMerchantView,
+  buyFromMerchant,
   resetBountyForAdmin
 } = require('./bountyService');
 const {
@@ -32,6 +34,7 @@ const {
   getRequiredExp,
   recordDrop,
   getGlobalStats,
+  creditReferralBonus,
   MAX_LEVEL,
   MAX_STAT,
   MAX_BASE_HP,
@@ -165,7 +168,7 @@ function initBossScheduler() {
 
 async function broadcastToAll(messageText) {
   try {
-    const players = await Player.find({}, 'userId');
+    const players = await Player.find({ isVerified: true }, 'userId');
     for (const p of players) {
       try {
         await bot.telegram.sendMessage(p.userId, messageText, { parse_mode: 'Markdown' });
@@ -315,11 +318,55 @@ function getStatusView(player) {
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
     ],
+    [Markup.button.callback('📜 Reclutar Aventureros', 'menu_referrals')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
 }
+
+// Pantalla para Reclutar Aventureros / Referidos
+function getReferralView(player) {
+  player.checkAndBurnReferralGold();
+  const unclimed = (player.referralGoldToday || 0) + (player.referralGoldUnclaimed || 0);
+
+  let text = '📜 *SISTEMA DE RECLUTAMIENTO DEL GREMIO*\n\n' +
+             'Invita a nuevos aventureros a inscribirse en el reino bajo tu bandera.\n\n' +
+             '🔑 *Tu Código de Recluta:* `' + player.referralCode + '`\n\n' +
+             '🛡️ *Reclutas en tu hermandad:* ' + (player.recruitsCount || 0) + '\n\n' +
+             '📊 *Tributos de Oro de Reclutas:*\n' +
+             '• Oro ganado hoy: *' + (player.referralGoldToday || 0) + ' / 10,000g*\n' +
+             '• Oro pendiente por reclamar: *' + unclimed + 'g*\n' +
+             '• Total histórico obtenido: *' + (player.referralGoldTotalEarned || 0) + 'g*\n\n' +
+             '⚠️ _Regla del Gremio: Recibes el 5% del oro generado por tus reclutas. El contador diario reinicia a las 00:00 UTC. Si no reclamas tu oro acumulado del día antes del reinicio, se quema el 5% de penalización y el resto queda en reserva._';
+
+  const buttons = [];
+  if (unclimed > 0) {
+    buttons.push([Markup.button.callback('📥 Reclamar +' + unclimed + 'g a mi Bolsa', 'claim_referral_gold')]);
+  }
+  buttons.push([Markup.button.callback('⬅️ Volver al Campamento', 'status')]);
+
+  return { text, keyboard: Markup.inlineKeyboard(buttons) };
+}
+
+bot.action('menu_referrals', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const view = getReferralView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('claim_referral_gold', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const claimed = player.claimReferralGold();
+  if (claimed <= 0) {
+    return await safeAnswerCb(ctx, 'No tienes oro pendiente por reclamar.', true);
+  }
+  await player.save();
+  await safeAnswerCb(ctx, '💰 ¡Reclamaste +' + claimed + 'g a tu bolsa!', true);
+  const view = getReferralView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
 
 bot.action('menu_explore', async (ctx) => {
   await safeAnswerCb(ctx);
@@ -331,12 +378,14 @@ bot.action('menu_explore', async (ctx) => {
                'Selecciona el camino que deseas emprender hoy:\n\n' +
                '• 🌲 *Expediciones y Mazmorras:* Mazmorras clásicas de exploración rápida.\n' +
                '• 📜 *Tablón de Caza Diaria:* Contrato diario por forajidos o bestias.\n' +
-               '• 🐲 *Jefe Mundial (Coloso):* Asalta a los colosos ancestrales del reino.';
+               '• 🐲 *Jefe Mundial (Coloso):* Asalta a los colosos ancestrales del reino.\n' +
+               '• 📜 *Reclutar Aventureros:* Revisa tu código y los tributos de tus reclutas.';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
     [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
+    [Markup.button.callback('📜 Reclutar Aventureros', 'menu_referrals')],
     [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
 
@@ -406,6 +455,20 @@ bot.action('bounty_manual_hit', async (ctx) => {
   return await executeManualBountyAttack(ctx, bot);
 });
 
+bot.action('bounty_retreat', async (ctx) => {
+  return await handleBountyRetreat(ctx);
+});
+
+bot.action('bounty_merchant_menu', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const view = await getMerchantView(ctx.from.id);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('bounty_buy_pot_small', (ctx) => buyFromMerchant(ctx, 'small'));
+bot.action('bounty_buy_pot_medium', (ctx) => buyFromMerchant(ctx, 'medium'));
+bot.action('bounty_buy_pot_energy', (ctx) => buyFromMerchant(ctx, 'energy'));
+
 function getStatsView(player) {
   const str = player.strength || 0;
   const agi = player.agility || 0;
@@ -466,7 +529,7 @@ function getStatsView(player) {
 }
 
 async function getBossCensus() {
-  const aptPlayers = await Player.find({ level: { $gte: 5 } });
+  const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
   const totalAptos = aptPlayers.length;
   const activeCount = Math.max(totalAptos, 3);
 
@@ -512,6 +575,7 @@ function getAdminHomeView() {
     [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', `adm_change_lvl_${ADMIN_ID}`)],
     [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
+    [Markup.button.callback('🛡️ Aspirantes No Verificados', 'adm_unverified')],
     [Markup.button.callback('👥 Lista de Usuarios (Paginada)', 'adm_users_page_1')],
     [Markup.button.callback('📜 Historial P2P', 'adm_mkt_page_1')],
     [Markup.button.callback('📢 Transmitir Mensaje Global', 'adm_prompt_broadcast')],
@@ -543,6 +607,30 @@ bot.action('adm_home', async (ctx) => {
   adminTargetLevelChangeId = null;
   const view = getAdminHomeView();
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('adm_unverified', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+
+  const pending = await Player.find({ isVerified: false });
+  let text = '🛡️ *Aspirantes Detenidos en las Puertas*\n\n' +
+             'Usuarios que abrieron el bot pero no han canjeado un código de recluta:\n\n';
+
+  if (!pending.length) {
+    text += '_No hay ningún aspirante esperando en los muros actualmente._';
+  } else {
+    pending.forEach((p, idx) => {
+      text += `${idx + 1}. *${p.name}* (ID: \`${p.userId}\`) — Código propio: \`${p.referralCode}\`\n`;
+    });
+  }
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Actualizar', 'adm_unverified')],
+    [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
 bot.action(/adm_change_lvl_(\d+)/, async (ctx) => {
@@ -1166,6 +1254,7 @@ async function distributeBossRewards(boss) {
       }
 
       await playerDoc.save();
+      await creditReferralBonus(p.userId, earnedGold);
 
       const individualMsg = `🏆 *¡Recompensas del Coloso: ${boss.name}!* \n\n` +
                             `• Tu daño aportado: *${p.totalDamage.toLocaleString()}*\n` +
@@ -1319,14 +1408,15 @@ bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
           `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
           `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n` +
           `• 🩸 Elixir Sangre Dragón: ${u.potionsDragonBlood || 0}\n\n` +
+          `🔑 *Reclutamiento:*\n` +
+          `• Código propio: \`${u.referralCode || 'N/A'}\`\n` +
+          `• Reclutas: ${u.recruitsCount || 0}\n` +
+          `• Estado Verificado: ${u.isVerified ? '✅ Sí' : '❌ No (En puerta)'}\n\n` +
           `📺 *Anuncios Vistos:*\n` +
           `• Hoy: *${adsToday}*\n` +
-          `• Total Histórico: *${adsTotal}*\n\n` +
-          `🛡️ *Equipamiento Actual:*\n` +
-          `_Próximamente disponible._`;
+          `• Total Histórico: *${adsTotal}*`;
 
   const buttons = [];
-
   buttons.push([Markup.button.callback('⭐ Cambiar Nivel (Admin)', `adm_change_lvl_${u.userId}`)]);
 
   if (isKO) {
@@ -1433,19 +1523,64 @@ bot.action('adm_give_dragon_blood', async (ctx) => {
   await safeAnswerCb(ctx, `🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ${p.potionsDragonBlood})`, true);
 });
 
-bot.action('adm_claim_overflow_drink', async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-  const p = await getPlayer(ADMIN_ID);
-  p.potionsEnergyDrink = (p.potionsEnergyDrink || 0) + 1;
-  await p.save();
-  await safeAnswerCb(ctx, '🥤 Bebida agregada exitosamente a tu mochila de Creador.', true);
-  try {
-    await ctx.editMessageText(`✅ *Bebida añadida por privilegios de creador.* Tienes ${p.potionsEnergyDrink} en mochila.`, { parse_mode: 'Markdown' });
-  } catch (e) {}
-});
+// Guardián de la Puerta (Mensaje para usuarios no verificados)
+function getGatekeeperMessage() {
+  return '🏰 *PUERTAS DE LA CIUDADELA ANCESTRAL*\n\n' +
+         '_Ante ti se alza una muralla colosal cubierta de líquenes y runas centelleantes. Dos gigantes acorazados bajan sus pesadas alabardas cruzándolas frente a tu pecho, haciendo temblar los adoquines._\n\n' +
+         '— *"¡Alto ahí, forastero! Ninguna sombra sin linaje ni errante solitario cruza el foso hacia el Reino de Abyss. Solo aquellos respaldados por un aventurero activo pueden ingresar."*\n\n' +
+         '📜 *Uno de los guardianes extiende un pergamino de sellos dorados:*\n' +
+         '*"Introduce el código de recluta (6 caracteres) otorgado por tu reclutador para inscribir tu nombre en el padrón del gremio."*\n\n' +
+         '💬 _Escribe el código directamente aquí en el chat para obtener acceso:_';
+}
 
 bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
+  const player = await getPlayer(userId, ctx.from.first_name);
+
+  // Verificación estricta de nuevo usuario
+  if (!player.isVerified && userId !== ADMIN_ID) {
+    const rawInput = ctx.message.text.trim().toUpperCase();
+
+    // Comprobar si el texto ingresado coincide con un código de 6 caracteres válido
+    const recruiter = await Player.findOne({ referralCode: rawInput, isVerified: true });
+
+    if (!recruiter || recruiter.userId === userId) {
+      return await ctx.reply(
+        '⚔️ *Los guardianes sacuden sus cascos con severidad:*\n\n' +
+        '— *"Ese sello no figura en el padrón del reino o es inválido. Verifica el código de 6 caracteres con quien te invitó y escríbelo con exactitud."*',
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // Código válido: Registrar y verificar
+    player.isVerified = true;
+    player.referredBy = recruiter.userId;
+    recruiter.recruitsCount = (recruiter.recruitsCount || 0) + 1;
+
+    await player.save();
+    await recruiter.save();
+
+    try {
+      await bot.telegram.sendMessage(
+        recruiter.userId,
+        `🎉 *¡Nuevo recluta bajo tu estandarte!*\n\n*${player.name}* ha superado los muros del reino canjeando tu código de reclutamiento.\nRecibirás el 5% de sus botines.`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {}
+
+    await ctx.reply(
+      '✨ *Los guardianes alzan sus alabardas y el rastrillo de hierro se eleva lentamente con estruendo:*\n\n' +
+      '— *"El sello de ' + recruiter.name + ' es auténtico. Bienvenido a Abyss Legend. Que tus armas nunca pierdan su filo."*\n\n' +
+      '¡Tu aventura comienza ahora!',
+      { parse_mode: 'Markdown' }
+    );
+
+    const view = getStatusView(player);
+    await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
+    const sent = await ctx.reply(view.text, view.keyboard);
+    lastUserMessages.set(userId, sent.message_id);
+    return;
+  }
 
   if (userId === ADMIN_ID && adminTargetLevelChangeId !== null) {
     const targetUserId = adminTargetLevelChangeId;
@@ -1578,6 +1713,13 @@ async function handleStartMenu(ctx) {
       adminTargetLevelChangeId = null;
     }
 
+    const player = await getPlayer(userId, ctx.from.first_name);
+
+    // Si no está verificado, le hablan los guardianes y no entra al menú
+    if (!player.isVerified && userId !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
     const oldMsgId = lastUserMessages.get(userId);
     if (oldMsgId) {
       try {
@@ -1585,7 +1727,6 @@ async function handleStartMenu(ctx) {
       } catch (e) {}
     }
 
-    const player = await getPlayer(userId, ctx.from.first_name);
     const view = getStatusView(player);
 
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
@@ -1602,6 +1743,11 @@ bot.start(handleStartMenu);
 
 bot.hears('⚔️ Estado', async (ctx) => {
   try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
     pendingMarketSales.delete(ctx.from.id);
     if (ctx.from.id === ADMIN_ID) {
       adminBroadcastWaiting = false;
@@ -1609,7 +1755,6 @@ bot.hears('⚔️ Estado', async (ctx) => {
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
     }
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatusView(player);
     const sent = await ctx.reply(view.text, view.keyboard);
     lastUserMessages.set(ctx.from.id, sent.message_id);
@@ -1620,6 +1765,11 @@ bot.hears('⚔️ Estado', async (ctx) => {
 
 bot.hears('📈 Atributos', async (ctx) => {
   try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
     pendingMarketSales.delete(ctx.from.id);
     if (ctx.from.id === ADMIN_ID) {
       adminBroadcastWaiting = false;
@@ -1627,7 +1777,6 @@ bot.hears('📈 Atributos', async (ctx) => {
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
     }
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
     const view = getStatsView(player);
     const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
     lastUserMessages.set(ctx.from.id, sent.message_id);
@@ -1638,6 +1787,11 @@ bot.hears('📈 Atributos', async (ctx) => {
 
 bot.hears('🎒 Inventario', async (ctx) => {
   try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
     pendingMarketSales.delete(ctx.from.id);
     if (ctx.from.id === ADMIN_ID) {
       adminBroadcastWaiting = false;
@@ -1645,7 +1799,6 @@ bot.hears('🎒 Inventario', async (ctx) => {
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
     }
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
                `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
@@ -1679,6 +1832,11 @@ bot.hears('🎒 Inventario', async (ctx) => {
 
 bot.hears('🏪 Mercado P2P', async (ctx) => {
   try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
     pendingMarketSales.delete(ctx.from.id);
     if (ctx.from.id === ADMIN_ID) {
       adminBroadcastWaiting = false;
@@ -1714,9 +1872,46 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
   }
 });
 
+// Salón de la Fama filtrado estrictamente por isVerified: true
+async function getCleanRankingText(myUserId) {
+  const topPlayers = await Player.find({ isVerified: true })
+    .sort({ level: -1, exp: -1 })
+    .limit(10);
+
+  let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
+
+  if (!topPlayers.length) {
+    text += '_Aún no hay campeones verificados inscritos en el reino._\n';
+  } else {
+    topPlayers.forEach((p, idx) => {
+      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+      text += `${medal} *${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+    });
+  }
+
+  const myPlayer = await Player.findOne({ userId: myUserId });
+  if (myPlayer && myPlayer.isVerified) {
+    const higherCount = await Player.countDocuments({
+      isVerified: true,
+      $or: [
+        { level: { $gt: myPlayer.level } },
+        { level: myPlayer.level, exp: { $gt: myPlayer.exp } }
+      ]
+    });
+    text += `\n───────────────────\n📍 *Tu posición actual:* #${higherCount + 1} (Nivel ${myPlayer.level})`;
+  }
+
+  return text;
+}
+
 bot.hears('🏆 Salón de la Fama', async (ctx) => {
   try {
-    const text = await getRankingText(ctx.from.id);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
+    const text = await getCleanRankingText(ctx.from.id);
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
       [Markup.button.callback('⬅️ Volver', 'status')]
@@ -1729,7 +1924,12 @@ bot.hears('🏆 Salón de la Fama', async (ctx) => {
 
 bot.command(['top', 'ranking'], async (ctx) => {
   try {
-    const text = await getRankingText(ctx.from.id);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    if (!player.isVerified && ctx.from.id !== ADMIN_ID) {
+      return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+    }
+
+    const text = await getCleanRankingText(ctx.from.id);
     return await ctx.reply(text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Ir al Menú', 'status')]])
@@ -1742,7 +1942,7 @@ bot.command(['top', 'ranking'], async (ctx) => {
 bot.action('menu_ranking', async (ctx) => {
   await safeAnswerCb(ctx);
   try {
-    const text = await getRankingText(ctx.from.id);
+    const text = await getCleanRankingText(ctx.from.id);
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
       [Markup.button.callback('⬅️ Volver', 'status')]
@@ -1925,7 +2125,7 @@ function getShopView(player) {
 
   text += `• 🥤 Bebida Energética — 📺 Gratis (Patrocinio)\n  _Recupera +2 ⚡. Límite: 3/día. Máx: 5 en mochila._\n\n`;
   buttons.push([
-    Markup.button.webApp('📺 Ver Anuncio (+1 🥤 Bebida)', 'https://bot-rpg-wu42.onrender.com/ad-reward')
+    Markup.button.webApp('📺 Ver Anuncio (+1 🥤 Bebida)', 'https://bot-rpg-wu42.onrender.com/ad-reward?purpose=energy_drink&userId=' + player.userId)
   ]);
 
   buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
@@ -2400,6 +2600,8 @@ async function startExpedition(ctx, dungeonKey) {
             const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
             const dropMsg = rollDungeonDrops(dungeon, p);
 
+            await creditReferralBonus(userId, bonusGold);
+
             resultMsg = `📦 ¡Expedición finalizada en ${dungeon.name}!\n\n` +
                         `🍀 ¡Tu suerte te permitió sortear peligros y hallar un tesoro pacíficamente!\n` +
                         `💰 Oro: +${bonusGold} (Bono Fuerza: +${strBonus})\n` +
@@ -2477,6 +2679,8 @@ async function startExpedition(ctx, dungeonKey) {
                 const leveledUp = p.addExp(expGained);
                 const levelUpNotice = leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '';
                 const dropMsg = rollDungeonDrops(dungeon, p);
+
+                await creditReferralBonus(userId, goldGained);
 
                 resultMsg = `${trapMsg}⚔️ Encuentro en ${dungeon.name}:\n\n` +
                             critMsg +
