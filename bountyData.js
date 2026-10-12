@@ -9,9 +9,10 @@ const BOUNTY_TIERS = {
     goldBonusRange: [15, 30],
     goldLossRange: [10, 20],
     hpLossRange: [3, 7],
-    minDmgRatio: 0.20,
+    minDmgRatio: 0.10,
     maxDmgRatio: 0.40,
-    hpMultiplier: 1.25,
+    hpMinCap: 45,
+    hpMaxCap: 130,
     autoPotionsBase: 1,
     autoPotionsWithAds: 2,
     beastNames: ['Colmillitos', 'Rabioso', 'Pata-Tuerta', 'El Hocicos', 'Piel-Dura', 'Tronchador'],
@@ -97,7 +98,8 @@ const BOUNTY_TIERS = {
     hpLossRange: [6, 12],
     minDmgRatio: 0.25,
     maxDmgRatio: 0.50,
-    hpMultiplier: 1.45,
+    hpMinCap: 150,
+    hpMaxCap: 350,
     autoPotionsBase: 1,
     autoPotionsWithAds: 2,
     beastNames: ['Garra-Sombra', 'Lobo Carmesí', 'Ojo-Sangrante', 'Mandíbula de Hierro', 'El Gran Oso Tuerto', 'Garras-de-Acero'],
@@ -183,7 +185,8 @@ const BOUNTY_TIERS = {
     hpLossRange: [10, 20],
     minDmgRatio: 0.28,
     maxDmgRatio: 0.50,
-    hpMultiplier: 1.65,
+    hpMinCap: 380,
+    hpMaxCap: 700,
     autoPotionsBase: 2,
     autoPotionsWithAds: 3,
     beastNames: ['Quimera del Cieno', 'Devorador Espectral', 'Gólem Descontrolado', 'Engendro de Cripta', 'Acechador Óseo', 'Gárgola Sangrienta'],
@@ -269,7 +272,8 @@ const BOUNTY_TIERS = {
     hpLossRange: [15, 28],
     minDmgRatio: 0.35,
     maxDmgRatio: 0.65,
-    hpMultiplier: 1.90,
+    hpMinCap: 800,
+    hpMaxCap: 1200,
     autoPotionsBase: 2,
     autoPotionsWithAds: 3,
     beastNames: ['Behemot de Plaga', 'Abominación del Abismo', 'Sierpe de Ceniza', 'Leviatán Menor', 'Hydra Corrupta', 'Tiranus del Páramo'],
@@ -355,7 +359,8 @@ const BOUNTY_TIERS = {
     hpLossRange: [22, 40],
     minDmgRatio: 0.40,
     maxDmgRatio: 0.65,
-    hpMultiplier: 2.20,
+    hpMinCap: 1300,
+    hpMaxCap: 1800,
     autoPotionsBase: 2,
     autoPotionsWithAds: 4,
     beastNames: ['Titán de Discordia', 'Devorador de Soles', 'Heraldo del Colapso', 'Kraken Primordial', 'Dragón del Vacío', 'Vórtice Eterno'],
@@ -495,11 +500,12 @@ function generateBounty(playerLevel, playerMaxHp, playerBaseAtk) {
 
   const baseGold = Math.floor(Math.random() * (tierCfg.baseGoldMax - tierCfg.baseGoldMin + 1)) + tierCfg.baseGoldMin;
 
-  const turnsTarget = Math.floor(Math.random() * 4) + 4;
-  const enemyHp = Math.round(playerBaseAtk * turnsTarget * (tierCfg.hpMultiplier || 1.3));
+  const turnsTarget = 5;
+  const rawEnemyHp = Math.round(playerBaseAtk * turnsTarget);
+  const enemyHp = Math.max(tierCfg.hpMinCap, Math.min(tierCfg.hpMaxCap, rawEnemyHp));
 
-  const minDmg = Math.max(5, Math.round(playerMaxHp * tierCfg.minDmgRatio));
-  const maxDmg = Math.max(minDmg + 5, Math.round(playerMaxHp * tierCfg.maxDmgRatio));
+  const minDmg = Math.max(4, Math.round(playerMaxHp * tierCfg.minDmgRatio));
+  const maxDmg = Math.max(minDmg + 3, Math.round(playerMaxHp * tierCfg.maxDmgRatio));
 
   return {
     tierKey,
