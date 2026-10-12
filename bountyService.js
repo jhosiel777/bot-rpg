@@ -7,6 +7,7 @@ const ADMIN_ID = 835648800;
 
 const activeTravelTimers = new Map();
 const manualAfkTimers = new Map();
+const merchantRates = new Map(); // Guarda la tasa (1.25 a 1.50) asignada al jugador para su cacería actual
 
 function getUniversalTimeData() {
   const now = new Date();
@@ -24,6 +25,29 @@ function getUniversalTimeData() {
   return {
     timeStr: utcHours + ':' + utcMins + ':' + utcSecs + ' UTC',
     countdownStr: rHours + 'h ' + rMins + 'm ' + rSecs + 's'
+  };
+}
+
+// Precios base del NPC: Menor (30g), Mayor (80g), Elixir (100g)
+function getMerchantCatalog(userId) {
+  let rate = merchantRates.get(userId);
+  if (!rate) {
+    // Genera un sobreprecio aleatorio entre 25% y 50% (1.25 a 1.50)
+    rate = 1.25 + (Math.random() * 0.25);
+    merchantRates.set(userId, rate);
+  }
+
+  const smallCost = Math.round(30 * rate);
+  const mediumCost = Math.round(80 * rate);
+  const energyCost = Math.round(100 * rate);
+
+  return {
+    rate,
+    items: {
+      small: { name: 'Poción Menor (+10 HP)', cost: smallCost, field: 'potionsSmall' },
+      medium: { name: 'Poción Mayor (+35 HP)', cost: mediumCost, field: 'potionsMedium' },
+      energy: { name: 'Elixir de Energía (+1 ⚡)', cost: energyCost, field: 'potionsEnergy' }
+    }
   };
 }
 
@@ -124,7 +148,7 @@ async function getBountyBoardView(userId, player) {
 
       const buttons = [
         [Markup.button.callback('⚔️ Atacar (1 ⚡)', 'bounty_manual_hit')],
-        [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
+        [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
         [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
         [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
       ];
@@ -151,20 +175,21 @@ async function getBountyBoardView(userId, player) {
 
 async function getMerchantView(userId) {
   const player = await Player.findOne({ userId });
+  const catalog = getMerchantCatalog(userId).items;
 
   const text = '🛒 *MERCADER AMBULANTE DE LA RUTA*\n\n' +
                '_"No puedes volver a la ciudad en plena cacería, camarada. Te vendo lo que cargo en mi carreta, pero el flete en territorio salvaje cuesta más caro..."_\n\n' +
                '💰 Tu Oro: *' + (player ? player.gold : 0) + 'g*\n\n' +
-               '• 🧪 *Poción Menor (+10 HP):* 💰 35g _(Normal: 25g)_\n' +
-               '• 🧪 *Poción Mayor (+35 HP):* 💰 105g _(Normal: 75g)_\n' +
-               '• ⚡ *Elixir de Energía (+1 ⚡):* 💰 190g _(Normal: 140g)_\n\n' +
-               '💡 _Todo el oro que inviertas aquí será considerado en la recompensa final (recuperas del 80% al 130% de tu gasto)._';
+               '• 🧪 *Poción Menor (+10 HP):* 💰 ' + catalog.small.cost + 'g\n' +
+               '• 🧪 *Poción Mayor (+35 HP):* 💰 ' + catalog.medium.cost + 'g\n' +
+               '• ⚡ *Elixir de Energía (+1 ⚡):* 💰 ' + catalog.energy.cost + 'g\n\n' +
+               '🔮 _"Quién sabe... lo que compres aquí podría darte bonos en oro al final... o no."_';
 
   const buttons = [
-    [Markup.button.callback('Comprar Poción Menor (35g)', 'bounty_buy_pot_small')],
-    [Markup.button.callback('Comprar Poción Mayor (105g)', 'bounty_buy_pot_medium')],
-    [Markup.button.callback('Comprar Elixir Energía (190g)', 'bounty_buy_pot_energy')],
-    [Markup.button.callback('⬅️ Volver al Combate', 'menu_bounty')]
+    [Markup.button.callback('Comprar Poción Menor (' + catalog.small.cost + 'g)', 'bounty_buy_pot_small')],
+    [Markup.button.callback('Comprar Poción Mayor (' + catalog.medium.cost + 'g)', 'bounty_buy_pot_medium')],
+    [Markup.button.callback('Comprar Elixir Energía (' + catalog.energy.cost + 'g)', 'bounty_buy_pot_energy')],
+    [Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]
   ];
 
   return { text, keyboard: Markup.inlineKeyboard(buttons) };
@@ -176,12 +201,7 @@ async function buyFromMerchant(ctx, itemKey) {
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
   if (!player || !bounty) return;
 
-  const catalog = {
-    small: { name: 'Poción Menor', cost: 35, field: 'potionsSmall' },
-    medium: { name: 'Poción Mayor', cost: 105, field: 'potionsMedium' },
-    energy: { name: 'Elixir de Energía', cost: 190, field: 'potionsEnergy' }
-  };
-
+  const catalog = getMerchantCatalog(userId).items;
   const item = catalog[itemKey];
   if (!item) return;
 
@@ -199,6 +219,31 @@ async function buyFromMerchant(ctx, itemKey) {
   await ctx.answerCbQuery('✅ Adquiriste 1x ' + item.name);
   const view = await getMerchantView(userId);
   return await ctx.editMessageText(view.text, { parse_mode: 'Markdown', ...view.keyboard });
+}
+
+async function getCombatView(ctx) {
+  const userId = ctx.from.id;
+  const player = await Player.findOne({ userId });
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
+
+  if (!player || !bounty || bounty.status !== 'arrived') {
+    return await renderBountyView(ctx, player);
+  }
+
+  const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
+                     '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
+                     '⚡ Tu energía: *' + player.energy + '/' + MAX_ENERGY + '*\n' +
+                     '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
+                     '¿Qué decides hacer?';
+
+  const buttons = [
+    [Markup.button.callback('⚔️ Atacar (1 ⚡)', 'bounty_manual_hit')],
+    [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
+    [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
+    [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
+  ];
+
+  return await ctx.editMessageText(combatText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
 async function getAutoSelectionView(userId) {
@@ -273,6 +318,9 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
     return await ctx.answerCbQuery('Ya estás en camino.', { show_alert: true });
   }
 
+  // Genera una tasa fresca para el mercader en este nuevo viaje
+  merchantRates.delete(userId);
+
   const travelMs = bounty.durationMinutes * 60 * 1000;
   const now = Date.now();
 
@@ -324,12 +372,12 @@ function scheduleTravelEvents(bot, userId, bountyId, durationMinutes, totalMs) {
           try {
             await bot.telegram.sendMessage(
               userId,
-              '📍 *¡Llegaste a la guarida de ' + bounty.enemyName + '!* \n\n' +
-              'El enemigo está frente a ti. Entra al tablón para combatir.\n' +
-              '⚠️ _¡No tardes demasiado o el enemigo te sorprenderá!_',
+              '📍 *¡Llegaste a la guarida de ' + bounty.enemyName + '!*\n\n' +
+              'La criatura está justo frente a ti, alerta y lista para embestirte.\n' +
+              '⚠️ _¡No tardes demasiado o el enemigo te tomará desprevenido!_',
               {
                 parse_mode: 'Markdown',
-                ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Iniciar Asalto Manual', 'menu_bounty')]])
+                ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Enfrentar al Objetivo', 'bounty_back_to_fight')]])
               }
             );
           } catch (e) {}
@@ -377,7 +425,7 @@ function armManualAfkTimer(bot, userId, bounty) {
         '_Si no atacas pronto, el enemigo te despojará y escapará._',
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Atacar Ahora', 'menu_bounty')]])
+          ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Atacar Ahora', 'bounty_back_to_fight')]])
         }
       );
 
@@ -596,7 +644,7 @@ async function resolveAutoCombat(bot, userId, bounty) {
                      '📊 *Informe de Recompensa:*\n' +
                      '• Botín base: *' + bounty.baseGold + 'g*\n' +
                      (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
-                     (bounty.goldSpentOnMerchant > 0 ? '• Compensación Mercader: *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                     (bounty.goldSpentOnMerchant > 0 ? '• Compensación de la ruta: *+' + rewardReport.merchantComp + 'g*\n' : '') +
                      '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
                      '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                      (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
@@ -758,7 +806,7 @@ async function executeManualBountyAttack(ctx, bot) {
                        '📊 *Informe de Recompensa:*\n' +
                        '• Botín base: *' + bounty.baseGold + 'g*\n' +
                        (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
-                       (bounty.goldSpentOnMerchant > 0 ? '• Compensación Mercader: *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                       (bounty.goldSpentOnMerchant > 0 ? '• Compensación de la ruta: *+' + rewardReport.merchantComp + 'g*\n' : '') +
                        '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
                        '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                        (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
@@ -811,7 +859,7 @@ async function executeManualBountyAttack(ctx, bot) {
 
   const buttons = [
     [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'bounty_manual_hit')],
-    [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
+    [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
     [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
     [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
   ];
@@ -838,5 +886,6 @@ module.exports = {
   handleBountyRetreat,
   getMerchantView,
   buyFromMerchant,
+  getCombatView,
   resetBountyForAdmin
 };
