@@ -1569,12 +1569,21 @@ bot.on('text', async (ctx, next) => {
       );
     } catch (e) {}
 
-    await ctx.reply(
-      '✨ *Los guardianes alzan sus alabardas y el rastrillo de hierro se eleva lentamente con estruendo:*\n\n' +
-      '— *"El sello de ' + recruiter.name + ' es auténtico. Bienvenido a Abyss Legend. Que tus armas nunca pierdan su filo."*\n\n' +
-      '¡Tu aventura comienza ahora!',
-      { parse_mode: 'Markdown' }
-    );
+if (recruiter.userId === ADMIN_ID) {
+      await ctx.reply(
+        '👑 *Los guardianes clavan sus alabardas en el suelo y se arrodillan con reverencia inmediata:*\n\n' +
+        '— *"¡Por los antiguos dioses! Portas el sello divino del Creador del Reino. Las puertas de Abyss se abren de par en par ante su invitado de honor."*\n\n' +
+        '¡Tu aventura legendaria comienza ahora!',
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      await ctx.reply(
+        '✨ *Los guardianes alzan sus alabardas y el rastrillo de hierro se eleva lentamente con estruendo:*\n\n' +
+        '— *"El sello de ' + recruiter.name + ' es auténtico. Bienvenido a Abyss Legend. Que tus armas nunca pierdan su filo."*\n\n' +
+        '¡Tu aventura comienza ahora!',
+        { parse_mode: 'Markdown' }
+      );
+    }
 
     const view = getStatusView(player);
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
