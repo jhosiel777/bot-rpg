@@ -6,7 +6,9 @@ const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
 const ADMIN_ID = 835648800;
 
-// Caracteres limpios para evitar confusiones visuales (sin 0, O, 1, I)
+// 1 punto cada 10 minutos (600,000 ms)
+const ENERGY_REGEN_INTERVAL_MS = 10 * 60 * 1000;
+
 const REFERRAL_CHARSET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
 function generateRandomReferralCode(length = 6) {
@@ -23,7 +25,6 @@ function getTodayUtcString() {
   return now.toISOString().slice(0, 10);
 }
 
-// Estadísticas globales de drops
 const globalStatsSchema = new mongoose.Schema({
   key: { type: String, default: 'global_drops', unique: true },
   totalDropsSmall: { type: Number, default: 0 },
@@ -41,6 +42,7 @@ const playerSchema = new mongoose.Schema({
   hp: { type: Number, default: 50 },
   maxHp: { type: Number, default: 50 },
   energy: { type: Number, default: 10 },
+  lastEnergyRegenTime: { type: Number, default: Date.now },
   strength: { type: Number, default: 0 },
   agility: { type: Number, default: 0 },
   luck: { type: Number, default: 0 },
@@ -88,6 +90,40 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
+// Regeneración pasiva precisa sin saldo fantasma ni excedentes
+playerSchema.methods.checkAndRegenEnergy = function() {
+  const now = Date.now();
+
+  if (!this.lastEnergyRegenTime) {
+    this.lastEnergyRegenTime = now;
+    return false;
+  }
+
+  // Si ya está al tope, reseteamos la marca de tiempo para evitar acumulación invisible
+  if (this.energy >= MAX_ENERGY) {
+    this.energy = MAX_ENERGY;
+    this.lastEnergyRegenTime = now;
+    return false;
+  }
+
+  const elapsedMs = now - this.lastEnergyRegenTime;
+  if (elapsedMs >= ENERGY_REGEN_INTERVAL_MS) {
+    const pointsGained = Math.floor(elapsedMs / ENERGY_REGEN_INTERVAL_MS);
+    const newEnergy = this.energy + pointsGained;
+
+    if (newEnergy >= MAX_ENERGY) {
+      this.energy = MAX_ENERGY;
+      this.lastEnergyRegenTime = now;
+    } else {
+      this.energy = newEnergy;
+      this.lastEnergyRegenTime = now - (elapsedMs % ENERGY_REGEN_INTERVAL_MS);
+    }
+    return true;
+  }
+
+  return false;
+};
+
 playerSchema.methods.addExp = function(amount) {
   if (this.level >= MAX_LEVEL) {
     this.exp = 0;
@@ -103,6 +139,7 @@ playerSchema.methods.addExp = function(amount) {
     this.statPoints += 3;
     this.hp = this.maxHp;
     this.energy = MAX_ENERGY;
+    this.lastEnergyRegenTime = Date.now();
     leveledUp = true;
   }
 
@@ -187,7 +224,8 @@ async function getPlayer(userId, name = 'Aventurero') {
       userId,
       name,
       referralCode: uniqueCode,
-      isVerified: userId === ADMIN_ID
+      isVerified: userId === ADMIN_ID,
+      lastEnergyRegenTime: Date.now()
     });
   } else {
     let needsSave = false;
@@ -203,6 +241,10 @@ async function getPlayer(userId, name = 'Aventurero') {
     }
 
     if (player.checkAndBurnReferralGold()) {
+      needsSave = true;
+    }
+
+    if (player.checkAndRegenEnergy()) {
       needsSave = true;
     }
 
