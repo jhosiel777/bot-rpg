@@ -13,6 +13,7 @@ const {
   startBountyTravel,
   renderBountyView,
   executeManualBountyAttack,
+  promptBountyRetreat,
   handleBountyRetreat,
   getMerchantView,
   buyFromMerchant,
@@ -463,8 +464,18 @@ bot.action('bounty_manual_hit', async (ctx) => {
   return await executeManualBountyAttack(ctx, bot);
 });
 
-bot.action('bounty_retreat', async (ctx) => {
+bot.action('bounty_retreat_prompt', async (ctx) => {
+  await safeAnswerCb(ctx);
+  return await promptBountyRetreat(ctx);
+});
+
+bot.action('bounty_retreat_confirmed', async (ctx) => {
   return await handleBountyRetreat(ctx);
+});
+
+bot.action('bounty_retreat', async (ctx) => {
+  await safeAnswerCb(ctx);
+  return await promptBountyRetreat(ctx);
 });
 
 bot.action('bounty_merchant_menu', async (ctx) => {
@@ -492,13 +503,17 @@ bot.action('bounty_inv', async (ctx) => {
              `*Objetos de supervivencia:*\n` +
              `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
              `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
              `Toca una poción para consumirla:`;
 
   const buttons = [];
   if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
   if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
   if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -523,13 +538,17 @@ bot.action('bounty_use_pot_small', async (ctx) => {
              `*Objetos de supervivencia:*\n` +
              `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
              `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
              `Toca una poción para consumirla:`;
 
   const buttons = [];
   if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
   if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
   if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -554,13 +573,17 @@ bot.action('bounty_use_pot_medium', async (ctx) => {
              `*Objetos de supervivencia:*\n` +
              `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
              `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
              `Toca una poción para consumirla:`;
 
   const buttons = [];
   if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
   if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
   if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -585,13 +608,87 @@ bot.action('bounty_use_pot_energy', async (ctx) => {
              `*Objetos de supervivencia:*\n` +
              `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
              `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
              `Toca una poción para consumirla:`;
 
   const buttons = [];
   if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
   if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
   if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('bounty_use_energy_drink', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) {
+    return await safeAnswerCb(ctx, 'No te quedan más Bebidas Energéticas.', true);
+  }
+  if (player.energy >= MAX_ENERGY) {
+    return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
+  }
+  player.potionsEnergyDrink -= 1;
+  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+  await player.save();
+  await safeAnswerCb(ctx, '🥤 Bebiste la Bebida Energética y recuperaste +2⚡ Energía');
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('bounty_use_dragon_blood', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) {
+    return await safeAnswerCb(ctx, 'No te quedan más Elixires de Sangre de Dragón.', true);
+  }
+  if (player.hp >= player.maxHp) {
+    return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
+  }
+  player.potionsDragonBlood -= 1;
+  player.hp = player.maxHp;
+  await player.save();
+  await safeAnswerCb(ctx, '🩸 ¡Bebiste Sangre de Dragón! Salud restaurada al 100%.');
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+             `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+             `• 🩸 Elixir de Sangre de Dragón (Revivir/Restaurar 100%): ${player.potionsDragonBlood || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón (100% HP)', 'bounty_use_dragon_blood')]);
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -2430,9 +2527,56 @@ bot.action('menu_inv', async (ctx) => {
   }
 });
 
+bot.action('use_energy_drink', async (ctx) => {
+  try {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) {
+      return await safeAnswerCb(ctx, 'No te quedan más Bebidas Energéticas.', true);
+    }
+
+    if (player.energy >= MAX_ENERGY) {
+      return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
+    }
+
+    player.potionsEnergyDrink -= 1;
+    player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+    await player.save();
+    await safeAnswerCb(ctx, '🥤 Bebiste la Bebida Energética y recuperaste +2⚡ Energía', true);
+
+    let text = `🎒 *Mochila de Aventurero*\n\n` +
+               `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
+               `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
+
+    if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
+      text += `🚶 *En expedición:* Pociones de salud usadas: ${player.potionsUsedInMission || 0}/2\n\n`;
+    }
+
+    text += `*Objetos:*\n` +
+            `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+            `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+            `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
+            `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
+            `• 🩸 Elixir de Sangre de Dragón (Revivir al 100%): ${player.potionsDragonBlood || 0}\n\n` +
+            `Toca un botón para consumir un objeto:`;
+
+    const buttons = [];
+    if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+    if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
+    if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+    if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+    if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón (Revivir)', 'use_dragon_blood')]);
+    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error al usar bebida energética:', err);
+  }
+});
+
 Object.keys(ITEMS).forEach((key) => {
   const item = ITEMS[key];
-  if (item.id === 'dragon_blood') return;
+  if (item.id === 'dragon_blood' || item.id === 'energy_drink') return;
 
   bot.action(`use_${item.id}`, async (ctx) => {
     try {
@@ -2759,7 +2903,6 @@ async function startExpedition(ctx, dungeonKey) {
     const todayUtc = getTodayUtcString();
     const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
 
-    // Bloqueo bidireccional: no se puede iniciar mazmorra si se está en cacería diaria
     if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
       return await safeAnswerCb(
         ctx,
