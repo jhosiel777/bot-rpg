@@ -1972,7 +1972,6 @@ bot.hears('🎒 Inventario', async (ctx) => {
   }
 });
 
-// Bloqueo inmersivo en el teclado inferior para Mercado P2P
 bot.hears('🏪 Mercado P2P', async (ctx) => {
   try {
     const userId = ctx.from.id;
@@ -2159,7 +2158,6 @@ async function renderMarket(ctx) {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
-// Bloqueo inmersivo en el callback de Mercado P2P
 bot.action('menu_market', async (ctx) => {
   await safeAnswerCb(ctx);
   const userId = ctx.from.id;
@@ -2194,7 +2192,6 @@ bot.action('mkt_trends', async (ctx) => {
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// Bloqueo de publicación de objetos durante la cacería
 bot.action('mkt_sell_menu', async (ctx) => {
   const userId = ctx.from.id;
   const todayUtc = getTodayUtcString();
@@ -2269,7 +2266,6 @@ Object.keys(ITEMS).forEach((key) => {
   });
 });
 
-// Bloqueo de compra en el P2P durante la cacería
 bot.action(/mkt_buy_(.+)/, async (ctx) => {
   try {
     const userId = ctx.from.id;
@@ -2760,6 +2756,18 @@ async function startExpedition(ctx, dungeonKey) {
   }
 
   try {
+    const todayUtc = getTodayUtcString();
+    const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
+
+    // Bloqueo bidireccional: no se puede iniciar mazmorra si se está en cacería diaria
+    if (bounty && (bounty.status === 'traveling' || bounty.status === 'arrived')) {
+      return await safeAnswerCb(
+        ctx,
+        '🧭 Ya estás en las tierras salvajes tras la pista de tu presa diaria. No puedes emprender otra expedición a la vez.',
+        true
+      );
+    }
+
     const player = await getPlayer(userId, ctx.from.first_name);
     const dungeon = DUNGEONS[dungeonKey];
 
