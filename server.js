@@ -100,7 +100,7 @@ function startServer(bot) {
             : 'Apoya al creador viendo este anuncio patrocinado y recibe 1x Bebida Energética (+2 ⚡) en tu inventario.'}
         </p>
 
-        ${purpose === 'bounty_plus' ? `<div class="counter-badge" id="bountyCounter">Anuncios hoy: \${bountyAdsCount} / 2</div>` : ''}
+        ${purpose === 'bounty_plus' ? `<div class="counter-badge" id="bountyCounter">Anuncios hoy: ${bountyAdsCount} / 2</div>` : ''}
 
         <button class="btn" id="watchBtn" onclick="watchAd()">📺 Ver Anuncio</button>
         <div class="footer-note">Al finalizar el anuncio se acreditará el beneficio automáticamente.</div>
@@ -131,9 +131,15 @@ function startServer(bot) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: userId, purpose: purpose })
               });
-              const data = await res.json();
+            const data = await res.json();
               if (data.success) {
                 alert(data.msg);
+                const counter = document.getElementById('bountyCounter');
+                if (counter) {
+                  const currentCount = parseInt(counter.innerText.match(/\d+/)?.[0] || '0', 10);
+                  const nextCount = Math.min(2, currentCount + 1);
+                  counter.innerText = 'Anuncios hoy: ' + nextCount + ' / 2';
+                }
                 if (tg) tg.close();
               } else {
                 alert(data.msg || 'No se pudo completar la entrega.');
