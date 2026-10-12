@@ -34,6 +34,10 @@ function startServer(bot) {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Recompensa del Reino</title>
       <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+      <!-- SDK MONETAG (REWARDED INTERSTITIAL) -->
+      <script src="//libtl.com/sdk.js" data-zone="12000502" data-sdk="show_12000502"></script>
+
       <style>
         body {
           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -100,7 +104,7 @@ function startServer(bot) {
             : 'Apoya al creador viendo este anuncio patrocinado y recibe 1x Bebida Energética (+2 ⚡) en tu inventario.'}
         </p>
 
-        ${purpose === 'bounty_plus' ? `<div class="counter-badge" id="bountyCounter">Anuncios hoy: ${bountyAdsCount} / 2</div>` : ''}
+        ${purpose === 'bounty_plus' ? '<div class="counter-badge" id="bountyCounter">Anuncios hoy: ' + bountyAdsCount + ' / 2</div>' : ''}
 
         <button class="btn" id="watchBtn" onclick="watchAd()">📺 Ver Anuncio</button>
         <div class="footer-note">Al finalizar el anuncio se acreditará el beneficio automáticamente.</div>
@@ -117,41 +121,68 @@ function startServer(bot) {
           userId = tg.initDataUnsafe.user.id;
         }
 
-        async function watchAd() {
+        async function triggerRewardClaim() {
+          const btn = document.getElementById('watchBtn');
+          btn.innerText = 'Registrando recompensa...';
+          try {
+            const res = await fetch('/claim-reward', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: userId, purpose: purpose })
+            });
+            const data = await res.json();
+            if (data.success) {
+              alert(data.msg);
+              const counter = document.getElementById('bountyCounter');
+              if (counter) {
+                const currentCount = parseInt(counter.innerText.match(/\\d+/)?.[0] || '0', 10);
+                const nextCount = Math.min(2, currentCount + 1);
+                counter.innerText = 'Anuncios hoy: ' + nextCount + ' / 2';
+              }
+              if (tg) tg.close();
+            } else {
+              alert(data.msg || 'No se pudo entregar la recompensa.');
+              btn.disabled = false;
+              btn.innerText = 'Intentar de nuevo';
+            }
+          } catch (err) {
+            alert('Error al conectar con el servidor.');
+            btn.disabled = false;
+            btn.innerText = 'Reintentar';
+          }
+        }
+
+        function watchAd() {
           const btn = document.getElementById('watchBtn');
           btn.disabled = true;
           btn.innerText = 'Cargando anuncio...';
 
-          // Simulador / Conector del proveedor publicitario
-          setTimeout(async () => {
-            btn.innerText = 'Registrando recompensa...';
-            try {
-              const res = await fetch('/claim-reward', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: userId, purpose: purpose })
-              });
-            const data = await res.json();
-              if (data.success) {
-                alert(data.msg);
-                const counter = document.getElementById('bountyCounter');
-                if (counter) {
-                  const currentCount = parseInt(counter.innerText.match(/\d+/)?.[0] || '0', 10);
-                  const nextCount = Math.min(2, currentCount + 1);
-                  counter.innerText = 'Anuncios hoy: ' + nextCount + ' / 2';
-                }
-                if (tg) tg.close();
+          if (typeof show_12000502 === 'function') {
+            show_12000502().then(() => {
+              triggerRewardClaim();
+            }).catch((err) => {
+              console.error('Error mostrando anuncio Monetag:', err);
+              alert('Debes ver el anuncio completo para recibir la recompensa.');
+              btn.disabled = false;
+              btn.innerText = 'Intentar de nuevo';
+            });
+          } else {
+            console.warn('SDK de Monetag no disponible aún, reintentando...');
+            setTimeout(() => {
+              if (typeof show_12000502 === 'function') {
+                show_12000502().then(() => {
+                  triggerRewardClaim();
+                }).catch(() => {
+                  btn.disabled = false;
+                  btn.innerText = 'Intentar de nuevo';
+                });
               } else {
-                alert(data.msg || 'No se pudo completar la entrega.');
+                alert('No se pudo cargar el anuncio. Comprueba tu conexión e intenta de nuevo.');
                 btn.disabled = false;
                 btn.innerText = 'Intentar de nuevo';
               }
-            } catch (err) {
-              alert('Error de conexión al reclamar.');
-              btn.disabled = false;
-              btn.innerText = 'Reintentar';
-            }
-          }, 3500);
+            }, 1500);
+          }
         }
       </script>
     </body>
