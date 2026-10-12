@@ -90,6 +90,7 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
+// Función central de regeneración pasiva
 playerSchema.methods.checkAndRegenEnergy = function() {
   const now = Date.now();
 
@@ -98,6 +99,7 @@ playerSchema.methods.checkAndRegenEnergy = function() {
     return true;
   }
 
+  // Si ya tiene el tope de energía, sincronizamos para que no acumule tiempo invisible
   if (this.energy >= MAX_ENERGY) {
     this.energy = MAX_ENERGY;
     this.lastEnergyRegenTime = now;
@@ -122,6 +124,20 @@ playerSchema.methods.checkAndRegenEnergy = function() {
 
   return false;
 };
+
+// Hook automático: cada vez que MongoDB carga un Player en memoria, calcula la energía
+playerSchema.post('init', function() {
+  this.checkAndRegenEnergy();
+});
+
+// Guardado seguro previo: si cambió la energía, verifica el reloj
+playerSchema.pre('save', function(next) {
+  if (this.energy >= MAX_ENERGY) {
+    this.energy = MAX_ENERGY;
+    this.lastEnergyRegenTime = Date.now();
+  }
+  next();
+});
 
 playerSchema.methods.addExp = function(amount) {
   if (this.level >= MAX_LEVEL) {
@@ -243,7 +259,6 @@ async function getPlayer(userId, name = 'Aventurero') {
       needsSave = true;
     }
 
-    // Al ejecutar la comprobación, si no tenía el campo se guarda de inmediato
     if (player.checkAndRegenEnergy()) {
       needsSave = true;
     }
