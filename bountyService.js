@@ -81,7 +81,6 @@ async function getBountyBoardView(userId, player, botInstance = null) {
   const todayUtc = getTodayUtcString();
   const bounty = await getOrCreateDailyBounty(userId, player);
 
-  // Failsafe: Si el trayecto quedó atascado por reinicio de servidor, destrabarlo automáticamente
   if (bounty.status === 'traveling' && bounty.arrivesAt && Date.now() >= new Date(bounty.arrivesAt).getTime()) {
     bounty.status = 'arrived';
     await bounty.save();
@@ -106,7 +105,6 @@ async function getBountyBoardView(userId, player, botInstance = null) {
         } catch (e) {}
       }
     }
-    // Volver a consultar el estado actualizado tras la autocorrección
     return await getBountyBoardView(userId, player, botInstance);
   }
 
@@ -135,7 +133,7 @@ async function getBountyBoardView(userId, player, botInstance = null) {
     text += '⚠️ *¡EL ENEMIGO ESCAPÓ TRAS TU RETIRADA!*\n\n' +
             'Decidiste huir del enfrentamiento. *' + bounty.enemyName + '* se ocultó en la maleza.\n' +
             '⏳ Tiempo de espera para reintentar rastrearlo: *' + minLeft + ' minuto(s)*.\n' +
-            '💸 _Penalización aplicada: Se ha perdido el 90% del botín base._';
+            '🛡️ _Tu botín intacto te espera al regresar a la pista._';
 
     const buttons = [
       [Markup.button.callback('🔄 Actualizar Tiempo', 'bounty_refresh')],
@@ -178,7 +176,7 @@ async function getBountyBoardView(userId, player, botInstance = null) {
         [Markup.button.callback('⚔️ Atacar (1 ⚡)', 'bounty_manual_hit')],
         [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
         [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
-        [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
+        [Markup.button.callback('🏃 Retirarme', 'bounty_retreat_prompt')]
       ];
       return { text, keyboard: Markup.inlineKeyboard(buttons) };
     }
@@ -268,7 +266,7 @@ async function getCombatView(ctx) {
     [Markup.button.callback('⚔️ Atacar (1 ⚡)', 'bounty_manual_hit')],
     [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
     [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
-    [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
+    [Markup.button.callback('🏃 Retirarme', 'bounty_retreat_prompt')]
   ];
 
   return await ctx.editMessageText(combatText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -358,6 +356,8 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
   bounty.eventsLog = [];
   bounty.netGoldBonus = 0;
   bounty.eventsProcessedCount = 0;
+  // Al reiniciar viaje, restauramos la salud del enemigo al máximo por si acaso
+  bounty.enemyCurrentHp = bounty.enemyMaxHp;
   await bounty.save();
 
   await ctx.answerCbQuery('¡Partiste hacia la caza!');
@@ -801,6 +801,30 @@ function applyBountyRewards(player, bounty) {
   return { finalGold, finalExp, leveledUp, merchantComp, merchantPhrase };
 }
 
+// 1. Mensaje de confirmación antes de retirarse
+async function promptBountyRetreat(ctx) {
+  const userId = ctx.from.id;
+  const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
+  if (!bounty || bounty.status !== 'arrived') {
+    return await ctx.answerCbQuery('No puedes retirarte ahora.', { show_alert: true });
+  }
+
+  const text = '⚠️ *¿Estás seguro de que deseas huir del combate?*\n\n' +
+               'Si huyes:\n' +
+               '• El enemigo se ocultará en la maleza.\n' +
+               '• Deberás esperar 30 minutos de penalización para volver a rastrearlo.\n' +
+               '• _Tu botín base intacto te esperará para el próximo intento._\n\n' +
+               '¿Qué decides?';
+
+  const buttons = [
+    [Markup.button.callback('✅ Sí, huir y salvar mi pellejo', 'bounty_retreat_confirmed')],
+    [Markup.button.callback('❌ No, continuar la pelea', 'bounty_back_to_fight')]
+  ];
+
+  return await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+// 2. Ejecución real de la retirada manteniendo el botín base intacto
 async function handleBountyRetreat(ctx) {
   const userId = ctx.from.id;
   const bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: getTodayUtcString() });
@@ -813,9 +837,11 @@ async function handleBountyRetreat(ctx) {
     manualAfkTimers.delete(userId);
   }
 
-  bounty.baseGold = Math.max(10, Math.round(bounty.baseGold * 0.10));
+  // Mantenemos el baseGold intacto, solo ponemos estado idle y el cooldown de 30 min
   bounty.status = 'idle';
   bounty.retreatCooldownUntil = new Date(Date.now() + 30 * 60 * 1000);
+  // Al volver a pelear, la salud del enemigo se restablece a tope
+  bounty.enemyCurrentHp = bounty.enemyMaxHp;
   await bounty.save();
 
   await ctx.answerCbQuery('Te retiraste del asalto.');
@@ -823,7 +849,7 @@ async function handleBountyRetreat(ctx) {
                'Huiste de la guarida para salvar el pellejo.\n' +
                '• *' + bounty.enemyName + '* se replegó a una nueva posición.\n' +
                '• ⏳ Debes esperar *30 minutos* para reintentar rastrearlo hoy.\n' +
-               '• 💸 El botín garantizado cayó un 90% (queda en ' + bounty.baseGold + 'g).';
+               '• 💰 _Tu botín completo te esperará intacto cuando regreses._';
 
   return await ctx.editMessageText(text, {
     parse_mode: 'Markdown',
@@ -950,7 +976,7 @@ async function executeManualBountyAttack(ctx, bot) {
     [Markup.button.callback('⚔️ Atacar de Nuevo (1 ⚡)', 'bounty_manual_hit')],
     [Markup.button.callback('🎒 Abrir Mochila', 'bounty_inv')],
     [Markup.button.callback('🛒 Mercader Ambulante', 'bounty_merchant_menu')],
-    [Markup.button.callback('🏃 Retirarme (Penalización)', 'bounty_retreat')]
+    [Markup.button.callback('🏃 Retirarme', 'bounty_retreat_prompt')]
   ];
 
   return await ctx.editMessageText(combatText, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -972,6 +998,7 @@ module.exports = {
   startBountyTravel,
   renderBountyView,
   executeManualBountyAttack,
+  promptBountyRetreat,
   handleBountyRetreat,
   getMerchantView,
   buyFromMerchant,
