@@ -15,6 +15,7 @@ const {
   handleBountyRetreat,
   getMerchantView,
   buyFromMerchant,
+  getCombatView,
   resetBountyForAdmin
 } = require('./bountyService');
 const {
@@ -466,6 +467,126 @@ bot.action('bounty_merchant_menu', async (ctx) => {
 bot.action('bounty_buy_pot_small', (ctx) => buyFromMerchant(ctx, 'small'));
 bot.action('bounty_buy_pot_medium', (ctx) => buyFromMerchant(ctx, 'medium'));
 bot.action('bounty_buy_pot_energy', (ctx) => buyFromMerchant(ctx, 'energy'));
+
+bot.action('bounty_back_to_fight', async (ctx) => {
+  await safeAnswerCb(ctx);
+  return await getCombatView(ctx);
+});
+
+bot.action('bounty_inv', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('bounty_use_pot_small', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsSmall || player.potionsSmall <= 0) {
+    return await safeAnswerCb(ctx, 'No te quedan más pociones menores.', true);
+  }
+  if (player.hp >= player.maxHp) {
+    return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
+  }
+  player.potionsSmall -= 1;
+  player.hp = Math.min(player.maxHp, player.hp + 10);
+  await player.save();
+  await safeAnswerCb(ctx, 'Recuperaste +10 HP');
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('bounty_use_pot_medium', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsMedium || player.potionsMedium <= 0) {
+    return await safeAnswerCb(ctx, 'No te quedan más pociones mayores.', true);
+  }
+  if (player.hp >= player.maxHp) {
+    return await safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
+  }
+  player.potionsMedium -= 1;
+  player.hp = Math.min(player.maxHp, player.hp + 35);
+  await player.save();
+  await safeAnswerCb(ctx, 'Recuperaste +35 HP');
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('bounty_use_pot_energy', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsEnergy || player.potionsEnergy <= 0) {
+    return await safeAnswerCb(ctx, 'No te quedan más elixires de energía.', true);
+  }
+  if (player.energy >= MAX_ENERGY) {
+    return await safeAnswerCb(ctx, 'Tu energía ya está al máximo.', true);
+  }
+  player.potionsEnergy -= 1;
+  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+  await player.save();
+  await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
+
+  let text = `🎒 *Mochila en Pleno Combate*\n\n` +
+             `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
+             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `*Objetos de supervivencia:*\n` +
+             `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
+             `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
+             `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n\n` +
+             `Toca una poción para consumirla:`;
+
+  const buttons = [];
+  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
 
 function getStatsView(player) {
   const str = player.strength || 0;
@@ -1533,7 +1654,7 @@ function getGatekeeperMessage() {
 bot.on('text', async (ctx, next) => {
   const textMsg = ctx.message.text.trim();
 
-  // Ignorar comandos para que Telegraf los pase a bot.hears / bot.command
+  // Ignorar comandos con / para no bloquear /start o /admin
   if (textMsg.startsWith('/')) {
     return next();
   }
@@ -1541,7 +1662,7 @@ bot.on('text', async (ctx, next) => {
   const userId = ctx.from.id;
   const player = await getPlayer(userId, ctx.from.first_name);
 
-  // Verificación de nuevo aspirante
+  // Verificación del código de acceso
   if (!player.isVerified && userId !== ADMIN_ID) {
     const rawInput = textMsg.toUpperCase();
     const recruiter = await Player.findOne({ referralCode: rawInput, isVerified: true });
@@ -1554,7 +1675,7 @@ bot.on('text', async (ctx, next) => {
       );
     }
 
-  const isCreatorCode = (recruiter.userId === ADMIN_ID);
+    const isCreatorCode = (recruiter.userId === ADMIN_ID);
     const starterGold = isCreatorCode ? 500 : 250;
 
     player.isVerified = true;
