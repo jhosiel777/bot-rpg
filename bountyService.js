@@ -7,7 +7,7 @@ const ADMIN_ID = 835648800;
 
 const activeTravelTimers = new Map();
 const manualAfkTimers = new Map();
-const merchantRates = new Map(); // Guarda la tasa (1.25 a 1.50) asignada al jugador para su cacería actual
+const merchantRates = new Map();
 
 function getUniversalTimeData() {
   const now = new Date();
@@ -28,11 +28,9 @@ function getUniversalTimeData() {
   };
 }
 
-// Precios base del NPC: Menor (30g), Mayor (80g), Elixir (100g)
 function getMerchantCatalog(userId) {
   let rate = merchantRates.get(userId);
   if (!rate) {
-    // Genera un sobreprecio aleatorio entre 25% y 50% (1.25 a 1.50)
     rate = 1.25 + (Math.random() * 0.25);
     merchantRates.set(userId, rate);
   }
@@ -257,8 +255,8 @@ async function getAutoSelectionView(userId) {
 
   const text = '🤖 *Configuración de Asalto Automático*\n\n' +
                'Elige el protocolo de supervivencia para tu expedición:\n\n' +
-               '🔹 *Modo Normal:* Consume hasta *' + normalLimit + '* poción(es) de salud si tu vida cae por debajo del 40%.\n\n' +
-               '⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *' + plusLimit + '* pociones de salud si el combate se complica.\n' +
+               '🔹 *Modo Normal:* Consume hasta *' + normalLimit + '* poción(es) de combate de forma inteligente y preventiva.\n\n' +
+               '⚡ *Modo Plus (+2 Anuncios):* Desbloquea un cupo ampliado de hasta *' + plusLimit + '* pociones de combate.\n' +
                '📺 *Progreso de anuncios hoy:* ' + adsWatched + ' / 2\n\n' +
                '¿Cuál deseas emplear?';
 
@@ -318,7 +316,6 @@ async function startBountyTravel(ctx, bot, mode = 'auto', isPlus = false) {
     return await ctx.answerCbQuery('Ya estás en camino.', { show_alert: true });
   }
 
-  // Genera una tasa fresca para el mercader en este nuevo viaje
   merchantRates.delete(userId);
 
   const travelMs = bounty.durationMinutes * 60 * 1000;
@@ -546,14 +543,50 @@ async function processSingleTravelEvent(bot, player, bounty, tierCfg) {
   } catch (e) {}
 }
 
+// Elección óptima de poción según la salud requerida
+function pickBestPotion(player, neededHp) {
+  if (neededHp > 22) {
+    if (player.potionsMedium > 0) {
+      player.potionsMedium -= 1;
+      return { heal: 35, name: 'Poción Mayor (+35 HP)' };
+    }
+    if (player.potionsSmall > 0) {
+      player.potionsSmall -= 1;
+      return { heal: 10, name: 'Poción Menor (+10 HP)' };
+    }
+  } else {
+    if (player.potionsSmall > 0) {
+      player.potionsSmall -= 1;
+      return { heal: 10, name: 'Poción Menor (+10 HP)' };
+    }
+    if (player.potionsMedium > 0) {
+      player.potionsMedium -= 1;
+      return { heal: 35, name: 'Poción Mayor (+35 HP)' };
+    }
+  }
+  return null;
+}
+
 async function resolveAutoCombat(bot, userId, bounty) {
   const player = await Player.findOne({ userId });
   if (!player) return;
 
   const tierCfg = BOUNTY_TIERS[bounty.tierKey];
-  const maxPotions = (bounty.adsClaimedForBounty || 0) >= 2 
+  const maxCombatPotions = (bounty.adsClaimedForBounty || 0) >= 2 
     ? tierCfg.autoPotionsWithAds 
     : tierCfg.autoPotionsBase;
+
+  let pathPotionUsed = null;
+
+  // 1. Curación de ruta independiente: Si llegó herido del viaje, toma 1 dosis de auxilio
+  if (player.hp < player.maxHp) {
+    const missingHp = player.maxHp - player.hp;
+    const consumedPath = pickBestPotion(player, missingHp);
+    if (consumedPath) {
+      player.hp = Math.min(player.maxHp, player.hp + consumedPath.heal);
+      pathPotionUsed = consumedPath.name;
+    }
+  }
 
   let potionsUsedCount = 0;
   const potionsUsedDetails = [];
@@ -565,35 +598,59 @@ async function resolveAutoCombat(bot, userId, bounty) {
   const luk = player.luck || 0;
 
   let turns = 0;
-  const maxTurns = 20;
+  let totalDmgDealt = 0;
+  let totalDmgTaken = 0;
+  let totalCrits = 0;
+  const maxTurns = 25;
+
+  const maxPossibleEnemyHit = Math.max(1, Math.round(bounty.enemyMaxDmg * (1 - ((str / (str + 60)) * 0.40))));
 
   while (enemyHp > 0 && playerHp > 0 && turns < maxTurns) {
     turns++;
+
+    // IA Preventiva: Si el próximo golpe máximo del enemigo puede noquearte, curarse antes de recibirlo
+    if (playerHp <= maxPossibleEnemyHit && potionsUsedCount < maxCombatPotions) {
+      const preHeal = pickBestPotion(player, player.maxHp - playerHp);
+      if (preHeal) {
+        potionsUsedCount++;
+        playerHp = Math.min(player.maxHp, playerHp + preHeal.heal);
+        potionsUsedDetails.push(preHeal.name + ' (Turno ' + turns + ' - Preventiva)');
+      } else {
+        searchedPotionAndFailed = true;
+      }
+    }
+
+    // Ataque del Jugador
     const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
     const variation = (Math.random() * 0.40) - 0.20;
     let pDmg = Math.round(baseAtk * (1 + variation));
+
     if (Math.random() < Math.min(0.30, luk * 0.0025)) {
+      totalCrits++;
       pDmg = Math.round(pDmg * 1.40);
     }
-    enemyHp -= Math.max(1, pDmg);
+    pDmg = Math.max(1, pDmg);
+    totalDmgDealt += pDmg;
+    enemyHp -= pDmg;
 
     if (enemyHp <= 0) break;
 
+    // Contraataque del Enemigo
     const eDmgRaw = Math.floor(Math.random() * (bounty.enemyMaxDmg - bounty.enemyMinDmg + 1)) + bounty.enemyMinDmg;
     const mitigation = (str / (str + 60)) * 0.40;
     const finalDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigation)));
+    totalDmgTaken += finalDmg;
     playerHp -= finalDmg;
 
-    if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40)) {
-      if (potionsUsedCount < maxPotions) {
-        const consumed = tryConsumeHealthPotion(player);
-        if (consumed) {
-          potionsUsedCount++;
-          playerHp = Math.min(player.maxHp, playerHp + consumed.heal);
-          potionsUsedDetails.push(consumed.name);
-        } else {
-          searchedPotionAndFailed = true;
-        }
+    // Curación reactiva secundaria si cae bajo el 40%
+    if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40) && potionsUsedCount < maxCombatPotions) {
+      const reactHeal = pickBestPotion(player, player.maxHp - playerHp);
+      if (reactHeal) {
+        potionsUsedCount++;
+        playerHp = Math.min(player.maxHp, playerHp + reactHeal.heal);
+        potionsUsedDetails.push(reactHeal.name + ' (Turno ' + turns + ')');
+      } else {
+        searchedPotionAndFailed = true;
       }
     }
   }
@@ -609,19 +666,23 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
     let narrativeKOFail = '';
     if (searchedPotionAndFailed) {
-      narrativeKOFail = '🎒 _Buscaste con desesperación una poción en tu mochila hasta quedar noqueado... Nunca la encontraste._\n\n';
-    } else if (potionsUsedCount >= maxPotions) {
-      narrativeKOFail = '⚠️ _Agotaste tu cupo máximo de pociones automáticas (' + maxPotions + ') y el enemigo no te dio respiro._\n\n';
+      narrativeKOFail = '🎒 _Revisaste desesperadamente tu mochila buscando una poción para resistir... pero no te quedaban más._\n\n';
+    } else if (potionsUsedCount >= maxCombatPotions) {
+      narrativeKOFail = '⚠️ _Agotaste tu cupo máximo de pociones del combate (' + maxCombatPotions + ') y el castigo del enemigo fue fulminante._\n\n';
     }
 
     const failMsg = '💀 *Caza Fallida: ' + bounty.enemyName + '*\n\n' +
-                    'Caíste inconsciente tras ' + turns + ' asaltos de combate.\n' +
+                    'Caíste inconsciente tras *' + turns + ' asaltos* de combate.\n\n' +
+                    '📊 *Resumen del Enfrentamiento:*\n' +
                     '• Salud enemiga restante: *' + Math.max(0, enemyHp) + '/' + bounty.enemyMaxHp + ' HP*\n' +
-                    narrativeKOFail +
-                    (potionsUsedCount > 0 ? '• Pociones usadas: ' + potionsUsedDetails.join(', ') + '\n' : '') +
+                    '• Daño total que le asestaste: *' + totalDmgDealt + '* (' + totalCrits + ' críticos)\n' +
+                    '• Daño total recibido: *' + totalDmgTaken + ' HP*\n' +
+                    (pathPotionUsed ? '• Dosis de auxilio de ruta: ' + pathPotionUsed + '\n' : '') +
+                    (potionsUsedCount > 0 ? '• Pociones gastadas en combate: ' + potionsUsedDetails.join(', ') + '\n' : '') +
+                    '\n' + narrativeKOFail +
                     '⏳ Quedaste inconsciente por 2 horas.\n' +
                     '⚠️ Perdiste ' + lostExp + ' de EXP acumulada.\n\n' +
-                    '_Podrás reintentar el asalto cuando te recuperes antes de las 00:00 UTC._';
+                    '_Podrás reintentar el asalto cuando recuperes salud antes de las 00:00 UTC._';
 
     try {
       await bot.telegram.sendMessage(userId, failMsg, { parse_mode: 'Markdown' });
@@ -639,13 +700,19 @@ async function resolveAutoCombat(bot, userId, bounty) {
   await creditReferralBonus(userId, rewardReport.finalGold);
 
   const successMsg = '🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n' +
-                     'Derrotaste a *' + bounty.enemyName + '* tras ' + turns + ' asaltos.\n\n' +
-                     (potionsUsedCount > 0 ? '🧪 *Pociones de salud utilizadas:* ' + potionsUsedDetails.join(', ') + '\n\n' : '✨ _No fue necesario usar ninguna poción._\n\n') +
-                     '📊 *Informe de Recompensa:*\n' +
-                     '• Botín base: *' + bounty.baseGold + 'g*\n' +
-                     (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
-                     (bounty.goldSpentOnMerchant > 0 ? '• Compensación de la ruta: *+' + rewardReport.merchantComp + 'g*\n' : '') +
-                     '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
+                     'Derrotaste a *' + bounty.enemyName + '* tras *' + turns + ' asaltos*.\n\n' +
+                     '⚔️ *Ficha del Combate:*\n' +
+                     '• Daño total infligido: *' + totalDmgDealt + '* (' + totalCrits + ' golpes críticos)\n' +
+                     '• Daño total absorbido: *' + totalDmgTaken + ' HP*\n' +
+                     '• Salud final restante: *' + player.hp + '/' + player.maxHp + ' HP*\n\n' +
+                     '🧪 *Gestión de Pociones:*\n' +
+                     (pathPotionUsed ? '• Auxilio de marcha previo al combate: ' + pathPotionUsed + ' _(Sin contar en cupo)_\n' : '• Marcha: Entraste al combate con tu temple intacto.\n') +
+                     (potionsUsedCount > 0 ? '• Pociones consumidas en combate: ' + potionsUsedDetails.join(', ') + '\n\n' : '• Combate: ¡Victoria limpia sin consumir pociones!\n\n') +
+                     '📊 *Informe Económico y Recompensas:*\n' +
+                     '• Botín base del contrato: *' + bounty.baseGold + 'g*\n' +
+                     (bounty.netGoldBonus !== 0 ? '• Balance de sucesos en ruta: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
+                     (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                     '💰 *Total cobrado en bolsa:* *+' + rewardReport.finalGold + 'g*\n' +
                      '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                      (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
 
@@ -661,23 +728,22 @@ async function resolveAutoCombat(bot, userId, bounty) {
   } catch (e) {}
 }
 
-function tryConsumeHealthPotion(player) {
-  if (player.potionsMedium > 0) {
-    player.potionsMedium -= 1;
-    return { heal: 35, name: 'Poción Mayor (+35 HP)' };
-  }
-  if (player.potionsSmall > 0) {
-    player.potionsSmall -= 1;
-    return { heal: 10, name: 'Poción Menor (+10 HP)' };
-  }
-  return null;
-}
-
 function applyBountyRewards(player, bounty) {
   let merchantComp = 0;
+  let merchantPhrase = 'Bono de comercio';
+
   if (bounty.goldSpentOnMerchant > 0) {
-    const compRate = 0.80 + (Math.random() * 0.50);
+    // Rango entre 65% y 125% del oro invertido
+    const compRate = 0.65 + (Math.random() * 0.60);
     merchantComp = Math.round(bounty.goldSpentOnMerchant * compRate);
+
+    const phrases = [
+      'El mercader ambulante reconoció tu valía y te devolvió',
+      'Al ver tu temple en batalla, el buhonero decidió reembolsarte',
+      'El comerciante de la ruta quedó impresionado con tu hazaña y te entregó',
+      'Como gratitud por tus compras en el sendero, el mercader te gratificó con'
+    ];
+    merchantPhrase = phrases[Math.floor(Math.random() * phrases.length)];
   }
 
   const finalGold = Math.max(30, bounty.baseGold + bounty.netGoldBonus + merchantComp);
@@ -709,7 +775,7 @@ function applyBountyRewards(player, bounty) {
   bounty.totalGoldClaimed = finalGold;
   bounty.totalExpClaimed = finalExp;
 
-  return { finalGold, finalExp, leveledUp, merchantComp };
+  return { finalGold, finalExp, leveledUp, merchantComp, merchantPhrase };
 }
 
 async function handleBountyRetreat(ctx) {
@@ -805,8 +871,8 @@ async function executeManualBountyAttack(ctx, bot) {
                        'Asestaste el golpe final terminando la cacería.\n\n' +
                        '📊 *Informe de Recompensa:*\n' +
                        '• Botín base: *' + bounty.baseGold + 'g*\n' +
-                       (bounty.netGoldBonus >= 0 ? '• Incidentes de viaje: *+' + bounty.netGoldBonus + 'g*\n' : '• Incidentes de viaje: *' + bounty.netGoldBonus + 'g*\n') +
-                       (bounty.goldSpentOnMerchant > 0 ? '• Compensación de la ruta: *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                       (bounty.netGoldBonus !== 0 ? '• Balance de viaje: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
+                       (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
                        '💰 *Oro neto cobrado:* *+' + rewardReport.finalGold + 'g*\n' +
                        '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
                        (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
