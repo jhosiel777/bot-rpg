@@ -42,7 +42,7 @@ const playerSchema = new mongoose.Schema({
   hp: { type: Number, default: 50 },
   maxHp: { type: Number, default: 50 },
   energy: { type: Number, default: 10 },
-  lastEnergyRegenTime: { type: Number, default: Date.now },
+  lastEnergyRegenTime: { type: Number, default: () => Date.now() },
   strength: { type: Number, default: 0 },
   agility: { type: Number, default: 0 },
   luck: { type: Number, default: 0 },
@@ -90,7 +90,7 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
-// Función central de regeneración pasiva
+// Cálculo matemático estricto de regeneración
 playerSchema.methods.checkAndRegenEnergy = function() {
   const now = Date.now();
 
@@ -99,7 +99,6 @@ playerSchema.methods.checkAndRegenEnergy = function() {
     return true;
   }
 
-  // Si ya tiene el tope de energía, sincronizamos para que no acumule tiempo invisible
   if (this.energy >= MAX_ENERGY) {
     this.energy = MAX_ENERGY;
     this.lastEnergyRegenTime = now;
@@ -110,34 +109,30 @@ playerSchema.methods.checkAndRegenEnergy = function() {
 
   if (elapsedMs >= ENERGY_REGEN_INTERVAL_MS) {
     const pointsGained = Math.floor(elapsedMs / ENERGY_REGEN_INTERVAL_MS);
-    const newEnergy = this.energy + pointsGained;
-
-    if (newEnergy >= MAX_ENERGY) {
-      this.energy = MAX_ENERGY;
-      this.lastEnergyRegenTime = now;
-    } else {
-      this.energy = newEnergy;
-      this.lastEnergyRegenTime = now - (elapsedMs % ENERGY_REGEN_INTERVAL_MS);
+    if (pointsGained > 0) {
+      const newEnergy = this.energy + pointsGained;
+      if (newEnergy >= MAX_ENERGY) {
+        this.energy = MAX_ENERGY;
+        this.lastEnergyRegenTime = now;
+      } else {
+        this.energy = newEnergy;
+        this.lastEnergyRegenTime = now - (elapsedMs % ENERGY_REGEN_INTERVAL_MS);
+      }
+      return true;
     }
-    return true;
   }
 
   return false;
 };
 
-// Hook automático: cada vez que MongoDB carga un Player en memoria, calcula la energía
-playerSchema.post('init', function() {
-  this.checkAndRegenEnergy();
-});
-
-// Guardado seguro previo: si cambió la energía, verifica el reloj
-playerSchema.pre('save', function(next) {
-  if (this.energy >= MAX_ENERGY) {
-    this.energy = MAX_ENERGY;
-    this.lastEnergyRegenTime = Date.now();
+// Sincroniza y guarda en base de datos si hubo cambios
+playerSchema.methods.syncAndSaveEnergy = async function() {
+  if (this.checkAndRegenEnergy()) {
+    await this.save();
+    return true;
   }
-  next();
-});
+  return false;
+};
 
 playerSchema.methods.addExp = function(amount) {
   if (this.level >= MAX_LEVEL) {
@@ -193,6 +188,20 @@ playerSchema.methods.claimReferralGold = function() {
 };
 
 const Player = mongoose.model('Player', playerSchema);
+
+// Temporizador automático en segundo plano cada 60s
+setInterval(async () => {
+  try {
+    const playersNeedRegen = await Player.find({ energy: { $lt: MAX_ENERGY } });
+    for (const p of playersNeedRegen) {
+      if (p.checkAndRegenEnergy()) {
+        await p.save();
+      }
+    }
+  } catch (e) {
+    console.error('Error en loop de regeneración de energía:', e.message);
+  }
+}, 60 * 1000);
 
 function getRequiredExp(level) {
   if (level >= MAX_LEVEL) return 0;
@@ -259,6 +268,7 @@ async function getPlayer(userId, name = 'Aventurero') {
       needsSave = true;
     }
 
+    // Comprobamos la regeneración y guardamos directamente
     if (player.checkAndRegenEnergy()) {
       needsSave = true;
     }
