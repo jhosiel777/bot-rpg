@@ -4,6 +4,7 @@ const MAX_LEVEL = 101;
 const MAX_STAT = 100;
 const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
+const ADMIN_ID = 835648800;
 
 // Caracteres limpios para evitar confusiones visuales (sin 0, O, 1, I)
 const REFERRAL_CHARSET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -63,16 +64,15 @@ const playerSchema = new mongoose.Schema({
 
   // Sistema de Reclutamiento / Referidos
   referralCode: { type: String, unique: true, sparse: true },
-  referredBy: { type: Number, default: null }, // ID del reclutador
-  isVerified: { type: Boolean, default: false }, // Debe ingresar código para pasar la puerta
+  referredBy: { type: Number, default: null },
+  isVerified: { type: Boolean, default: false },
   recruitsCount: { type: Number, default: 0 },
-  referralGoldToday: { type: Number, default: 0 }, // Tope diario: 10,000g
-  referralGoldUnclaimed: { type: Number, default: 0 }, // Bolsa disponible para reclamar
-  referralGoldTotalEarned: { type: Number, default: 0 }, // Histórico de oro generado
+  referralGoldToday: { type: Number, default: 0 },
+  referralGoldUnclaimed: { type: Number, default: 0 },
+  referralGoldTotalEarned: { type: Number, default: 0 },
   lastReferralDateUtc: { type: String, default: getTodayUtcString }
 });
 
-// Cooldown de descanso con Agilidad
 playerSchema.methods.getRestCooldownMs = function() {
   const baseMinutes = 15;
   const reduction = (this.agility || 0) * 0.08;
@@ -80,7 +80,6 @@ playerSchema.methods.getRestCooldownMs = function() {
   return finalMinutes * 60 * 1000;
 };
 
-// Penalización por K.O.
 playerSchema.methods.applyDeathPenalty = function() {
   const reqExp = getRequiredExp(this.level);
   const penalty = Math.round(reqExp * 0.15);
@@ -89,7 +88,6 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
-// Subida de nivel
 playerSchema.methods.addExp = function(amount) {
   if (this.level >= MAX_LEVEL) {
     this.exp = 0;
@@ -115,12 +113,10 @@ playerSchema.methods.addExp = function(amount) {
   return leveledUp;
 };
 
-// Quema del 5% si no se reclama el oro al cambio de día UTC
 playerSchema.methods.checkAndBurnReferralGold = function() {
   const todayUtc = getTodayUtcString();
   if (this.lastReferralDateUtc !== todayUtc) {
     if (this.referralGoldToday > 0) {
-      // 5% de quema sobre lo que se generó hoy y no se cobró
       const burnedAmount = Math.round(this.referralGoldToday * 0.05);
       const remainingAmount = this.referralGoldToday - burnedAmount;
 
@@ -133,7 +129,6 @@ playerSchema.methods.checkAndBurnReferralGold = function() {
   return false;
 };
 
-// Cobro del oro acumulado por referidos
 playerSchema.methods.claimReferralGold = function() {
   this.checkAndBurnReferralGold();
   const totalToClaim = (this.referralGoldToday || 0) + (this.referralGoldUnclaimed || 0);
@@ -172,7 +167,6 @@ async function getGlobalStats() {
   return stats;
 }
 
-// Genera un código de 6 caracteres garantizando que no esté repetido
 async function generateUniqueReferralCode() {
   let code = '';
   let exists = true;
@@ -184,7 +178,6 @@ async function generateUniqueReferralCode() {
   return code;
 }
 
-// Obtener o crear jugador (con migración transparente de antiguos jugadores)
 async function getPlayer(userId, name = 'Aventurero') {
   let player = await Player.findOne({ userId });
 
@@ -194,13 +187,12 @@ async function getPlayer(userId, name = 'Aventurero') {
       userId,
       name,
       referralCode: uniqueCode,
-      isVerified: false // El novato empieza sin verificar hasta poner el código
+      isVerified: userId === ADMIN_ID
     });
   } else {
     let needsSave = false;
 
-    // Migración automática para jugadores existentes antes de esta actualización
-    if (player.isVerified === undefined || player.isVerified === null) {
+    if (userId === ADMIN_ID && !player.isVerified) {
       player.isVerified = true;
       needsSave = true;
     }
@@ -210,7 +202,6 @@ async function getPlayer(userId, name = 'Aventurero') {
       needsSave = true;
     }
 
-    // Revisión de quema diaria al cargar
     if (player.checkAndBurnReferralGold()) {
       needsSave = true;
     }
@@ -223,7 +214,6 @@ async function getPlayer(userId, name = 'Aventurero') {
   return player;
 }
 
-// Acredita el 5% del oro ganado al reclutador (máx 10,000g/día)
 async function creditReferralBonus(recruitUserId, goldEarned) {
   try {
     if (goldEarned <= 0) return;
