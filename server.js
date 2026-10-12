@@ -1,15 +1,22 @@
 const express = require('express');
+const https = require('https');
 const { Player, MAX_ENERGY } = require('./playerModel');
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 
 function startServer(bot) {
   const app = express();
   const PORT = process.env.PORT || 3000;
+  const SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://bot-rpg-wu42.onrender.com';
 
   app.use(express.json());
 
   app.get('/', (req, res) => {
     res.send('Servidor del bot RPG activo.');
+  });
+
+  // Endpoint de latido para el auto-ping
+  app.get('/ping', (req, res) => {
+    res.status(200).send('pong');
   });
 
   // Pantalla de anuncios interactiva según propósito
@@ -267,6 +274,15 @@ function startServer(bot) {
 
   app.listen(PORT, () => {
     console.log(`🌐 Servidor WebApp escuchando en el puerto ${PORT}`);
+
+    // Auto-ping cada 10 minutos (600,000 ms) para evitar que Render duerma la instancia
+    setInterval(() => {
+      https.get(`${SERVER_URL}/ping`, (pingRes) => {
+        console.log(`💓 Auto-ping enviado a ${SERVER_URL}/ping (Status: ${pingRes.statusCode})`);
+      }).on('error', (err) => {
+        console.error('⚠️ Error en auto-ping para Render:', err.message);
+      });
+    }, 10 * 60 * 1000);
   });
 }
 
