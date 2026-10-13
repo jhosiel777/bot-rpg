@@ -6,6 +6,7 @@ const DUNGEONS = require('./dungeons');
 const ITEMS = require('./shop');
 const { WorldBoss, getWorldBoss } = require('./bossModel');
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
+const Maintenance = require('./maintenanceModel');
 const {
   getUniversalTimeData,
   getBountyBoardView,
@@ -46,9 +47,29 @@ const {
 
 const ADMIN_ID = 835648800;
 
+let maintenanceState = {
+  enabled: false,
+  whitelist: []
+};
+
+async function initMaintenance() {
+  try {
+    let cfg = await Maintenance.findOne({ key: 'global_config' });
+    if (!cfg) {
+      cfg = await Maintenance.create({ key: 'global_config', enabled: false, whitelist: [] });
+    }
+    maintenanceState.enabled = cfg.enabled;
+    maintenanceState.whitelist = cfg.whitelist || [];
+    console.log(`🛠️ Estado de mantenimiento: ${maintenanceState.enabled ? 'ACTIVO' : 'INACTIVO'}`);
+  } catch (err) {
+    console.error('Error cargando configuración de mantenimiento:', err.message);
+  }
+}
+
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ Base de datos MongoDB conectada');
+    await initMaintenance();
     await initMarketPrices();
     scheduleNextUtcCycle();
     initBossScheduler();
@@ -68,11 +89,44 @@ let adminBroadcastWaiting = false;
 let adminBossCustomHpWaiting = false;
 let adminBossCustomMsgWaiting = false;
 let adminTargetLevelChangeId = null;
+let adminWhitelistAddWaiting = false;
+let adminMaintenanceEndWaiting = false;
 
 let bossWaitMinutesConfig = 30;
 let bossDurationMinutesConfig = 90;
 let bossHpConfig = null;
 let bossCustomEpicMessage = null;
+
+// ==========================================
+// MIDDLEWARE GLOBAL DE MANTENIMIENTO
+// ==========================================
+bot.use(async (ctx, next) => {
+  if (!maintenanceState.enabled) return next();
+
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const isAuthorized = userId === ADMIN_ID || maintenanceState.whitelist.includes(userId);
+  if (isAuthorized) {
+    return next();
+  }
+
+  const maintMsg = '🚧 *REINO EN RECONSTRUCCIÓN* 🚧\n\n' +
+                   'Las puertas de Abyss están cerradas en este momento debido a que los maestros forjadores y arquitectos se encuentran realizando labores de reconstrucción y mejoras estructurales.\n\n' +
+                   '⏳ *No puedes acceder en este instante. Por favor, regresa más tarde.*\n' +
+                   '🛡️ _Tus datos, progresos y pertenencias se encuentran totalmente a salvo._';
+
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.answerCbQuery('🚧 El reino está en reconstrucción. Vuelve más tarde.', { show_alert: true });
+    } catch (e) {}
+    return;
+  }
+
+  try {
+    await ctx.reply(maintMsg, { parse_mode: 'Markdown' });
+  } catch (e) {}
+});
 
 function getDefaultEpicMessage(bossName, waitMinutes, hp, durationMin) {
   return '⚡🌋 *¡UNA CATÁSTROFE ANCESTRAL SE AVECINA!*\n\n' +
@@ -793,10 +847,16 @@ async function getBossCensus() {
 }
 
 function getAdminHomeView() {
+  const statusStr = maintenanceState.enabled ? '🔴 ACTIVO' : '🟢 APAGADO';
+
   const text = `👑 *Panel de Creador (Admin)*\n\n` +
-               `Bienvenido al panel de control del reino. Opciones de gestión:`;
+               `🛠️ Modo Mantenimiento: *${statusStr}*\n` +
+               `👥 Testers en Whitelist: *${maintenanceState.whitelist.length} autorizado(s)*\n\n` +
+               `Opciones de gestión:`;
 
   const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(maintenanceState.enabled ? '🟢 Reabrir Reino (Fin Mantenimiento)' : '🔴 Cerrar Reino (Modo Mantenimiento)', 'adm_toggle_maint')],
+    [Markup.button.callback('👥 Gestionar Whitelist de Testers', 'adm_whitelist_menu')],
     [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', `adm_change_lvl_${ADMIN_ID}`)],
     [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
     [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
@@ -819,6 +879,8 @@ bot.command('admin', async (ctx) => {
   adminBossCustomHpWaiting = false;
   adminBossCustomMsgWaiting = false;
   adminTargetLevelChangeId = null;
+  adminWhitelistAddWaiting = false;
+  adminMaintenanceEndWaiting = false;
   const view = getAdminHomeView();
   await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -830,8 +892,111 @@ bot.action('adm_home', async (ctx) => {
   adminBossCustomHpWaiting = false;
   adminBossCustomMsgWaiting = false;
   adminTargetLevelChangeId = null;
+  adminWhitelistAddWaiting = false;
+  adminMaintenanceEndWaiting = false;
   const view = getAdminHomeView();
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+// ==========================================
+// CONTROL DE MODO MANTENIMIENTO Y WHITELIST
+// ==========================================
+bot.action('adm_toggle_maint', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+
+  if (!maintenanceState.enabled) {
+    // ACTIVAR MODO MANTENIMIENTO
+    maintenanceState.enabled = true;
+    await Maintenance.updateOne({ key: 'global_config' }, { enabled: true });
+
+    await safeAnswerCb(ctx, '🔴 Modo mantenimiento ACTIVADO.');
+
+    const globalAlert = '⚠️🔔 *COMUNICADO DEL GREMIO: RECONSTRUCCIÓN DEL REINO*\n\n' +
+                        'Aventureros de Abyss: Las campanas de la ciudadela anuncian que en unos momentos el reino entrará en un periodo de reconstrucción y mantenimiento programado.\n\n' +
+                        '⚒️ _Los accesos se cerrarán brevemente mientras se implementan mejoras y reformas. Sus datos están a salvo._';
+    await broadcastToAll(globalAlert);
+
+    const view = getAdminHomeView();
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+  } else {
+    // DESACTIVAR MODO MANTENIMIENTO (PIDE NOTAS DE PARCHE)
+    await safeAnswerCb(ctx);
+    adminMaintenanceEndWaiting = true;
+
+    const promptText = '📝 *FINALIZAR MANTENIMIENTO Y REABRIR REINO*\n\n' +
+                       'Escribe a continuación en el chat cuáles fueron las mejoras, correcciones o novedades aplicadas.\n\n' +
+                       'Al enviarlas, el mantenimiento se apagará y se proclamará el comunicado a todos los jugadores con las notas de actualización.\n\n' +
+                       '_Si no deseas añadir detalles, puedes escribir "Sin notas" o tocar Cancelar._';
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('⬅️ Cancelar', 'adm_home')]
+    ]);
+
+    return await safeEditMessage(ctx, promptText, { parse_mode: 'Markdown', ...keyboard });
+  }
+});
+
+bot.action('adm_whitelist_menu', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  adminWhitelistAddWaiting = false;
+
+  let text = '👥 *GESTIÓN DE WHITELIST DE TESTERS*\n\n' +
+             'Los siguientes IDs de Telegram tienen autorización para ingresar al reino aun cuando el modo mantenimiento esté activado:\n\n' +
+             `👑 Creador: \`${ADMIN_ID}\` (Permanente)\n`;
+
+  if (!maintenanceState.whitelist.length) {
+    text += '_No hay testers adicionales autorizados._\n';
+  } else {
+    maintenanceState.whitelist.forEach((uid, idx) => {
+      text += `${idx + 1}. ID: \`${uid}\`\n`;
+    });
+  }
+
+  text += '\n¿Qué deseas hacer?';
+
+  const buttons = [
+    [Markup.button.callback('➕ Añadir Tester por ID', 'adm_wl_add')],
+    [Markup.button.callback('🗑️ Limpiar Toda la Whitelist', 'adm_wl_clear')],
+    [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
+  ];
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('adm_wl_add', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  await safeAnswerCb(ctx);
+  adminWhitelistAddWaiting = true;
+
+  const text = '➕ *Añadir Usuario a la Whitelist*\n\n' +
+               'Escribe en el chat el **Telegram ID** (número) de la persona que deseas autorizar durante los periodos de mantenimiento.';
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('⬅️ Cancelar', 'adm_whitelist_menu')]
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action('adm_wl_clear', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+  maintenanceState.whitelist = [];
+  await Maintenance.updateOne({ key: 'global_config' }, { whitelist: [] });
+  await safeAnswerCb(ctx, 'Whitelist vaciada.');
+
+  let text = '👥 *GESTIÓN DE WHITELIST DE TESTERS*\n\n' +
+             'Los siguientes IDs de Telegram tienen autorización para ingresar al reino:\n\n' +
+             `👑 Creador: \`${ADMIN_ID}\` (Permanente)\n` +
+             '_No hay testers adicionales autorizados._\n\n' +
+             '¿Qué deseas hacer?';
+
+  const buttons = [
+    [Markup.button.callback('➕ Añadir Tester por ID', 'adm_wl_add')],
+    [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
+  ];
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('adm_unverified', async (ctx) => {
@@ -1765,6 +1930,58 @@ bot.on('text', async (ctx, next) => {
   }
 
   const userId = ctx.from.id;
+
+  // Interceptar entrada de Telegram ID para Whitelist
+  if (userId === ADMIN_ID && adminWhitelistAddWaiting) {
+    adminWhitelistAddWaiting = false;
+    const newTesterId = parseInt(textMsg, 10);
+
+    if (isNaN(newTesterId) || newTesterId <= 0) {
+      return await ctx.reply('⚠️ Introduce un Telegram ID numérico válido.');
+    }
+
+    if (newTesterId === ADMIN_ID || maintenanceState.whitelist.includes(newTesterId)) {
+      return await ctx.reply('⚠️ Este ID ya se encuentra autorizado.');
+    }
+
+    maintenanceState.whitelist.push(newTesterId);
+    await Maintenance.updateOne({ key: 'global_config' }, { whitelist: maintenanceState.whitelist });
+
+    return await ctx.reply(
+      `✅ *ID ${newTesterId} agregado exitosamente a la whitelist de testers.*`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Whitelist', 'adm_whitelist_menu')]])
+      }
+    );
+  }
+
+  // Interceptar reapertura de reino con notas de parche
+  if (userId === ADMIN_ID && adminMaintenanceEndWaiting) {
+    adminMaintenanceEndWaiting = false;
+
+    maintenanceState.enabled = false;
+    await Maintenance.updateOne({ key: 'global_config' }, { enabled: false });
+
+    const reopenMsg = '✨🏰 *¡EL REINO DE ABYSS REABRE SUS PUERTAS!* 🏰✨\n\n' +
+                      'Los arquitectos reales han finalizado las labores de reconstrucción y mantenimiento. La paz y las sendas salvajes vuelven a estar abiertas para todos los aventureros.\n\n' +
+                      '📜 *Novedades y Cambios Implementados:*\n' +
+                      '──────────────────────────\n' +
+                      textMsg + '\n' +
+                      '──────────────────────────\n\n' +
+                      '⚔️ _¡Que sus armas nunca pierdan el filo! Ya pueden ingresar al campamento._';
+
+    await broadcastToAll(reopenMsg);
+
+    return await ctx.reply(
+      '🟢 *El modo mantenimiento ha sido DESACTIVADO y se transmitió el anuncio global de reapertura.*',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+      }
+    );
+  }
+
   const player = await getPlayer(userId, ctx.from.first_name);
 
   if (!player.isVerified && userId !== ADMIN_ID) {
@@ -1951,6 +2168,8 @@ async function handleStartMenu(ctx) {
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
+      adminWhitelistAddWaiting = false;
+      adminMaintenanceEndWaiting = false;
     }
 
     const player = await getPlayer(userId, ctx.from.first_name);
@@ -1993,6 +2212,8 @@ bot.hears('⚔️ Estado', async (ctx) => {
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
+      adminWhitelistAddWaiting = false;
+      adminMaintenanceEndWaiting = false;
     }
     const view = await getStatusView(player);
     const sent = await ctx.reply(view.text, view.keyboard);
@@ -2015,6 +2236,8 @@ bot.hears('📈 Atributos', async (ctx) => {
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
+      adminWhitelistAddWaiting = false;
+      adminMaintenanceEndWaiting = false;
     }
     const view = getStatsView(player);
     const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
@@ -2037,6 +2260,8 @@ bot.hears('🎒 Inventario', async (ctx) => {
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
+      adminWhitelistAddWaiting = false;
+      adminMaintenanceEndWaiting = false;
     }
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
@@ -2100,6 +2325,8 @@ bot.hears('🏪 Mercado P2P', async (ctx) => {
       adminBossCustomHpWaiting = false;
       adminBossCustomMsgWaiting = false;
       adminTargetLevelChangeId = null;
+      adminWhitelistAddWaiting = false;
+      adminMaintenanceEndWaiting = false;
     }
     const { text, listings } = await getMarketView(userId);
     const buttons = [];
@@ -2217,6 +2444,8 @@ bot.action('status', async (ctx) => {
     adminBossCustomHpWaiting = false;
     adminBossCustomMsgWaiting = false;
     adminTargetLevelChangeId = null;
+    adminWhitelistAddWaiting = false;
+    adminMaintenanceEndWaiting = false;
   }
   try {
     const userId = ctx.from.id;
