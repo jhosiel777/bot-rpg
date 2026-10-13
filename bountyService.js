@@ -13,7 +13,7 @@ function getUniversalTimeData() {
   const now = new Date();
   const utcHours = String(now.getUTCHours()).padStart(2, '0');
   const utcMins = String(now.getUTCMinutes()).padStart(2, '0');
-  const utcSecs = String(now.getUTCSeconds()).padStart(2, '0');
+  const utcSecs = String(now.getUTCSecs ? now.getUTCSecs() : now.getUTCSeconds()).padStart(2, '0');
 
   const resetTarget = new Date(now);
   resetTarget.setUTCHours(24, 0, 0, 0);
@@ -31,7 +31,6 @@ function getUniversalTimeData() {
 function getMerchantCatalog(userId) {
   let rate = merchantRates.get(userId);
   if (!rate) {
-    // Margen justo entre 10% y 35% más caro (1.10 a 1.35)
     rate = 1.10 + (Math.random() * 0.25);
     merchantRates.set(userId, rate);
   }
@@ -56,11 +55,49 @@ function getTierProgressInfo(playerLevel) {
   const tierNum = tierKey.replace('tier', '');
 
   if (tierKey === 'tier5') {
-    return `Tier 5 (Máximo Rango)`;
+    return 'Tier 5 (Máximo Rango)';
   }
 
   const levelsLeft = (cfg.maxLevel - playerLevel) + 1;
-  return `Tier ${tierNum} (Nivel ${playerLevel}) — Faltan ${levelsLeft} nivel(es) para Tier ${parseInt(tierNum) + 1}`;
+  return 'Tier ' + tierNum + ' (Nivel ' + playerLevel + ') — Faltan ' + levelsLeft + ' nivel(es) para Tier ' + (parseInt(tierNum, 10) + 1);
+}
+
+function getVeteranDialogue(playerLevel) {
+  if (playerLevel >= 1 && playerLevel <= 2) {
+    return (
+      '👤 *Un aventurero veterano que observa el tablón se gira hacia ti:*\n' +
+      '_"Oye, novato... estas cacerías no son un juego de niños. El camino es traicionero y las bestias muerden fuerte. Te aconsejo explorar las rutas básicas del bosque y ganar un par de niveles antes de firmar esto."_\n\n'
+    );
+  }
+
+  if (playerLevel === 3) {
+    return (
+      '👤 *El aventurero veterano te mira de arriba abajo con una sonrisa:*\n' +
+      '_"Vaya, miren quién volvió. Te ves con mejor porte y más fuerte que antes, pero todavía te falta un poco de temple. Ve con cuidado si decides marchar."_\n\n'
+    );
+  }
+
+  if (playerLevel === 4) {
+    return (
+      '👤 *El aventurero veterano asiente mientras afila su daga:*\n' +
+      '_"Bien, creo que ahora tienes la fuerza necesaria para no pasar tantas penurias allá afuera... claro, siempre y cuando hayas distribuido con cabeza tus atributos."_\n\n'
+    );
+  }
+
+  if (playerLevel === 5) {
+    return (
+      '🌫️ _Miras a tu alrededor frente al tablón... Aquel aventurero veterano que solía aconsejarte ya no está. Parece que ha llegado el momento de forjar tu propio camino._\n\n'
+    );
+  }
+
+  if (playerLevel >= 101) {
+    return (
+      '👑 *Una figura envuelta en una capa desgastada se acerca entre la multitud:*\n' +
+      '— *"¿Aún te acuerdas de mí? Ha pasado una eternidad desde aquel día en que apenas podías sostener un arma frente a este tablón. He seguido tus pasos desde las sombras, viendo cómo desafiaste mazmorras, doblegaste colosos y alcanzaste la cúspide absoluta de Abyss. Ya no queda nadie en este reino que pueda darte lecciones... Te has convertido en una verdadera leyenda viviente."*\n\n'
+    );
+  }
+
+  return '';
 }
 
 async function getOrCreateDailyBounty(userId, player) {
@@ -92,7 +129,6 @@ async function getOrCreateDailyBounty(userId, player) {
 }
 
 async function getBountyBoardView(userId, player, botInstance = null) {
-  const todayUtc = getTodayUtcString();
   const bounty = await getOrCreateDailyBounty(userId, player);
 
   if (bounty.status === 'traveling' && bounty.arrivesAt && Date.now() >= new Date(bounty.arrivesAt).getTime()) {
@@ -198,7 +234,10 @@ async function getBountyBoardView(userId, player, botInstance = null) {
     }
   }
 
-  text += '🎯 *Contrato del Día:* *' + bounty.enemyName + '*\n\n' +
+  const veteranDialogue = getVeteranDialogue(player.level);
+
+  text += veteranDialogue +
+          '🎯 *Contrato del Día:* *' + bounty.enemyName + '*\n\n' +
           '📝 *Informe del Encargo:*\n' + bounty.description + '\n\n' +
           '📊 *Ficha del Peligro:*\n' +
           '• Nivel de amenaza: *Tier ' + bounty.tierKey.replace('tier', '') + '*\n' +
@@ -784,13 +823,11 @@ function applyBountyRewards(player, bounty) {
     merchantPhrase = phrases[Math.floor(Math.random() * phrases.length)];
   }
 
-  // Oro base asegurado y fuerte para compensar el esfuerzo y las pociones
   const finalGold = Math.max(150, bounty.baseGold + bounty.netGoldBonus + merchantComp);
 
   let finalExp = 0;
   const reqCurrent = getRequiredExp(player.level);
 
-  // Multiplicadores de EXP robustos (Tier 1 otorga un jugoso 35%-45% de la EXP para subir de nivel)
   const tierMultiplier = {
     tier1: 0.35,
     tier2: 0.45,
