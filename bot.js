@@ -248,6 +248,7 @@ async function getStatusView(player) {
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
     ],
+    [Markup.button.url('📢 Edictos & Crónicas del Reino', 'https://t.me/+WSbOMJvOo6Q5ZDJh')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
 
@@ -442,7 +443,7 @@ bot.on('text', async (ctx, next) => {
     return await ctx.reply(`✅ Nivel de ${u.name} cambiado a ${u.level}.`);
   }
 
-if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
+  if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
     adminFlags.broadcastWaiting = false;
     const broadcastMsg = `⚡🌌 *Súbitamente, un estruendo sacude los confines de Abyss...*\n` +
                          `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
@@ -616,8 +617,7 @@ bot.action('menu_explore', async (ctx) => {
     [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
     [Markup.button.callback('🚩 Reclutar Aventureros', 'menu_referrals')],
-    [Markup.button.callback('⬅️ Volver al Campamento', 'status')],
-    [Markup.button.url('📢 Edictos & Crónicas del Reino', 'https://t.me/+WSbOMJvOo6Q5ZDJh')]
+    [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
@@ -766,161 +766,6 @@ bot.action('bounty_use_energy_drink', async (ctx) => {
 });
 
 bot.action('bounty_use_dragon_blood', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin sangre de dragón.', true);
-  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-  player.potionsDragonBlood -= 1;
-  player.hp = player.maxHp;
-  await player.save();
-  await safeAnswerCb(ctx, '🩸 Salud al 100%');
-  return await getCombatView(ctx);
-});
-
-// ==========================================
-// DESCANSO Y ASIGNACIÓN DE STATS
-// ==========================================
-bot.action('rest', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.hp >= player.maxHp) return safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
-  const secLeft = getRestTimeRemaining(player);
-  if (secLeft > 0) return safeAnswerCb(ctx, `⏳ Espera ${formatSeconds(secLeft)} para descansar.`, true);
-
-  const healAmount = Math.ceil(player.maxHp * 0.30);
-  player.hp = Math.min(player.maxHp, player.hp + healAmount);
-  player.lastRestTime = Date.now();
-  await player.save();
-
-  await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`, true);
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('menu_stats', async (ctx) => {
-  await safeAnswerCb(ctx);
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_str', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.strength += 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Fuerza');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_hp', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.maxHp += 5; player.hp += 5;
-  await player.save();
-  await safeAnswerCb(ctx, '+5 HP');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_agi', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.agility = (player.agility || 0) + 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Agilidad');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_luk', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.luck = (player.luck || 0) + 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Suerte');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-// ==========================================
-// INVENTARIO GENERAL Y USO DE POCIONES
-// ==========================================
-bot.action('menu_inv', async (ctx) => {
-  await safeAnswerCb(ctx);
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-  let text = `🎒 *Mochila de Aventurero*\n\n` +
-             `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
-
-  text += `*Objetos:*\n` +
-          `• Poción Menor (+10 HP): ${player.potionsSmall || 0}\n` +
-          `• Poción Mayor (+35 HP): ${player.potionsMedium || 0}\n` +
-          `• Elixir Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-          `• 🥤 Bebida (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
-          `• 🩸 Elixir Sangre Dragón: ${player.potionsDragonBlood || 0}\n\n` +
-          `Toca un botón para consumir un objeto:`;
-
-  const buttons = [];
-  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
-  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
-  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón', 'use_dragon_blood')]);
-  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-});
-
-bot.action('use_potion_small', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsSmall || player.potionsSmall <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
-  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-  player.potionsSmall -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + 10);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +10 HP');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_potion_medium', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsMedium || player.potionsMedium <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
-  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-  player.potionsMedium -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + 35);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +35 HP');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_potion_energy', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
-  player.potionsEnergy -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_energy_drink', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
-  player.potionsEnergyDrink -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
-  await player.save();
-  await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_dragon_blood', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin sangre de dragón.', true);
 
