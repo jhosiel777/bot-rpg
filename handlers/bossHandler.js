@@ -7,6 +7,11 @@ const {
   broadcastToAll
 } = require('../utils/telegramUtils');
 
+function formatPlayerName(name, maxLength = 20) {
+  if (!name) return 'Aventurero';
+  return name.length > maxLength ? name.slice(0, maxLength) + '…' : name;
+}
+
 function registerBossHandlers(bot, deps) {
   const {
     ADMIN_ID,
@@ -37,7 +42,7 @@ function registerBossHandlers(bot, deps) {
   }
 
   async function getBossCensus() {
-    const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
+    const aptPlayers = await Player.find({ level: { \$gte: 5 }, isVerified: true });
     const totalAptos = aptPlayers.length;
     const activeCount = Math.max(totalAptos, 3);
 
@@ -218,7 +223,7 @@ function registerBossHandlers(bot, deps) {
 
       if (top1) {
         elixirWinners.add(top1.userId);
-        dropsSummary.push(`• 🩸 *${top1.name}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
+        dropsSummary.push(`• 🩸 *${formatPlayerName(top1.name)}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
       }
 
       let secondRecipient = lastHitter;
@@ -229,7 +234,7 @@ function registerBossHandlers(bot, deps) {
       if (secondRecipient && !elixirWinners.has(secondRecipient.userId)) {
         elixirWinners.add(secondRecipient.userId);
         const reason = (secondRecipient.userId === lastHitter.userId) ? 'Remate Final' : 'Top Participación';
-        dropsSummary.push(`• 🩸 *${secondRecipient.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
+        dropsSummary.push(`• 🩸 *${formatPlayerName(secondRecipient.name)}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
       }
 
       if (parts.length >= 3 && elixirWinners.size < 3) {
@@ -241,7 +246,7 @@ function registerBossHandlers(bot, deps) {
           if (Math.random() < chance) {
             elixirWinners.add(cand.userId);
             const reason = isFirst ? 'Primer Golpe' : 'Sorteo de Participación';
-            dropsSummary.push(`• 🩸 *${cand.name}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
+            dropsSummary.push(`• 🩸 *${formatPlayerName(cand.name)}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
           }
         }
       }
@@ -262,8 +267,8 @@ function registerBossHandlers(bot, deps) {
           earnedGold += 150;
           rawExp += 200;
         } else if (top3 && p.userId === top3.userId) {
-          earnedGold += 80;
-          rawExp += 100;
+          earnedGold += 100;
+          rawExp += 150;
         }
 
         if (lastHitter && p.userId === lastHitter.userId) {
@@ -310,10 +315,11 @@ function registerBossHandlers(bot, deps) {
 
       const publicMsg = `🎉 *¡${boss.name} HA SIDO ANIQUILADO!*\n\n` +
                         `📊 *Bolsa Total (Pool):* 💰 ${baseGoldPool.toLocaleString()}g | 🔮 ${baseExpPool.toLocaleString()} EXP\n\n` +
-                        `🥇 *Top 1 en Daño:* ${top1.name} (${top1.totalDamage.toLocaleString()} daño)\n` +
-                        (top2 ? `🥈 *Top 2 en Daño:* ${top2.name} (${top2.totalDamage.toLocaleString()} daño)\n` : '') +
-                        `⚡ *Primer Golpe:* ${firstHitter ? firstHitter.name : 'N/A'}\n` +
-                        `🗡️ *Golpe de Gracia:* ${lastHitter.name}\n\n` +
+                        `🥇 *Top 1 en Daño:* ${formatPlayerName(top1.name)} (${top1.totalDamage.toLocaleString()} daño)\n` +
+                        (top2 ? `🥈 *Top 2 en Daño:* ${formatPlayerName(top2.name)} (${top2.totalDamage.toLocaleString()} daño)\n` : '') +
+                        (top3 ? `🥉 *Top 3 en Daño:* ${formatPlayerName(top3.name)} (${top3.totalDamage.toLocaleString()} daño)\n` : '') +
+                        `⚡ *Primer Golpe:* ${firstHitter ? formatPlayerName(firstHitter.name) : 'N/A'}\n` +
+                        `🗡️ *Golpe de Gracia:* ${formatPlayerName(lastHitter.name)}\n\n` +
                         `🎁 *Elixires de Sangre de Dragón repartidos:*\n` +
                         dropsSummary.join('\n');
 
@@ -360,7 +366,7 @@ function registerBossHandlers(bot, deps) {
 
       const warnBtns = Markup.inlineKeyboard([
         [Markup.button.callback('⚔️ Atacar de todos modos', 'boss_attack_confirm')],
-        [Markup.button.callback('🎒 Curarme con Pociones', 'menu_inv')],
+        [Markup.button.callback('🎒 Curarme con Pociones', 'boss_inv')],
         [Markup.button.callback('⬅️ Retirarme', 'menu_boss')]
       ]);
 
@@ -471,7 +477,7 @@ function registerBossHandlers(bot, deps) {
 
     const nextBtns = [
       [Markup.button.callback('⚔️ Atacar de Nuevo (2 ⚡)', 'boss_attack')],
-      [Markup.button.callback('🎒 Mochila / Pociones', 'menu_inv')],
+      [Markup.button.callback('🎒 Mochila / Pociones', 'boss_inv')],
       [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
     ];
 
@@ -684,7 +690,7 @@ function registerBossHandlers(bot, deps) {
 
       const buttons = [
         [Markup.button.callback('⚔️ Atacar al Coloso (2 ⚡)', 'boss_attack')],
-        [Markup.button.callback('🎒 Abrir Mochila', 'menu_inv')],
+        [Markup.button.callback('🎒 Mochila / Pociones', 'boss_inv')],
         [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
         [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
       ];
@@ -707,7 +713,6 @@ function registerBossHandlers(bot, deps) {
     return await executeBossAttack(ctx, true);
   });
 
-  // Métodos expuestos para la entrada de texto por chat (configuración de HP y mensaje épico)
   return {
     handleBossTextConfig: async (ctx, textMsg) => {
       const userId = ctx.from.id;
