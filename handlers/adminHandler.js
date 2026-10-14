@@ -19,15 +19,15 @@ function registerAdminHandlers(bot, deps) {
   function getAdminHomeView() {
     const statusStr = maintenanceState.enabled ? '🔴 ACTIVO' : '🟢 APAGADO';
 
-    const text = `👑 *Panel de Creador (Admin)*\n\n` +
-                 `🛠️ Modo Mantenimiento: *${statusStr}*\n` +
-                 `👥 Testers en Whitelist: *${maintenanceState.whitelist.length} autorizado(s)*\n\n` +
-                 `Opciones de gestión:`;
+    const text = '👑 *Panel de Creador (Admin)*\n\n' +
+                 '🛠️ Modo Mantenimiento: *' + statusStr + '*\n' +
+                 '👥 Testers en Whitelist: *' + maintenanceState.whitelist.length + ' autorizado(s)*\n\n' +
+                 'Opciones de gestión:';
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback(maintenanceState.enabled ? '🟢 Reabrir Reino (Fin Mantenimiento)' : '🔴 Cerrar Reino (Modo Mantenimiento)', 'adm_toggle_maint')],
       [Markup.button.callback('👥 Gestionar Whitelist de Testers', 'adm_whitelist_menu')],
-      [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', `adm_change_lvl_${ADMIN_ID}`)],
+      [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', 'adm_change_lvl_' + ADMIN_ID)],
       [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
       [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
       [Markup.button.callback('🛡️ Aspirantes No Verificados', 'adm_unverified')],
@@ -51,52 +51,52 @@ function registerAdminHandlers(bot, deps) {
     const adsToday = (u.lastAdClaimDate === today) ? (u.adsClaimedToday || 0) : 0;
     const adsTotal = Math.max(u.totalAdsClaimed || 0, adsToday);
 
-    let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
-               `🆔 Telegram ID: ${u.userId}\n` +
-               `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
-               `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
-               `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
-               `⚡ Energía: ${u.energy}/10\n` +
-               `💰 Oro: ${u.gold}\n\n`;
+    let text = '👤 *Detalles del Jugador: ' + u.name + '*\n\n' +
+               '🆔 Telegram ID: ' + u.userId + '\n' +
+               '⭐ Nivel: ' + u.level + '/' + MAX_LEVEL + '\n' +
+               '🔮 EXP: ' + u.exp + '/' + getRequiredExp(u.level) + '\n' +
+               '❤️ Salud: ' + u.hp + '/' + u.maxHp + ' HP\n' +
+               '⚡ Energía: ' + u.energy + '/10\n' +
+               '💰 Oro: ' + u.gold + '\n\n';
 
     if (isKO) {
       const secKO = Math.max(0, Math.ceil(((u.knockedOutUntil || 0) - Date.now()) / 1000));
-      text += `💀 *Estado:* Inconsciente (${formatHoursMinutes(secKO)} restante)\n\n`;
+      text += '💀 *Estado:* Inconsciente (' + formatHoursMinutes(secKO) + ' restante)\n\n';
     }
 
-    text += `📊 *Atributos:*\n` +
-            `• Fuerza: ${u.strength}\n` +
-            `• Salud Invertida: +${hpPoints * 5} HP (${hpPoints} pts asignados)\n` +
-            `• Agilidad: ${u.agility || 0}\n` +
-            `• Suerte: ${u.luck || 0}\n` +
-            `• Puntos sin asignar: ${u.statPoints}\n\n` +
-            `🎒 *Inventario de Pociones:*\n` +
-            `• Pociones Menores (+10 HP): ${u.potionsSmall || 0}\n` +
-            `• Pociones Mayores (+35 HP): ${u.potionsMedium || 0}\n` +
-            `• Elixires de Energía (+1 ⚡): ${u.potionsEnergy || 0}\n` +
-            `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n` +
-            `• 🩸 Elixir Sangre Dragón: ${u.potionsDragonBlood || 0}\n\n` +
-            `🔑 *Reclutamiento:*\n` +
+    text += '📊 *Atributos:*\n' +
+            '• Fuerza: ' + u.strength + '\n' +
+            '• Salud Invertida: +' + (hpPoints * 5) + ' HP (' + hpPoints + ' pts asignados)\n' +
+            '• Agilidad: ' + (u.agility || 0) + '\n' +
+            '• Suerte: ' + (u.luck || 0) + '\n' +
+            '• Puntos sin asignar: ' + u.statPoints + '\n\n' +
+            '🎒 *Inventario de Pociones:*\n' +
+            '• Pociones Menores (+10 HP): ' + (u.potionsSmall || 0) + '\n' +
+            '• Pociones Mayores (+35 HP): ' + (u.potionsMedium || 0) + '\n' +
+            '• Elixires de Energía (+1 ⚡): ' + (u.potionsEnergy || 0) + '\n' +
+            '• 🥤 Bebidas Energéticas (+2 ⚡): ' + (u.potionsEnergyDrink || 0) + '/5\n' +
+            '• 🩸 Elixir Sangre Dragón: ' + (u.potionsDragonBlood || 0) + '\n\n' +
+            '🔑 *Reclutamiento:*\n' +
             '• Código propio: `' + (u.referralCode || 'N/A') + '`\n' +
-            `• Reclutas: ${u.recruitsCount || 0}\n` +
-            `• Estado Verificado: ${u.isVerified ? '✅ Sí' : '❌ No (En puerta)'}\n\n` +
-            `📺 *Anuncios Vistos:*\n` +
-            `• Hoy: *${adsToday}*\n` +
-            `• Total Histórico: *${adsTotal}*`;
+            '• Reclutas: ' + (u.recruitsCount || 0) + '\n' +
+            '• Estado Verificado: ' + (u.isVerified ? '✅ Sí' : '❌ No (En puerta)') + '\n\n' +
+            '📺 *Anuncios Vistos:*\n' +
+            '• Hoy: *' + adsToday + '*\n' +
+            '• Total Histórico: *' + adsTotal + '*';
 
     const buttons = [];
-    buttons.push([Markup.button.callback('⭐ Cambiar Nivel (Admin)', `adm_change_lvl_${u.userId}`)]);
+    buttons.push([Markup.button.callback('⭐ Cambiar Nivel (Admin)', 'adm_change_lvl_' + u.userId)]);
 
     if (isKO) {
-      buttons.push([Markup.button.callback('✨ Revivir / Curar al 100%', `adm_revive_target_${u.userId}_${backPage}`)]);
+      buttons.push([Markup.button.callback('✨ Revivir / Curar al 100%', 'adm_revive_target_' + u.userId + '_' + backPage)]);
       buttons.push([
-        Markup.button.callback('⏳ -15 min', `adm_reduce_ko_${u.userId}_15_${backPage}`),
-        Markup.button.callback('⏳ -30 min', `adm_reduce_ko_${u.userId}_30_${backPage}`),
-        Markup.button.callback('⏳ -1 hora', `adm_reduce_ko_${u.userId}_60_${backPage}`)
+        Markup.button.callback('⏳ -15 min', 'adm_reduce_ko_' + u.userId + '_15_' + backPage),
+        Markup.button.callback('⏳ -30 min', 'adm_reduce_ko_' + u.userId + '_30_' + backPage),
+        Markup.button.callback('⏳ -1 hora', 'adm_reduce_ko_' + u.userId + '_60_' + backPage)
       ]);
     }
 
-    buttons.push([Markup.button.callback(`⬅️ Volver a la Lista (Pág. ${backPage})`, `adm_users_page_${backPage}`)]);
+    buttons.push([Markup.button.callback('⬅️ Volver a la Lista (Pág. ' + backPage + ')', 'adm_users_page_' + backPage)]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   }
@@ -160,13 +160,13 @@ function registerAdminHandlers(bot, deps) {
 
     let text = '👥 *GESTIÓN DE WHITELIST DE TESTERS*\n\n' +
                'Los siguientes IDs de Telegram tienen autorización para ingresar al reino aun cuando el modo mantenimiento esté activado:\n\n' +
-               `👑 Creador: \`\${ADMIN_ID}\` (Permanente)\n`;
+               '👑 Creador: `' + ADMIN_ID + '` (Permanente)\n';
 
     if (!maintenanceState.whitelist.length) {
       text += '_No hay testers adicionales autorizados._\n';
     } else {
       maintenanceState.whitelist.forEach((uid, idx) => {
-        text += `${idx + 1}. ID: \`\${uid}\`\n`;
+        text += (idx + 1) + '. ID: `' + uid + '`\n';
       });
     }
 
@@ -203,7 +203,7 @@ function registerAdminHandlers(bot, deps) {
 
     let text = '👥 *GESTIÓN DE WHITELIST DE TESTERS*\n\n' +
                'Los siguientes IDs de Telegram tienen autorización para ingresar al reino:\n\n' +
-               `👑 Creador: \`\${ADMIN_ID}\` (Permanente)\n` +
+               '👑 Creador: `' + ADMIN_ID + '` (Permanente)\n' +
                '_No hay testers adicionales autorizados._\n\n' +
                '¿Qué deseas hacer?';
 
@@ -227,7 +227,7 @@ function registerAdminHandlers(bot, deps) {
       text += '_No hay ningún aspirante esperando en los muros actualmente._';
     } else {
       pending.forEach((p, idx) => {
-        text += `${idx + 1}. *${p.name}* (ID: \`\${p.userId}\`) — Código propio: \`\${p.referralCode}\`\n`;
+        text += (idx + 1) + '. *' + p.name + '* (ID: `' + p.userId + '`) — Código propio: `' + p.referralCode + '`\n';
       });
     }
 
@@ -248,10 +248,10 @@ function registerAdminHandlers(bot, deps) {
     const u = await Player.findOne({ userId: targetId });
     const name = u ? u.name : 'Usuario';
 
-    const text = `⭐ *Cambiar Nivel de ${name}*\n\n` +
-                 `Nivel actual: *${u ? u.level : 'N/A'}*\n\n` +
-                 `💬 *Escribe en el chat el nuevo nivel (1 - ${MAX_LEVEL})* que deseas asignarle.\n` +
-                 `_Nota: Su EXP se reseteará a 1 / reqExp de ese nivel._`;
+    const text = '⭐ *Cambiar Nivel de ' + name + '*\n\n' +
+                 'Nivel actual: *' + (u ? u.level : 'N/A') + '*\n\n' +
+                 '💬 *Escribe en el chat el nuevo nivel (1 - ' + MAX_LEVEL + ')* que deseas asignarle.\n' +
+                 '_Nota: Su EXP se reseteará a 1 / reqExp de ese nivel._';
 
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
@@ -275,23 +275,23 @@ function registerAdminHandlers(bot, deps) {
       .skip(skip)
       .limit(limit);
 
-    let text = `👥 *Lista de Usuarios Registrados* (Pág. ${page}/${totalPages})\n` +
-               `Total de jugadores: *${totalUsers}*\n\n` +
-               `Toca cualquier aventurero para ver sus datos y mochila:`;
+    let text = '👥 *Lista de Usuarios Registrados* (Pág. ' + page + '/' + totalPages + ')\n' +
+               'Total de jugadores: *' + totalUsers + '*\n\n' +
+               'Toca cualquier aventurero para ver sus datos y mochila:';
 
     const buttons = [];
     for (const u of users) {
       buttons.push([
         Markup.button.callback(
-          `⭐ Lv.${u.level} | ${u.name.substring(0, 18)} (ID: ${u.userId})`,
-          `adm_user_${u.userId}_${page}`
+          '⭐ Lv.' + u.level + ' | ' + u.name.substring(0, 18) + ' (ID: ' + u.userId + ')',
+          'adm_user_' + u.userId + '_' + page
         )
       ]);
     }
 
     const navRow = [];
-    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', `adm_users_page_${page - 1}`));
-    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', `adm_users_page_${page + 1}`));
+    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', 'adm_users_page_' + (page - 1)));
+    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', 'adm_users_page_' + (page + 1)));
     if (navRow.length) buttons.push(navRow);
 
     buttons.push([Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]);
@@ -334,10 +334,10 @@ function registerAdminHandlers(bot, deps) {
       if (u.knockedOutUntil <= now) {
         u.knockedOutUntil = 0;
         if (u.hp <= 0) u.hp = Math.max(1, Math.round(u.maxHp * 0.3));
-        await safeAnswerCb(ctx, `⏳ Tiempo reducido. ¡${u.name} ha despertado!`, true);
+        await safeAnswerCb(ctx, '⏳ Tiempo reducido. ¡' + u.name + ' ha despertado!', true);
       } else {
         const remainingSec = Math.ceil((u.knockedOutUntil - now) / 1000);
-        await safeAnswerCb(ctx, `⏳ Se restaron ${minutesToReduce} min. Le quedan ${formatHoursMinutes(remainingSec)}.`, true);
+        await safeAnswerCb(ctx, '⏳ Se restaron ' + minutesToReduce + ' min. Le quedan ' + formatHoursMinutes(remainingSec) + '.', true);
       }
       await u.save();
     }
@@ -351,9 +351,9 @@ function registerAdminHandlers(bot, deps) {
     p.knockedOutUntil = 0;
     p.hp = p.maxHp;
     await p.save();
-    await safeAnswerCb(ctx, `❤️‍🩹 ¡Has revivido! Salud restaurada a ${p.maxHp} HP.`, true);
+    await safeAnswerCb(ctx, '❤️‍🩹 ¡Has revivido! Salud restaurada a ' + p.maxHp + ' HP.', true);
     const view = getAdminHomeView();
-    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+    return await safeEditMessage(ctx, view.text, view.keyboard);
   });
 
   bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
@@ -366,7 +366,7 @@ function registerAdminHandlers(bot, deps) {
       u.knockedOutUntil = 0;
       u.hp = u.maxHp;
       await u.save();
-      await safeAnswerCb(ctx, `✨ ${u.name} ha sido revivido con éxito.`, true);
+      await safeAnswerCb(ctx, '✨ ' + u.name + ' ha sido revivido con éxito.', true);
       return await renderUserDetails(ctx, u, backPage);
     }
   });
@@ -378,11 +378,11 @@ function registerAdminHandlers(bot, deps) {
     const page = parseInt(ctx.match[1], 10) || 1;
     const { logs, total, totalPages } = await getMarketHistory(page, 5);
 
-    let text = `📜 *Historial Global de Mercado P2P* (Pág. ${page}/${totalPages})\n` +
-               `Total de transacciones: *${total}*\n\n`;
+    let text = '📜 *Historial Global de Mercado P2P* (Pág. ' + page + '/' + totalPages + ')\n' +
+               'Total de transacciones: *' + total + '*\n\n';
 
     if (!logs.length) {
-      text += `_Aún no se han realizado transacciones en el mercado._`;
+      text += '_Aún no se han realizado transacciones en el mercado._';
     } else {
       logs.forEach((log, idx) => {
         const dateStr = new Date(log.createdAt).toLocaleString('es-VE', {
@@ -390,22 +390,22 @@ function registerAdminHandlers(bot, deps) {
           dateStyle: 'short',
           timeStyle: 'short'
         });
-        text += `*#${(page - 1) * 5 + idx + 1} • ${log.itemName}*\n` +
-                `• Comprador: ${log.buyerName} (${log.buyerId})\n` +
-                `• Vendedor: ${log.sellerName} (${log.sellerId})\n` +
-                `• Precio: 💰 ${log.price}g (Comisión: ${log.tax}g | Neto: ${log.sellerProfit}g)\n` +
-                `• Fecha: ${dateStr}\n\n`;
+        text += '*#' + ((page - 1) * 5 + idx + 1) + ' • ' + log.itemName + '*\n' +
+                '• Comprador: ' + log.buyerName + ' (' + log.buyerId + ')\n' +
+                '• Vendedor: ' + log.sellerName + ' (' + log.sellerId + ')\n' +
+                '• Precio: 💰 ' + log.price + 'g (Comisión: ' + log.tax + 'g | Neto: ' + log.sellerProfit + 'g)\n' +
+                '• Fecha: ' + dateStr + '\n\n';
       });
     }
 
     const buttons = [];
     const navRow = [];
-    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', `adm_mkt_page_${page - 1}`));
-    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', `adm_mkt_page_${page + 1}`));
+    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', 'adm_mkt_page_' + (page - 1)));
+    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', 'adm_mkt_page_' + (page + 1)));
     if (navRow.length) buttons.push(navRow);
 
     buttons.push([
-      Markup.button.callback('🔄 Actualizar', `adm_mkt_page_${page}`),
+      Markup.button.callback('🔄 Actualizar', 'adm_mkt_page_' + page),
       Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')
     ]);
 
@@ -417,12 +417,12 @@ function registerAdminHandlers(bot, deps) {
     await safeAnswerCb(ctx);
 
     const stats = await getGlobalStats();
-    const text = `📊 *Estadísticas Globales de Drops*\n\n` +
-                 `Cantidad total de ítems caídos en expediciones:\n\n` +
-                 `• 🧪 *Pociones Menores de Vida:* ${stats.totalDropsSmall}\n` +
-                 `• 🧪 *Pociones Mayores de Vida:* ${stats.totalDropsMedium}\n` +
-                 `• ⚡ *Elixires de Energía:* ${stats.totalDropsEnergy}\n\n` +
-                 `*Total histórico de objetos dropeados:* ${stats.totalDropsSmall + stats.totalDropsMedium + stats.totalDropsEnergy}`;
+    const text = '📊 *Estadísticas Globales de Drops*\n\n' +
+                 'Cantidad total de ítems caídos en expediciones:\n\n' +
+                 '• 🧪 *Pociones Menores de Vida:* ' + stats.totalDropsSmall + '\n' +
+                 '• 🧪 *Pociones Mayores de Vida:* ' + stats.totalDropsMedium + '\n' +
+                 '• ⚡ *Elixires de Energía:* ' + stats.totalDropsEnergy + '\n\n' +
+                 '*Total histórico de objetos dropeados:* ' + (stats.totalDropsSmall + stats.totalDropsMedium + stats.totalDropsEnergy);
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('🔄 Actualizar', 'adm_drops')],
@@ -437,8 +437,8 @@ function registerAdminHandlers(bot, deps) {
     await safeAnswerCb(ctx);
     adminFlags.broadcastWaiting = true;
 
-    const text = `📢 *Transmisión Global del Creador*\n\n` +
-                 `Escribe a continuación en el chat el mensaje que deseas enviar a todos los aventureros del reino.`;
+    const text = '📢 *Transmisión Global del Creador*\n\n' +
+                 'Escribe a continuación en el chat el mensaje que deseas enviar a todos los aventureros del reino.';
 
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
@@ -451,7 +451,7 @@ function registerAdminHandlers(bot, deps) {
     const p = await getPlayer(ADMIN_ID);
     p.potionsEnergyDrink = (p.potionsEnergyDrink || 0) + 1;
     await p.save();
-    await safeAnswerCb(ctx, `🥤 Te añadiste 1x Bebida Energética (Total: ${p.potionsEnergyDrink})`, true);
+    await safeAnswerCb(ctx, '🥤 Te añadiste 1x Bebida Energética (Total: ' + p.potionsEnergyDrink + ')', true);
   });
 
   bot.action('adm_give_dragon_blood', async (ctx) => {
@@ -459,7 +459,7 @@ function registerAdminHandlers(bot, deps) {
     const p = await getPlayer(ADMIN_ID);
     p.potionsDragonBlood = (p.potionsDragonBlood || 0) + 1;
     await p.save();
-    await safeAnswerCb(ctx, `🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ${p.potionsDragonBlood})`, true);
+    await safeAnswerCb(ctx, '🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ' + p.potionsDragonBlood + ')', true);
   });
 }
 
