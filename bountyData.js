@@ -2,7 +2,7 @@ const BOUNTY_TIERS = {
   tier1: {
     minLevel: 1,
     maxLevel: 10,
-    travelMinutes: 2,
+    durationRange: [3, 5], // 3 a 5 min
     eventCount: 2,
     baseGoldMin: 120,
     baseGoldMax: 200,
@@ -89,8 +89,8 @@ const BOUNTY_TIERS = {
   tier2: {
     minLevel: 11,
     maxLevel: 25,
-    travelMinutes: 4,
-    eventCount: 2,
+    durationRange: [8, 12], // 8 a 12 min
+    eventCount: 3,
     baseGoldMin: 220,
     baseGoldMax: 380,
     goldBonusRange: [25, 55],
@@ -176,8 +176,8 @@ const BOUNTY_TIERS = {
   tier3: {
     minLevel: 26,
     maxLevel: 50,
-    travelMinutes: 6,
-    eventCount: 3,
+    durationRange: [15, 20], // 15 a 20 min
+    eventCount: 4,
     baseGoldMin: 420,
     baseGoldMax: 700,
     goldBonusRange: [45, 90],
@@ -263,8 +263,8 @@ const BOUNTY_TIERS = {
   tier4: {
     minLevel: 51,
     maxLevel: 75,
-    travelMinutes: 8,
-    eventCount: 3,
+    durationRange: [22, 28], // 22 a 28 min
+    eventCount: 5,
     baseGoldMin: 750,
     baseGoldMax: 1250,
     goldBonusRange: [70, 140],
@@ -350,8 +350,8 @@ const BOUNTY_TIERS = {
   tier5: {
     minLevel: 76,
     maxLevel: 101,
-    travelMinutes: 10,
-    eventCount: 4,
+    durationRange: [30, 60], // 30 min a 1 hora
+    eventCount: 6,
     baseGoldMin: 1350,
     baseGoldMax: 2200,
     goldBonusRange: [110, 220],
@@ -498,6 +498,10 @@ function generateBounty(playerLevel, playerMaxHp, playerBaseAtk) {
 
   const description = `${subject} conocido como *"${name}"* ${action} ${location} ${context}`;
 
+  const durationMinutes = Math.floor(
+    Math.random() * (tierCfg.durationRange[1] - tierCfg.durationRange[0] + 1)
+  ) + tierCfg.durationRange[0];
+
   const baseGold = Math.floor(Math.random() * (tierCfg.baseGoldMax - tierCfg.baseGoldMin + 1)) + tierCfg.baseGoldMin;
 
   const turnsTarget = 5;
@@ -512,7 +516,7 @@ function generateBounty(playerLevel, playerMaxHp, playerBaseAtk) {
     name,
     description,
     isBeast,
-    durationMinutes: tierCfg.travelMinutes,
+    durationMinutes,
     baseGold,
     enemyHp,
     enemyMinDmg: minDmg,
