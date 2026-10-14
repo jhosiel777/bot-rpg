@@ -41,6 +41,12 @@ const DynamicPrice = mongoose.model('DynamicPrice', dynamicPriceSchema);
 // Caché en memoria para consultas instantáneas
 const priceCache = new Map();
 
+// Helper: recorta nombres de vendedores externos para evitar desbordes
+function formatSellerName(name, maxLength = 18) {
+  if (!name) return 'Aventurero';
+  return name.length > maxLength ? name.slice(0, maxLength) + '…' : name;
+}
+
 // Helper: determina si un ítem tiene economía fluctuante
 function isDynamicItem(item) {
   return item && (item.dynamic === true || item.npcSell === false);
@@ -191,9 +197,13 @@ async function getMarketView(currentUserId) {
     text += `*Ofertas disponibles:*\n\n`;
     listings.forEach((item, index) => {
       const isMine = String(item.sellerId) === String(currentUserId);
-      const mark = isMine ? ' (Tu oferta)' : '';
-      text += `*#${index + 1} • ${item.itemName}*${mark}\n` +
-              `  Precio: 💰 ${item.price} oro | Vendedor: ${item.sellerName}\n\n`;
+      if (isMine) {
+        text += `*#${index + 1} • ${item.itemName}* _(Tu oferta)_\n` +
+                `  Precio: 💰 ${item.price} oro\n\n`;
+      } else {
+        text += `*#${index + 1} • ${item.itemName}*\n` +
+                `  Precio: 💰 ${item.price} oro | Vendedor: ${formatSellerName(item.sellerName)}\n\n`;
+      }
     });
   }
 
@@ -241,9 +251,13 @@ async function createListing(sellerId, sellerName, itemId, price) {
     price
   });
 
+  const tax = Math.round(price * 0.08);
+  const profit = price - tax;
+
   return {
     success: true,
-    msg: `✅ ¡Publicaste 1x *${itemDef.name}* en el mercado por *${price} oro*!`
+    msg: `✅ ¡Publicaste 1x *${itemDef.name}* en el mercado por *${price} oro*!\n\n` +
+         `🪙 *Ganancia estimada:* +${profit}g _(descontando ${tax}g de comisión del 8%)_.`
   };
 }
 
