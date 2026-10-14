@@ -61,6 +61,7 @@ const { registerBossHandlers } = require('./handlers/bossHandler');
 const { startBackgroundSchedulers } = require('./utils/schedulers');
 
 const ADMIN_ID = 835648800;
+const LOGS_GROUP_ID = -1004496297432;
 
 let maintenanceState = {
   enabled: false,
@@ -419,6 +420,17 @@ bot.on('text', async (ctx, next) => {
     recruiter.recruitsCount = (recruiter.recruitsCount || 0) + 1;
     await player.save();
     await recruiter.save();
+
+    // 📢 Notificación al grupo
+    try {
+      await bot.telegram.sendMessage(
+        LOGS_GROUP_ID,
+        `📢 *¡Nuevo Reclutamiento!*\n\n⚔️ *${recruiter.name}* acaba de reclutar a *${player.name}*.`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (err) {
+      console.error('Error enviando notificación al grupo:', err.message);
+    }
 
     const view = await getStatusView(player);
     await ctx.reply('⚔️ ¡Bienvenido al reino!', MAIN_BOTTOM_KEYBOARD);
