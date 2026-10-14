@@ -52,7 +52,7 @@ function registerAdminHandlers(bot, deps) {
     const adsTotal = Math.max(u.totalAdsClaimed || 0, adsToday);
 
     let text = `👤 *Detalles del Jugador: ${u.name}*\n\n` +
-               `🆔 Telegram ID: ` + u.userId + `\n` +
+               `🆔 Telegram ID: ${u.userId}\n` +
                `⭐ Nivel: ${u.level}/${MAX_LEVEL}\n` +
                `🔮 EXP: ${u.exp}/${getRequiredExp(u.level)}\n` +
                `❤️ Salud: ${u.hp}/${u.maxHp} HP\n` +
