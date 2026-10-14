@@ -77,7 +77,7 @@ function registerAdminHandlers(bot, deps) {
             `• 🥤 Bebidas Energéticas (+2 ⚡): ${u.potionsEnergyDrink || 0}/5\n` +
             `• 🩸 Elixir Sangre Dragón: ${u.potionsDragonBlood || 0}\n\n` +
             `🔑 *Reclutamiento:*\n` +
-            '• Código propio: `' + (u.referralCode || 'N/A') + '`\n' +
+            `• Código propio: \`\${u.referralCode || 'N/A'}\`\n` +
             `• Reclutas: ${u.recruitsCount || 0}\n` +
             `• Estado Verificado: ${u.isVerified ? '✅ Sí' : '❌ No (En puerta)'}\n\n` +
             `📺 *Anuncios Vistos:*\n` +
