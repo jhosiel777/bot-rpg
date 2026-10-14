@@ -442,9 +442,11 @@ bot.on('text', async (ctx, next) => {
     return await ctx.reply(`✅ Nivel de ${u.name} cambiado a ${u.level}.`);
   }
 
-  if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
+if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
     adminFlags.broadcastWaiting = false;
-    const broadcastMsg = `🌌 *Transmisión del Creador:*\n\n"${textMsg}"`;
+    const broadcastMsg = `⚡🌌 *Súbitamente, un estruendo sacude los confines de Abyss...*\n` +
+                         `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
+                         `"${textMsg}"`;
     await broadcastToAll(bot, Player, broadcastMsg);
     return await ctx.reply('✅ Mensaje transmitido a todos.');
   }
