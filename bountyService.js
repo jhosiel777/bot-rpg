@@ -778,21 +778,21 @@ async function resolveAutoCombat(bot, userId, bounty) {
   await creditReferralBonus(userId, rewardReport.finalGold);
 
   const successMsg = '🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n' +
-                     'Derrotaste a *' + bounty.enemyName + '* tras *' + turns + ' asaltos*.\n\n' +
-                     '⚔️ *Ficha del Combate:*\n' +
-                     '• Daño total infligido: *' + totalDmgDealt + '* (' + totalCrits + ' golpes críticos)\n' +
-                     '• Daño total absorbido: *' + totalDmgTaken + ' HP*\n' +
-                     '• Salud final restante: *' + player.hp + '/' + player.maxHp + ' HP*\n\n' +
-                     '🧪 *Gestión de Pociones:*\n' +
-                     (pathPotionUsed ? '• Auxilio de marcha previo al combate: ' + pathPotionUsed + ' _(Sin contar en cupo)_\n' : '• Marcha: Entraste al combate con tu temple intacto.\n') +
-                     (potionsUsedCount > 0 ? '• Pociones consumidas en combate: ' + potionsUsedDetails.join(', ') + '\n\n' : '• Combate: ¡Victoria limpia sin consumir pociones!\n\n') +
-                     '📊 *Informe Económico y Recompensas:*\n' +
-                     '• Botín base del contrato: *' + bounty.baseGold + 'g*\n' +
-                     (bounty.netGoldBonus !== 0 ? '• Balance de sucesos en ruta: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
-                     (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
-                     '💰 *Total cobrado en bolsa:* *+' + rewardReport.finalGold + 'g*\n' +
-                     '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
-                     (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
+                      'Derrotaste a *' + bounty.enemyName + '* tras *' + turns + ' asaltos*.\n\n' +
+                      '⚔️ *Ficha del Combate:*\n' +
+                      '• Daño total infligido: *' + totalDmgDealt + '* (' + totalCrits + ' golpes críticos)\n' +
+                      '• Daño total absorbido: *' + totalDmgTaken + ' HP*\n' +
+                      '• Salud final restante: *' + player.hp + '/' + player.maxHp + ' HP*\n\n' +
+                      '🧪 *Gestión de Pociones:*\n' +
+                      (pathPotionUsed ? '• Auxilio de marcha previo al combate: ' + pathPotionUsed + ' _(Sin contar en cupo)_\n' : '• Marcha: Entraste al combate con tu temple intacto.\n') +
+                      (potionsUsedCount > 0 ? '• Pociones consumidas en combate: ' + potionsUsedDetails.join(', ') + '\n\n' : '• Combate: ¡Victoria limpia sin consumir pociones!\n\n') +
+                      '📊 *Informe Económico y Recompensas:*\n' +
+                      '• Botín base del contrato: *' + bounty.baseGold + 'g*\n' +
+                      (bounty.netGoldBonus !== 0 ? '• Balance de sucesos en ruta: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
+                      (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                      '💰 *Total cobrado en bolsa:* *+' + rewardReport.finalGold + 'g*\n' +
+                      '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
+                      (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
 
   try {
     await bot.telegram.sendMessage(
@@ -825,18 +825,30 @@ function applyBountyRewards(player, bounty) {
 
   const finalGold = Math.max(150, bounty.baseGold + bounty.netGoldBonus + merchantComp);
 
-  let finalExp = 0;
   const reqCurrent = getRequiredExp(player.level);
+  let finalExp = 0;
 
-  const tierMultiplier = {
-    tier1: 0.35,
-    tier2: 0.45,
-    tier3: 0.55,
-    tier4: 0.70,
-    tier5: 0.90
-  }[bounty.tierKey] || 0.35;
-
-  finalExp = Math.round(reqCurrent * (tierMultiplier + (Math.random() * 0.10)));
+  if (bounty.tierKey === 'tier1' || bounty.tierKey === 'tier2') {
+    // Máximo 1 nivel y medio (hasta 150%)
+    const minRatio = bounty.tierKey === 'tier1' ? 0.70 : 0.90;
+    const maxRatio = 1.50;
+    const randomRatio = minRatio + (Math.random() * (maxRatio - minRatio));
+    finalExp = Math.round(reqCurrent * randomRatio);
+  } else if (bounty.tierKey === 'tier3') {
+    // Entre 50% y 101% (máximo 1 nivel completo)
+    const randomRatio = 0.50 + (Math.random() * (1.01 - 0.50));
+    finalExp = Math.round(reqCurrent * randomRatio);
+  } else if (bounty.tierKey === 'tier4') {
+    // Entre 20% y 50%
+    const randomRatio = 0.20 + (Math.random() * (0.50 - 0.20));
+    finalExp = Math.round(reqCurrent * randomRatio);
+  } else if (bounty.tierKey === 'tier5') {
+    // Entre 20% y 40%
+    const randomRatio = 0.20 + (Math.random() * (0.40 - 0.20));
+    finalExp = Math.round(reqCurrent * randomRatio);
+  } else {
+    finalExp = Math.round(reqCurrent * 0.35);
+  }
 
   player.gold += finalGold;
   const leveledUp = player.addExp(finalExp);
