@@ -193,8 +193,19 @@ function getRestTimeRemaining(player) {
 }
 
 async function getStatusView(player) {
+  const now = Date.now();
+  if (player.knockedOutUntil && player.knockedOutUntil <= now) {
+    player.knockedOutUntil = 0;
+    if (player.hp <= 0) player.hp = 1;
+    await player.save();
+  } else if (player.hp <= 0 && !player.knockedOutUntil) {
+    player.hp = 1;
+    await player.save();
+  }
+
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
+
 
   let text = `⚔️ Aventurero: ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
