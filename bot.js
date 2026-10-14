@@ -283,7 +283,8 @@ function formatHoursMinutes(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}s`;
+  if (m > 0) return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+  return `${s}s`;
 }
 
 function rollDungeonDrops(dungeon, player) {
