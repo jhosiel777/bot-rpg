@@ -510,7 +510,7 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 bot.hears('⚔️ Estado', async (ctx) => {
@@ -1002,15 +1002,102 @@ bot.action('use_dragon_blood', async (ctx) => {
   return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
 });
 
-bot.action('use_dragon_blood_confirm', async (ctx) => {
+// ==========================================
+// MOCHILA EN COMBATE CONTRA JEFE MUNDIAL
+// ==========================================
+bot.action('boss_inv', async (ctx) => {
+  try {
+    await safeAnswerCb(ctx);
+    const userId = ctx.from.id;
+    const player = await getPlayer(userId, ctx.from.first_name);
+
+    if (!player) return;
+
+    const pSmall = player.potionsSmall || 0;
+    const pMed = player.potionsMedium || 0;
+    const pEnergy = player.potionsEnergy || 0;
+    const pDrink = player.potionsEnergyDrink || 0;
+    const pDragon = player.potionsDragonBlood || 0;
+
+    let text = `🎒 *Mochila frente al Coloso*\n\n` +
+               `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
+               `⚡ Energía: *${player.energy}/${MAX_ENERGY}*\n\n` +
+               `*Objetos:*\n` +
+               `• Poción Menor (+10 HP): *${pSmall}*\n` +
+               `• Poción Mayor (+35 HP): *${pMed}*\n` +
+               `• Elixir Energía (+1 ⚡): *${pEnergy}*\n` +
+               `• 🥤 Bebida (+2 ⚡): *${pDrink}/5*\n` +
+               `• 🩸 Elixir Sangre Dragón: *${pDragon}*\n\n` +
+               `Toca una poción para consumirla:`;
+
+    const buttons = [];
+    if (pSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'boss_use_pot_small')]);
+    if (pMed > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'boss_use_pot_medium')]);
+    if (pEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'boss_use_pot_energy')]);
+    if (pDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'boss_use_energy_drink')]);
+    if (pDragon > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'boss_use_dragon_blood')]);
+
+    buttons.push([Markup.button.callback('⬅️ Volver al Coloso', 'menu_boss')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en boss_inv:', err);
+  }
+});
+
+bot.action('boss_use_pot_small', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
+  if (!player.potionsSmall || player.potionsSmall <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
+  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
+  player.potionsSmall -= 1;
+  player.hp = Math.min(player.maxHp, player.hp + 10);
+  await player.save();
+  await safeAnswerCb(ctx, '+10 HP');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_pot_medium', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsMedium || player.potionsMedium <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
+  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
+  player.potionsMedium -= 1;
+  player.hp = Math.min(player.maxHp, player.hp + 35);
+  await player.save();
+  await safeAnswerCb(ctx, '+35 HP');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_pot_energy', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
+  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  player.potionsEnergy -= 1;
+  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+  await player.save();
+  await safeAnswerCb(ctx, '+1⚡ Energía');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_energy_drink', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
+  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  player.potionsEnergyDrink -= 1;
+  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+  await player.save();
+  await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_dragon_blood', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin sangre de dragón.', true);
   player.potionsDragonBlood -= 1;
   player.hp = player.maxHp;
+  player.knockedOutUntil = 0;
   await player.save();
-  await safeAnswerCb(ctx, '🩸 Salud restaurada.', true);
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  await safeAnswerCb(ctx, '🩸 Salud restaurada al 100%.', true);
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
 });
 
 // ==========================================
@@ -1132,22 +1219,43 @@ Object.keys(ITEMS).forEach((key) => {
 });
 
 bot.action(/mkt_buy_(.+)/, async (ctx) => {
-  const listingId = ctx.match[1];
-  const res = await buyListing(listingId, ctx.from.id);
-  await safeAnswerCb(ctx, res.msg, true);
-  const { text, listings } = await getMarketView(ctx.from.id);
-  const buttons = [];
-  listings.forEach((item, idx) => {
-    const idStr = String(item._id);
-    if (String(item.sellerId) === String(ctx.from.id)) {
-      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
-    } else {
-      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+  try {
+    const listingId = ctx.match[1];
+    const res = await buyListing(listingId, ctx.from.id);
+    await safeAnswerCb(ctx, res.msg, true);
+
+    // 📢 Mensaje privado y aviso directo al vendedor
+    if (res.success && res.sellerId) {
+      try {
+        await bot.telegram.sendMessage(
+          res.sellerId,
+          `💰 *¡Tu oferta fue vendida en el mercado!*\n\n` +
+          `📦 Objeto: *${res.itemName}*\n` +
+          `🪙 Ganancia neta: *+${res.sellerProfit}g* _(comisión del 8% descontada)_.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (err) {
+        console.error('No se pudo enviar notificación al vendedor:', err.message);
+      }
     }
-  });
-  buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
-  buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
-  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+
+    const { text, listings } = await getMarketView(ctx.from.id);
+    const buttons = [];
+    listings.forEach((item, idx) => {
+      const idStr = String(item._id);
+      if (String(item.sellerId) === String(ctx.from.id)) {
+        buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
+      } else {
+        buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+      }
+    });
+    buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+    buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en mkt_buy:', err);
+    await safeAnswerCb(ctx, 'Error al procesar la compra.', true);
+  }
 });
 
 bot.action(/mkt_del_(.+)/, async (ctx) => {
