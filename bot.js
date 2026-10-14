@@ -616,7 +616,8 @@ bot.action('menu_explore', async (ctx) => {
     [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
     [Markup.button.callback('🚩 Reclutar Aventureros', 'menu_referrals')],
-    [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+    [Markup.button.callback('⬅️ Volver al Campamento', 'status')],
+    [Markup.button.url('📢 Edictos & Crónicas del Reino', 'https://t.me/+WSbOMJvOo6Q5ZDJh')]
   ]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
