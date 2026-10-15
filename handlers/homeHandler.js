@@ -1,6 +1,27 @@
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 
+function getSpentPoints(player) {
+  const hpPts = Math.max(0, Math.floor(((player.maxHp || 50) - 50) / 5));
+  return (player.strength || 0) + (player.agility || 0) + (player.luck || 0) + hpPts;
+}
+
+function checkInitialTitle(player) {
+  if (!player.unlockedTitles || !Array.isArray(player.unlockedTitles) || player.unlockedTitles.length === 0) {
+    player.unlockedTitles = ['Aventurero Novato'];
+  }
+
+  // Detectar si ya invirtió 3 o más puntos de atributo
+  if (getSpentPoints(player) >= 3 && !player.unlockedTitles.includes('Caminante de Senderos')) {
+    player.unlockedTitles.push('Caminante de Senderos');
+    if (!player.activeTitle || player.activeTitle === 'Aventurero Novato') {
+      player.activeTitle = 'Caminante de Senderos';
+    }
+    return true;
+  }
+  return false;
+}
+
 function registerHomeHandlers(bot, { Player, getPlayer }) {
 
   // Menú Principal del Hogar
@@ -8,7 +29,11 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    const title = player.activeTitle || 'Sin título';
+    if (checkInitialTitle(player)) {
+      await player.save();
+    }
+
+    const title = player.activeTitle || 'Aventurero Novato';
     let walletDisplay = '❌ _No vinculada_';
 
     if (player.tonWalletAddress) {
@@ -41,7 +66,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = '💳 *BILLETERA TON DE LA RED* 💳\n\n' +
-               'Conectar tu billetera (Tonkeeper, Telegram Wallet u otras) te permitirá comerciar en el futuro mercado P2P y adquirir artefactos ancestrales.\n\n';
+               'Conectar tu billetera te permitirá comerciar en el futuro mercado P2P y adquirir artefactos ancestrales.\n\n';
 
     if (player.tonWalletAddress) {
       text += `🔗 *Billetera actual:* \`\${player.tonWalletAddress}\`\n\n` +
@@ -61,24 +86,68 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
   });
 
-  // Vista de Títulos Honoríficos (Próximamente e instrucción)
+  // Gestión y equipamiento de Títulos Honoríficos
   bot.action('home_titles', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    const text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
-                 'Los títulos son condecoraciones ganadas a través de grandes hazañas dentro del reino.\n\n' +
-                 '📜 *¿Para qué servirán?*\n' +
-                 '• **Salón de la Fama:** Tu título precederá a tu nombre en los rankings globales.\n' +
-                 '• **Arena de Duelos (PvP):** Intimida a tus rivales exhibiendo tus logros antes de cada combate.\n\n' +
-                 `🎖️ *Tu título actual:* «*${player.activeTitle || 'Aventurero Novato'}*»\n\n` +
-                 '🔒 _El panel para equipar y seleccionar entre tus títulos desbloqueados estará disponible muy pronto._';
+    if (checkInitialTitle(player)) {
+      await player.save();
+    }
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]
-    ]);
+    const currentTitle = player.activeTitle || 'Aventurero Novato';
+    const unlocked = player.unlockedTitles || ['Aventurero Novato'];
 
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+    let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
+               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
+               'Selecciona un título desbloqueado para equiparlo:\n\n';
+
+    const buttons = [];
+    unlocked.forEach((title, idx) => {
+      const isEquipped = title === currentTitle;
+      const label = `${isEquipped ? '✅ ' : ''}${title}`;
+      buttons.push([Markup.button.callback(label, `equip_title_${idx}`)]);
+    });
+
+    buttons.push([Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  // Equipar título seleccionado
+  bot.action(/equip_title_(\d+)/, async (ctx) => {
+    const idx = parseInt(ctx.match[1], 10);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    const unlocked = player.unlockedTitles || ['Aventurero Novato'];
+    if (idx < 0 || idx >= unlocked.length) {
+      return await safeAnswerCb(ctx, 'Título no válido.', true);
+    }
+
+    const selectedTitle = unlocked[idx];
+    player.activeTitle = selectedTitle;
+    await player.save();
+
+    await safeAnswerCb(ctx, `🎖️ Equipaste: «${selectedTitle}»`, true);
+
+    // Refrescar la pantalla de títulos
+    const currentTitle = player.activeTitle;
+    let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
+               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
+               'Selecciona un título desbloqueado para equiparlo:\n\n';
+
+    const buttons = [];
+    unlocked.forEach((title, i) => {
+      const isEquipped = title === currentTitle;
+      const label = `${isEquipped ? '✅ ' : ''}${title}`;
+      buttons.push([Markup.button.callback(label, `equip_title_${i}`)]);
+    });
+
+    buttons.push([Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 }
 
