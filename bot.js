@@ -86,6 +86,51 @@ const adminFlags = {
 const lastUserMessages = new Map();
 const pendingMarketSales = new Map();
 
+// ==========================================
+// DETECCIÓN Y NOTIFICACIÓN INMEDIATA DE TÍTULOS
+// ==========================================
+async function checkAndNotifyTitles(botInstance, player, ctx = null) {
+  const hpPts = Math.max(0, Math.floor(((player.maxHp || 50) - 50) / 5));
+  const spent = (player.strength || 0) + (player.agility || 0) + (player.luck || 0) + hpPts;
+
+  if (!player.unlockedTitles || !Array.isArray(player.unlockedTitles) || player.unlockedTitles.length === 0) {
+    player.unlockedTitles = ['Aventurero Novato'];
+  } else if (!player.unlockedTitles.includes('Aventurero Novato')) {
+    player.unlockedTitles.unshift('Aventurero Novato');
+  }
+
+  let newlyUnlocked = null;
+
+  if (spent >= 3 && !player.unlockedTitles.includes('Caminante de Senderos')) {
+    player.unlockedTitles.push('Caminante de Senderos');
+    if (!player.activeTitle || player.activeTitle === 'Aventurero Novato') {
+      player.activeTitle = 'Caminante de Senderos';
+    }
+    newlyUnlocked = 'Caminante de Senderos';
+  }
+
+  if (newlyUnlocked) {
+    if (typeof player.markModified === 'function') {
+      player.markModified('unlockedTitles');
+    }
+    await player.save();
+
+    const notifMsg = `🎖️🎉 *¡NUEVO TÍTULO DESBLOQUEADO!*\n\n` +
+                     `Has obtenido la distinción: «*${newlyUnlocked}*».\n\n` +
+                     `_Se ha equipado automáticamente y ya se muestra en tu Estado y en el Salón de la Fama._`;
+
+    try {
+      if (ctx && ctx.reply) {
+        await ctx.reply(notifMsg, { parse_mode: 'Markdown' });
+      } else {
+        await botInstance.telegram.sendMessage(player.userId, notifMsg, { parse_mode: 'Markdown' });
+      }
+    } catch (e) {
+      console.error('Error enviando notificación de título:', e.message);
+    }
+  }
+}
+
 async function initMaintenance() {
   try {
     let cfg = await Maintenance.findOne({ key: 'global_config' });
@@ -223,8 +268,9 @@ async function getStatusView(player) {
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
   const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+  const activeTitle = player.activeTitle || 'Aventurero Novato';
 
-  let text = `⚔️ Aventurero: ${player.name}\n` +
+  let text = `⚔️ *${activeTitle}:* ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
              `🔮 EXP: ${player.exp}/${reqExp}\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
@@ -512,6 +558,8 @@ bot.on('text', async (ctx, next) => {
       console.error('Error enviando notificación al grupo:', err.message);
     }
 
+    await checkAndNotifyTitles(bot, player, ctx);
+
     const view = await getStatusView(player);
     await ctx.reply('⚔️ ¡Bienvenido al reino!', MAIN_BOTTOM_KEYBOARD);
     const sent = await ctx.reply(view.text, view.keyboard);
@@ -576,6 +624,8 @@ async function handleStartMenu(ctx) {
       return await ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
     }
 
+    await checkAndNotifyTitles(bot, player, ctx);
+
     const oldMsgId = lastUserMessages.get(userId);
     if (oldMsgId) {
       try { await ctx.telegram.deleteMessage(userId, oldMsgId); } catch (e) {}
@@ -596,6 +646,7 @@ bot.start(handleStartMenu);
 bot.hears('⚔️ Estado', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.isVerified && ctx.from.id !== ADMIN_ID) return ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = await getStatusView(player);
   const sent = await ctx.reply(view.text, view.keyboard);
   lastUserMessages.set(ctx.from.id, sent.message_id);
@@ -604,6 +655,7 @@ bot.hears('⚔️ Estado', async (ctx) => {
 bot.hears('📈 Atributos', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.isVerified && ctx.from.id !== ADMIN_ID) return ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
   const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
   lastUserMessages.set(ctx.from.id, sent.message_id);
@@ -674,7 +726,8 @@ bot.hears('🏆 Salón de la Fama', async (ctx) => {
   let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
   topPlayers.forEach((p, idx) => {
     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-    text += `${medal} *${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+    const titlePart = p.activeTitle ? `«${p.activeTitle}» ` : '';
+    text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
   });
 
   await ctx.reply(text, {
@@ -703,6 +756,7 @@ bot.action('menu_daily_bonus', async (ctx) => {
 bot.action('status', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = await getStatusView(player);
   return await safeEditMessage(ctx, view.text, view.keyboard);
 });
@@ -917,7 +971,7 @@ bot.action('use_dragon_blood_confirm', async (ctx) => {
 });
 
 // ==========================================
-// DESCANSO Y ASIGNACIÓN DE STATS
+// DESCANSO Y ASIGNACIÓN DE STATS (CON VERIFICACIÓN INMEDIATA)
 // ==========================================
 bot.action('rest', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -948,6 +1002,7 @@ bot.action('add_str', async (ctx) => {
   player.statPoints -= 1; player.strength += 1;
   await player.save();
   await safeAnswerCb(ctx, '+1 Fuerza');
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -958,6 +1013,7 @@ bot.action('add_hp', async (ctx) => {
   player.statPoints -= 1; player.maxHp += 5; player.hp += 5;
   await player.save();
   await safeAnswerCb(ctx, '+5 HP');
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -968,6 +1024,7 @@ bot.action('add_agi', async (ctx) => {
   player.statPoints -= 1; player.agility = (player.agility || 0) + 1;
   await player.save();
   await safeAnswerCb(ctx, '+1 Agilidad');
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -978,208 +1035,7 @@ bot.action('add_luk', async (ctx) => {
   player.statPoints -= 1; player.luck = (player.luck || 0) + 1;
   await player.save();
   await safeAnswerCb(ctx, '+1 Suerte');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-// ==========================================
-// INVENTARIO GENERAL Y USO DE POCIONES
-// ==========================================
-bot.action('menu_inv', async (ctx) => {
-  try {
-    await safeAnswerCb(ctx);
-    const userId = ctx.from.id;
-    const player = await getPlayer(userId, ctx.from.first_name);
-
-    if (!player) {
-      return await ctx.reply('⚠️ No se encontró la información de tu personaje.');
-    }
-
-    const pSmall = player.potionsSmall || 0;
-    const pMed = player.potionsMedium || 0;
-    const pEnergy = player.potionsEnergy || 0;
-    const pDrink = player.potionsEnergyDrink || 0;
-    const pDragon = player.potionsDragonBlood || 0;
-    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
-
-    let text = `🎒 *Mochila de Aventurero*\n\n` +
-               `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
-               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor (+10 HP): *${pSmall}*\n` +
-               `• Poción Mayor (+35 HP): *${pMed}*\n` +
-               `• Elixir Energía (+1 ⚡): *${pEnergy}*\n` +
-               `• 🥤 Bebida (+2 ⚡): *${pDrink}/5*\n` +
-               `• 🩸 Elixir Sangre Dragón: *${pDragon}*\n\n` +
-               `Toca un botón para consumir un objeto:`;
-
-    const buttons = [];
-    if (pSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
-    if (pMed > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
-    if (pEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-    if (pDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-    if (pDragon > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón', 'use_dragon_blood')]);
-    
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  } catch (err) {
-    console.error('Error en menu_inv:', err);
-    try {
-      await ctx.answerCbQuery('⚠️ Error al abrir el inventario.', { show_alert: true });
-    } catch (e) {}
-  }
-});
-
-bot.action('use_potion_small', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsSmall || player.potionsSmall <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
-  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-  player.potionsSmall -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + 10);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +10 HP');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_potion_medium', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsMedium || player.potionsMedium <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
-  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-  player.potionsMedium -= 1;
-  player.hp = Math.min(player.maxHp, player.hp + 35);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +35 HP');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_potion_energy', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
-  if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
-  player.potionsEnergy -= 1;
-  player.energy = Math.min(playerMaxEnergy, player.energy + 1);
-  await player.save();
-  await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_energy_drink', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
-  if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
-  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
-  player.potionsEnergyDrink -= 1;
-  player.energy = Math.min(playerMaxEnergy, player.energy + 2);
-  await player.save();
-  await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('use_dragon_blood', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin sangre de dragón.', true);
-
-  const isKO = player.knockedOutUntil && Date.now() < player.knockedOutUntil;
-  if (!isKO && player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
-
-  if (isKO) {
-    player.potionsDragonBlood -= 1;
-    player.knockedOutUntil = 0;
-    player.hp = player.maxHp;
-    await player.save();
-    await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Ya no estás inconsciente y tienes 100% HP.', true);
-    const view = await getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
-  }
-
-  await safeAnswerCb(ctx);
-  const confirmText = `🩸 *Confirmación:*\n\n¿Deseas beber el elixir para sanar al 100% (${player.hp}/${player.maxHp} HP)?`;
-  const confirmBtns = Markup.inlineKeyboard([
-    [Markup.button.callback('🩸 Sí, beber', 'use_dragon_blood_confirm')],
-    [Markup.button.callback('❌ No, cancelar', 'menu_inv')]
-  ]);
-  return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
-});
-
-bot.action('use_dragon_blood_confirm', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  player.potionsDragonBlood -= 1;
-  player.hp = player.maxHp;
-  await player.save();
-  await safeAnswerCb(ctx, '🩸 Salud restaurada.', true);
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-// ==========================================
-// DESCANSO Y ASIGNACIÓN DE STATS
-// ==========================================
-bot.action('rest', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.hp >= player.maxHp) return safeAnswerCb(ctx, 'Tu salud ya está al máximo.', true);
-  const secLeft = getRestTimeRemaining(player);
-  if (secLeft > 0) return safeAnswerCb(ctx, `⏳ Espera ${formatSeconds(secLeft)} para descansar.`, true);
-
-  const healAmount = Math.ceil(player.maxHp * 0.30);
-  player.hp = Math.min(player.maxHp, player.hp + healAmount);
-  player.lastRestTime = Date.now();
-  await player.save();
-
-  await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`, true);
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
-});
-
-bot.action('menu_stats', async (ctx) => {
-  await safeAnswerCb(ctx);
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_str', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.strength += 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Fuerza');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_hp', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.maxHp += 5; player.hp += 5;
-  await player.save();
-  await safeAnswerCb(ctx, '+5 HP');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_agi', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.agility = (player.agility || 0) + 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Agilidad');
-  const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
-});
-
-bot.action('add_luk', async (ctx) => {
-  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-  if (player.statPoints <= 0) return safeAnswerCb(ctx, 'Sin puntos.', true);
-  player.statPoints -= 1; player.luck = (player.luck || 0) + 1;
-  await player.save();
-  await safeAnswerCb(ctx, '+1 Suerte');
+  await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
@@ -1648,7 +1504,7 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// REFERIDOS Y RANKING
+// REFERIDOS Y RANKING (CON TÍTULO ACTIVO)
 // ==========================================
 bot.action('menu_referrals', async (ctx) => {
   await safeAnswerCb(ctx);
@@ -1673,7 +1529,8 @@ bot.action('menu_ranking', async (ctx) => {
   let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
   topPlayers.forEach((p, idx) => {
     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-    text += `${medal} *${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+    const titlePart = p.activeTitle ? `«${p.activeTitle}» ` : '';
+    text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
   });
 
   return await safeEditMessage(ctx, text, {
@@ -1690,7 +1547,8 @@ bot.command(['top', 'ranking'], async (ctx) => {
   let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
   topPlayers.forEach((p, idx) => {
     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-    text += `${medal} *${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+    const titlePart = p.activeTitle ? `«${p.activeTitle}» ` : '';
+    text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
   });
 
   return await ctx.reply(text, {
