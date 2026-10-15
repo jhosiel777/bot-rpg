@@ -270,7 +270,7 @@ async function getStatusView(player) {
   const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   const activeTitle = player.activeTitle || 'Aventurero Novato';
 
-  let text = `⚔️ *${activeTitle}:* ${player.name}\n` +
+  let text = `⚔️ **${activeTitle}:** ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
              `🔮 EXP: ${player.exp}/${reqExp}\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
@@ -279,12 +279,12 @@ async function getStatusView(player) {
 
   if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
     const missionSecLeft = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
-    text += `🚶 *En expedición:* Regresa en ${missionSecLeft}s\n`;
+    text += `🚶 **En expedición:** Regresa en ${missionSecLeft}s\n`;
   }
 
   if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
     const koSecLeft = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
-    text += `💀 *Estado:* Inconsciente (Recuperación en: ${formatHoursMinutes(koSecLeft)})\n`;
+    text += `💀 **Estado:** Inconsciente (Recuperación en: ${formatHoursMinutes(koSecLeft)})\n`;
   }
 
   if (restSecLeft > 0) {
