@@ -42,6 +42,7 @@ const playerSchema = new mongoose.Schema({
   hp: { type: Number, default: 50 },
   maxHp: { type: Number, default: 50 },
   energy: { type: Number, default: 10 },
+  maxEnergy: { type: Number, default: 10 },
   lastEnergyRegenTime: { type: Number, default: () => Date.now() },
   strength: { type: Number, default: 0 },
   agility: { type: Number, default: 0 },
@@ -52,6 +53,11 @@ const playerSchema = new mongoose.Schema({
   potionsUsedInMission: { type: Number, default: 0 },
   knockedOutUntil: { type: Number, default: 0 },
 
+  // Gemas de Energía Máxima
+  hasEnergyGem1: { type: Boolean, default: false },
+  hasEnergyGem2: { type: Boolean, default: false },
+  hasAncestralGem: { type: Boolean, default: false },
+
   // Inventario
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
@@ -59,7 +65,7 @@ const playerSchema = new mongoose.Schema({
   potionsEnergyDrink: { type: Number, default: 0 },
   potionsDragonBlood: { type: Number, default: 0 },
 
-  // Botin Diario
+  // Botín Diario
   dailyStreak: { type: Number, default: 0 },
   lastDailyClaimDate: { type: String, default: null },
 
@@ -94,17 +100,18 @@ playerSchema.methods.applyDeathPenalty = function() {
   return lost;
 };
 
-// Cálculo matemático estricto de regeneración
+// Cálculo matemático estricto de regeneración con límite dinámico
 playerSchema.methods.checkAndRegenEnergy = function() {
   const now = Date.now();
+  const playerMax = this.maxEnergy || MAX_ENERGY;
 
   if (!this.lastEnergyRegenTime || typeof this.lastEnergyRegenTime !== 'number') {
     this.lastEnergyRegenTime = now;
     return true;
   }
 
-  if (this.energy >= MAX_ENERGY) {
-    this.energy = MAX_ENERGY;
+  if (this.energy >= playerMax) {
+    this.energy = playerMax;
     this.lastEnergyRegenTime = now;
     return false;
   }
@@ -115,8 +122,8 @@ playerSchema.methods.checkAndRegenEnergy = function() {
     const pointsGained = Math.floor(elapsedMs / ENERGY_REGEN_INTERVAL_MS);
     if (pointsGained > 0) {
       const newEnergy = this.energy + pointsGained;
-      if (newEnergy >= MAX_ENERGY) {
-        this.energy = MAX_ENERGY;
+      if (newEnergy >= playerMax) {
+        this.energy = playerMax;
         this.lastEnergyRegenTime = now;
       } else {
         this.energy = newEnergy;
@@ -152,7 +159,7 @@ playerSchema.methods.addExp = function(amount) {
     this.level += 1;
     this.statPoints += 3;
     this.hp = this.maxHp;
-    this.energy = MAX_ENERGY;
+    this.energy = this.maxEnergy || MAX_ENERGY;
     this.lastEnergyRegenTime = Date.now();
     leveledUp = true;
   }
@@ -233,10 +240,13 @@ function getDailyReward(streak) {
 // Temporizador automático en segundo plano cada 60s
 setInterval(async () => {
   try {
-    const playersNeedRegen = await Player.find({ energy: { $lt: MAX_ENERGY } });
-    for (const p of playersNeedRegen) {
-      if (p.checkAndRegenEnergy()) {
-        await p.save();
+    const players = await Player.find({});
+    for (const p of players) {
+      const cap = p.maxEnergy || MAX_ENERGY;
+      if (p.energy < cap) {
+        if (p.checkAndRegenEnergy()) {
+          await p.save();
+        }
       }
     }
   } catch (e) {
