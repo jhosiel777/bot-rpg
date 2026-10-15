@@ -18,21 +18,35 @@ async function syncPlayerTitles(player, bot = null) {
     changed = true;
   }
 
-  // Desbloqueo inicial por invertir 3 o más puntos
-  if (getSpentPoints(player) >= 3 && !player.unlockedTitles.includes('Caminante de Senderos')) {
-    player.unlockedTitles.push('Caminante de Senderos');
-    newlyUnlocked.push('Caminante de Senderos');
-    changed = true;
-  }
+  const helperCheck = (title, condition) => {
+    if (condition && !player.unlockedTitles.includes(title)) {
+      player.unlockedTitles.push(title);
+      newlyUnlocked.push(title);
+      changed = true;
+    }
+  };
 
-  // Desbloqueo de Mecenas por Gema Ancestral
-  if (player.hasAncestralGem && !player.unlockedTitles.includes('Mecenas de Abyss')) {
-    player.unlockedTitles.push('Mecenas de Abyss');
-    newlyUnlocked.push('Mecenas de Abyss');
-    changed = true;
-  }
+  // 1. Puntos de atributo (3 o más)
+  helperCheck('Caminante de Senderos', getSpentPoints(player) >= 3);
 
-  // Asignar título activo si está vacío o no es válido
+  // 2. Compras con dinero real / Gema Ancestral
+  helperCheck('Mecenas de Abyss', player.hasAncestralGem === true);
+
+  // 3. Racha Diaria Continua (Bono Diario: 5, 10, 20 y 30 días)
+  const streak = player.dailyStreak || 0;
+  helperCheck('Explorador Constante', streak >= 5);
+  helperCheck('Centinela Fiel', streak >= 10);
+  helperCheck('Veterano de la Guardia', streak >= 20);
+  helperCheck('Leyenda del Alba', streak >= 30);
+
+  // 4. Incursiones de Caza Diaria completadas (5, 10, 25 y 40 cazas)
+  const hunts = player.bountiesCompletedCount || 0;
+  helperCheck('Rastreador de Huellas', hunts >= 5);
+  helperCheck('Cazador de Frontera', hunts >= 10);
+  helperCheck('Azote de Bestias', hunts >= 25);
+  helperCheck('Maestro de la Cacería', hunts >= 40);
+
+  // Asignar título activo válido si está vacío o no pertenece a los desbloqueados
   if (!player.activeTitle || !player.unlockedTitles.includes(player.activeTitle)) {
     player.activeTitle = player.unlockedTitles.includes('Caminante de Senderos')
       ? 'Caminante de Senderos'
@@ -45,14 +59,14 @@ async function syncPlayerTitles(player, bot = null) {
     await player.save();
   }
 
-  // Notificar al jugador si hubo un nuevo desbloqueo
+  // Notificar al jugador si desbloqueó nuevos títulos
   if (bot && newlyUnlocked.length > 0) {
     for (const title of newlyUnlocked) {
       try {
         await bot.telegram.sendMessage(
           player.userId,
           `🎖️🎉 *¡NUEVO TÍTULO HONORÍFICO DESBLOQUEADO!*\n\n` +
-          `Has obtenido la distinción: «*\${title}*».\n\n` +
+          `Has obtenido la distinción: «*${title}*».\n\n` +
           `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
           { parse_mode: 'Markdown' }
         );
