@@ -106,11 +106,11 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
       [Markup.button.callback('🎖️ Títulos Honoríficos', 'home_titles')]
     ];
 
-    // Botones de prueba exclusivos para ti (Owner)
+    // Botones exclusivos para ti (Owner)
     if (isOwner) {
       const testBuyUrl = 'https://bot-rpg-wu42.onrender.com/test-pay?userId=' + player.userId;
       buttons.push([Markup.button.webApp('🧪 Test Compra (0.011 TON)', testBuyUrl)]);
-      buttons.push([Markup.button.callback('💸 Test Pago Bot (0.005 TON)', 'admin_test_payout')]);
+      buttons.push([Markup.button.callback('💸 Test Pago Bot (0.01 TON)', 'admin_test_payout')]);
     }
 
     buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
@@ -129,7 +129,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     }
 
     await safeAnswerCb(ctx, 'Enviando pago de prueba...');
-    await ctx.reply('⏳ *Iniciando transferencia de 0.005 TON desde la billetera del bot hacia tu wallet personal...*', { parse_mode: 'Markdown' });
+    await ctx.reply('⏳ *Iniciando transferencia de 0.01 TON desde la billetera del bot hacia tu wallet personal...*', { parse_mode: 'Markdown' });
 
     try {
       const res = await fetch('https://bot-rpg-wu42.onrender.com/send-ton-payout', {
@@ -138,13 +138,13 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
         body: JSON.stringify({
           userId: ctx.from.id,
           toAddress: 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O',
-          amountTon: 0.005
+          amountTon: 0.01
         })
       });
 
       const data = await res.json();
       if (data.success) {
-        await ctx.reply(`✅ *¡Transferencia completada!*\n\nEl bot envió exitosamente *0.005 TON* a tu billetera personal.\nRevisa el grupo de registros.`, { parse_mode: 'Markdown' });
+        await ctx.reply(`✅ *¡Transferencia completada!*\n\nEl bot envió exitosamente *0.01 TON* a tu billetera personal.\nRevisa el grupo de registros.`, { parse_mode: 'Markdown' });
       } else {
         await ctx.reply(`❌ *Error al transferir:* ${data.msg || 'Fallo desconocido'}`);
       }
