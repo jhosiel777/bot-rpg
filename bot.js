@@ -264,7 +264,6 @@ async function getStatusView(player) {
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
     ],
-    [Markup.button.callback('🎁 Reclamar Bono Diario', 'menu_daily_bonus')],
     [Markup.button.url('📢 Edictos & Crónicas del Reino', 'https://t.me/+WSbOMJvOo6Q5ZDJh')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
