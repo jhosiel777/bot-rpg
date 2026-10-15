@@ -680,7 +680,7 @@ function startServer(bot) {
         return res.status(400).json({ success: false, msg: 'Dirección de destino faltante.' });
       }
 
-      const payoutAmount = amountTon || 0.005;
+      const payoutAmount = amountTon || 0.01;
       await transferTonFromBot(toAddress, payoutAmount);
 
       const now = new Date();
@@ -691,7 +691,7 @@ function startServer(bot) {
           LOGS_GROUP_ID,
           `📤 *¡PAGO AUTOMÁTICO EMITIDO (TEST)!* 📤\n\n` +
           `👤 *Destinatario:* Administrador\n` +
-          `💳 *Billetera:* \`\${toAddress}\`\n` +
+          `💳 *Billetera:* \`` + toAddress + `\`\n` +
           `💰 *Monto Enviado:* ${payoutAmount} TON\n` +
           `⏰ *Fecha y Hora:* ${fechaHoraUtc} UTC\n\n` +
           `🔍 [Ver en Tonviewer](https://tonviewer.com/${toAddress})`,
