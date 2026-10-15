@@ -75,18 +75,13 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     await syncPlayerTitles(player, bot);
 
     const title = player.activeTitle || 'Aventurero Novato';
-    let walletDisplay = '❌ _No vinculada_';
-
-    if (player.tonWalletAddress) {
-      const addr = player.tonWalletAddress;
-      walletDisplay = `\`${addr.slice(0, 4)}...${addr.slice(-4)}\``;
-    }
+    const walletDisplay = player.tonWalletAddress ? '✅ Sí' : '❌ No';
 
     const text = '🏡 *HOGAR DEL AVENTURERO* 🏡\n\n' +
                  'Tu refugio personal en la capital de Abyss. Aquí puedes organizar tus credenciales y prepararte para la gloria.\n\n' +
                  `👤 *Aventurero:* ${player.name}\n` +
                  `🎖️ *Título activo:* «*${title}*»\n` +
-                 `💳 *Billetera TON:* ${walletDisplay}\n\n` +
+                 `💳 *Billetera conectada:* ${walletDisplay}\n\n` +
                  '¿Qué deseas gestionar?';
 
     const buttons = [
@@ -101,7 +96,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     });
   });
 
- // Información y vinculación de Wallet TON
+  // Información y vinculación de Wallet TON
   bot.action('home_wallet_info', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -110,10 +105,10 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
                'Conectar tu billetera te permitirá comerciar en el futuro mercado P2P y adquirir artefactos ancestrales.\n\n';
 
     if (player.tonWalletAddress) {
-      text += '🔗 *Billetera actual:* `' + player.tonWalletAddress + '`\n\n' +
-              'Si deseas cambiarla, pulsa el botón de abajo para reconectar:';
+      text += '🔗 *Billetera conectada:* ✅ Sí\n\n' +
+              'Si deseas cambiarla por otra cuenta, pulsa el botón de abajo:';
     } else {
-      text += '⚠️ _Actualmente no tienes ninguna billetera vinculada._\n\n' +
+      text += '🔗 *Billetera conectada:* ❌ No\n\n' +
               'Pulsa el botón de abajo para abrir la Mini App y conectar tu billetera:';
     }
 
