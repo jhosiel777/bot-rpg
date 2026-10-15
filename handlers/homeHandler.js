@@ -101,7 +101,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     });
   });
 
-  // Información y vinculación de Wallet TON
+ // Información y vinculación de Wallet TON
   bot.action('home_wallet_info', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -110,7 +110,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
                'Conectar tu billetera te permitirá comerciar en el futuro mercado P2P y adquirir artefactos ancestrales.\n\n';
 
     if (player.tonWalletAddress) {
-      text += `🔗 *Billetera actual:* \`\${player.tonWalletAddress}\`\n\n` +
+      text += '🔗 *Billetera actual:* `' + player.tonWalletAddress + '`\n\n' +
               'Si deseas cambiarla, pulsa el botón de abajo para reconectar:';
     } else {
       text += '⚠️ _Actualmente no tienes ninguna billetera vinculada._\n\n' +
