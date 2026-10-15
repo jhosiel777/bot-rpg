@@ -41,6 +41,10 @@ const {
   recordDrop,
   getGlobalStats,
   creditReferralBonus,
+  getTodayUtc,
+  getYesterdayUtc,
+  getTimeUntilMidnightUtc,
+  getDailyReward,
   MAX_LEVEL,
   MAX_STAT,
   MAX_BASE_HP,
@@ -182,7 +186,8 @@ const bossController = registerBossHandlers(bot, {
 // ==========================================
 const MAIN_BOTTOM_KEYBOARD = Markup.keyboard([
   ['⚔️ Estado', '📈 Atributos', '🎒 Inventario'],
-  ['🏪 Mercado P2P', '🏆 Salón de la Fama']
+  ['🏪 Mercado P2P', '🏆 Salón de la Fama'],
+  ['🎁 Bono Diario']
 ]).resize();
 
 function getRestTimeRemaining(player) {
@@ -205,7 +210,6 @@ async function getStatusView(player) {
 
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
-
 
   let text = `⚔️ Aventurero: ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
@@ -260,6 +264,7 @@ async function getStatusView(player) {
       Markup.button.callback('🏪 Mercado P2P', 'menu_market'),
       Markup.button.callback('🏆 Salón de la Fama', 'menu_ranking')
     ],
+    [Markup.button.callback('🎁 Reclamar Bono Diario', 'menu_daily_bonus')],
     [Markup.button.url('📢 Edictos & Crónicas del Reino', 'https://t.me/+WSbOMJvOo6Q5ZDJh')],
     [Markup.button.callback('🔄 Actualizar Estado', 'status')]
   ];
@@ -378,6 +383,50 @@ function getGatekeeperMessage() {
          '📜 *Introduce el código de recluta (6 caracteres) otorgado por tu reclutador.*';
 }
 
+function getDailyBonusView(player) {
+  const today = getTodayUtc();
+  const yesterday = getYesterdayUtc();
+  const alreadyClaimed = player.lastDailyClaimDate === today;
+
+  let potentialStreak = 1;
+  if (player.lastDailyClaimDate === yesterday) {
+    potentialStreak = (player.dailyStreak || 0) + 1;
+  } else if (alreadyClaimed) {
+    potentialStreak = player.dailyStreak || 1;
+  }
+
+  const reward = getDailyReward(potentialStreak);
+
+  let text = '🎁 *BONO DIARIO DE LA CIUDADELA*\n\n' +
+             '¡Reclama tu botín diario cada día a las 00:00 UTC!\n\n' +
+             '• Empiezas ganando 100g al día.\n' +
+             '• Cada 3 días de racha recibes +1 Elixir de Energía (+1 ⚡).\n' +
+             '• Al alcanzar los 30 días seguidos, ¡ganarás 1.000g diarios!\n\n' +
+             '🔥 *Racha actual:* ' + (player.dailyStreak || 0) + ' días\n' +
+             '💰 *Recompensa de hoy:* ' + reward.gold + 'g' + (reward.givesElixir ? ' + 1x ⚡ Elixir de Energía' : '') + '\n\n';
+
+  if (alreadyClaimed) {
+    text += '✅ *Ya reclamaste tu recompensa de hoy.*\n' +
+            '⏳ Próximo reinicio en: *' + getTimeUntilMidnightUtc() + '* (00:00 UTC)';
+
+    return {
+      text,
+      keyboard: Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Campamento', 'status')]])
+    };
+  }
+
+  text += 'Para reclamar el botín de hoy, apoya al reino viendo un anuncio rápido en la Mini App:';
+
+  const miniAppUrl = 'https://bot-rpg-wu42.onrender.com/ad-daily?userId=' + player.userId;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.webApp('📺 Ver Anuncio y Reclamar Bono', miniAppUrl)],
+    [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+  ]);
+
+  return { text, keyboard };
+}
+
 // ==========================================
 // ENTRADA DE TEXTO
 // ==========================================
@@ -432,7 +481,6 @@ bot.on('text', async (ctx, next) => {
     await player.save();
     await recruiter.save();
 
-    // 📢 Notificación al grupo
     try {
       await bot.telegram.sendMessage(
         LOGS_GROUP_ID,
@@ -469,8 +517,8 @@ bot.on('text', async (ctx, next) => {
   if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
     adminFlags.broadcastWaiting = false;
     const broadcastMsg = `⚡🌌 *Súbitamente, un estruendo sacude los confines de Abyss...*\n` +
-                         `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
-                         `"${textMsg}"`;
+                          `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
+                          `"${textMsg}"`;
     await broadcastToAll(bot, Player, broadcastMsg);
     return await ctx.reply('✅ Mensaje transmitido a todos.');
   }
@@ -614,6 +662,20 @@ bot.hears('🏆 Salón de la Fama', async (ctx) => {
       [Markup.button.callback('⬅️ Volver', 'status')]
     ])
   });
+});
+
+bot.hears('🎁 Bono Diario', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.isVerified && ctx.from.id !== ADMIN_ID) return ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
+  const view = getDailyBonusView(player);
+  await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('menu_daily_bonus', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const view = getDailyBonusView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('status', async (ctx) => {
@@ -1235,7 +1297,6 @@ bot.action(/mkt_buy_(.+)/, async (ctx) => {
     const res = await buyListing(listingId, ctx.from.id);
     await safeAnswerCb(ctx, res.msg, true);
 
-    // 📢 Mensaje privado y aviso directo al vendedor
     if (res.success && res.sellerId) {
       try {
         await bot.telegram.sendMessage(
