@@ -1,4 +1,3 @@
-
 // handlers/dungeonHandler.js
 const { Markup } = require('telegraf');
 const DUNGEONS = require('../dungeons');
@@ -33,6 +32,7 @@ function rollDungeonDrops(dungeon, player, recordDrop) {
 
 function resolveExpeditionCombat(p, dungeon, recordDrop) {
   p.onMissionUntil = 0;
+  p.currentDungeonKey = null;
   p.potionsUsedInMission = 0;
   const enemy = dungeon.enemies[Math.floor(Math.random() * dungeon.enemies.length)];
   const roll = Math.random();
@@ -180,6 +180,10 @@ function registerDungeonHandlers(bot, deps) {
       const player = await getPlayer(userId, ctx.from.first_name);
       const dungeon = DUNGEONS[dungeonKey];
 
+      if (!dungeon) {
+        return await safeAnswerCb(ctx, '⚠️ Destino no encontrado.', true);
+      }
+
       if (player.knockedOutUntil && Date.now() < player.knockedOutUntil) {
         const remainingSec = Math.ceil((player.knockedOutUntil - Date.now()) / 1000);
         return await safeAnswerCb(ctx, `💀 Sigues inconsciente. Espera ${formatHoursMinutes(remainingSec)}.`, true);
@@ -200,6 +204,7 @@ function registerDungeonHandlers(bot, deps) {
 
       player.energy -= dungeon.cost;
       player.onMissionUntil = Date.now() + (dungeon.travelSec * 1000);
+      player.currentDungeonKey = dungeonKey;
       player.potionsUsedInMission = 0;
       await player.save();
       await safeAnswerCb(ctx);
@@ -212,8 +217,11 @@ function registerDungeonHandlers(bot, deps) {
       setTimeout(async () => {
         try {
           const p = await Player.findOne({ userId });
-          if (p && p.onMissionUntil > 0) {
-            const resultMsg = resolveExpeditionCombat(p, dungeon, recordDrop);
+          if (p && p.onMissionUntil > 0 && Date.now() >= p.onMissionUntil) {
+            const activeKey = p.currentDungeonKey || dungeonKey;
+            const targetDungeon = DUNGEONS[activeKey] || dungeon;
+
+            const resultMsg = resolveExpeditionCombat(p, targetDungeon, recordDrop);
             await p.save();
             await creditReferralBonus(userId, p.gold);
 
