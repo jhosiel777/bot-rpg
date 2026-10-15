@@ -770,6 +770,7 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
   bounty.status = 'completed';
   bounty.enemyCurrentHp = 0;
+  player.bountiesCompletedCount = (player.bountiesCompletedCount || 0) + 1;
 
   const rewardReport = applyBountyRewards(player, bounty);
   await player.save();
@@ -829,21 +830,17 @@ function applyBountyRewards(player, bounty) {
   let finalExp = 0;
 
   if (bounty.tierKey === 'tier1' || bounty.tierKey === 'tier2') {
-    // Máximo 1 nivel y medio (hasta 150%)
     const minRatio = bounty.tierKey === 'tier1' ? 0.70 : 0.90;
     const maxRatio = 1.50;
     const randomRatio = minRatio + (Math.random() * (maxRatio - minRatio));
     finalExp = Math.round(reqCurrent * randomRatio);
   } else if (bounty.tierKey === 'tier3') {
-    // Entre 50% y 101% (máximo 1 nivel completo)
     const randomRatio = 0.50 + (Math.random() * (1.01 - 0.50));
     finalExp = Math.round(reqCurrent * randomRatio);
   } else if (bounty.tierKey === 'tier4') {
-    // Entre 20% y 50%
     const randomRatio = 0.20 + (Math.random() * (0.50 - 0.20));
     finalExp = Math.round(reqCurrent * randomRatio);
   } else if (bounty.tierKey === 'tier5') {
-    // Entre 20% y 40%
     const randomRatio = 0.20 + (Math.random() * (0.40 - 0.20));
     finalExp = Math.round(reqCurrent * randomRatio);
   } else {
@@ -963,6 +960,8 @@ async function executeManualBountyAttack(ctx, bot) {
 
   if (bounty.enemyCurrentHp <= 0) {
     bounty.status = 'completed';
+    player.bountiesCompletedCount = (player.bountiesCompletedCount || 0) + 1;
+
     const rewardReport = applyBountyRewards(player, bounty);
     await player.save();
     await bounty.save();
