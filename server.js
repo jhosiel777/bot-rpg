@@ -24,15 +24,15 @@ async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
   let inlineKeyboard = null;
 
   if (player.tonWalletAddress) {
-    walletDisplay = `\`${player.tonWalletAddress}\``;
+    walletDisplay = '`' + player.tonWalletAddress + '`';
     const url = 'https://tonviewer.com/' + player.tonWalletAddress;
-    tonviewerLink = `\n🔍 [Ver en Tonviewer](\${url})`;
+    tonviewerLink = '\n🔍 [Ver en Tonviewer](' + url + ')';
     inlineKeyboard = Markup.inlineKeyboard([
       [Markup.button.url('🔍 Ver en Tonviewer (Billetera)', url)]
     ]);
   }
 
-  const hashDisplay = txHash ? `\`${txHash}\`` : '`N/A`';
+  const hashDisplay = txHash ? '`' + txHash + '`' : '`N/A`';
 
   const logText = '💎 *¡NUEVA COMPRA DETECTADA!* 💎\n\n' +
                   '👤 *Aventurero:* ' + player.name + '\n' +
@@ -496,6 +496,135 @@ function startServer(bot) {
     } catch (err) {
       console.error('Error en /confirm-ancestral-gem:', err);
       return res.status(500).json({ success: false, msg: 'Error procesando la entrega.' });
+    }
+  });
+
+  // ==========================================
+  // PANTALLA: TEST DE TRANSACCIÓN (/test-pay)
+  // ==========================================
+  app.get('/test-pay', async (req, res) => {
+    const userId = req.query.userId || '';
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Modo Creador - Test TON</title>
+      <script src="https://telegram.org/js/telegram-web-app.js"></script>
+      <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+      <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f1f5f9; padding: 20px; text-align: center; }
+        .card { background: #1e293b; border: 1px dashed #f59e0b; padding: 24px; border-radius: 16px; max-width: 380px; margin: 40px auto; }
+        .btn-test { background: #f59e0b; color: #000; font-weight: bold; padding: 14px 20px; border: none; border-radius: 12px; cursor: pointer; width: 100%; display: none; }
+        .status-box { background: #020617; border: 1px solid #334155; border-radius: 10px; padding: 12px; font-size: 13px; margin-top: 14px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div style="font-size: 48px;">🧪⚡</div>
+        <h2>Test de Pago (0.011 TON)</h2>
+        <p>Prueba de depósitos Web3 en producción.</p>
+        <div id="ton-connect-btn" style="margin-bottom: 14px;"></div>
+        <button id="payTestBtn" class="btn-test" onclick="sendTestPayment()">Enviar 0.011 TON</button>
+        <div id="statusText" class="status-box">Conecta tu billetera para autorizar el test.</div>
+      </div>
+
+      <script>
+        const tg = window.Telegram?.WebApp;
+        if (tg) tg.expand();
+        let userId = '${userId}';
+        if (!userId && tg?.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+
+        const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+          manifestUrl: 'https://bot-rpg-wu42.onrender.com/tonconnect-manifest.json',
+          buttonRootId: 'ton-connect-btn'
+        });
+
+        const payBtn = document.getElementById('payTestBtn');
+        const statusText = document.getElementById('statusText');
+
+        tonConnectUI.onStatusChange((wallet) => {
+          if (wallet) {
+            payBtn.style.display = 'block';
+            statusText.innerText = 'Billetera conectada: ' + wallet.account.address.slice(0, 6) + '...';
+          } else {
+            payBtn.style.display = 'none';
+            statusText.innerText = 'Conecta tu billetera para autorizar el test.';
+          }
+        });
+
+        async function sendTestPayment() {
+          payBtn.disabled = true;
+          statusText.innerText = 'Abriendo tu billetera...';
+
+          const transaction = {
+            validUntil: Math.floor(Date.now() / 1000) + 360,
+            messages: [
+              {
+                address: '${ADMIN_WALLET_ADDRESS}',
+                amount: '11000000' // 0.011 TON en nanotons
+              }
+            ]
+          };
+
+          try {
+            const result = await tonConnectUI.sendTransaction(transaction);
+            statusText.innerText = 'Firmado. Enviando registro de test al servidor...';
+            const userWallet = tonConnectUI.account?.address || '';
+
+            const res = await fetch('/confirm-test-pay', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: userId,
+                boc: result.boc,
+                amount: '0.011',
+                walletAddress: userWallet
+              })
+            });
+
+            const data = await res.json();
+            alert(data.msg || 'Test finalizado.');
+            if (tg) tg.close();
+          } catch (err) {
+            console.error('Error:', err);
+            statusText.innerText = 'Transacción de test cancelada.';
+            payBtn.disabled = false;
+          }
+        }
+      </script>
+    </body>
+    </html>
+    `;
+    res.send(html);
+  });
+
+  // Endpoint para registrar el pago de prueba y emitir el log
+  app.post('/confirm-test-pay', async (req, res) => {
+    try {
+      const { userId, boc, amount, walletAddress } = req.body;
+      const uid = parseInt(userId, 10);
+      const player = await Player.findOne({ userId: uid });
+
+      if (player && walletAddress) {
+        player.tonWalletAddress = walletAddress;
+        await player.save();
+      }
+
+      // Enviar log con el nombre de producto "Test xd"
+      await sendPaymentLog(bot, {
+        player: player || { name: 'Admin', userId: uid, tonWalletAddress: walletAddress },
+        productName: 'Test xd',
+        amount: amount || '0.011',
+        txHash: boc ? boc.slice(0, 32) + '...' : null
+      });
+
+      return res.json({ success: true, msg: '¡Test de 0.011 TON procesado y log emitido!' });
+    } catch (err) {
+      console.error('Error en /confirm-test-pay:', err);
+      return res.status(500).json({ success: false, msg: 'Error al emitir el log de prueba.' });
     }
   });
 
