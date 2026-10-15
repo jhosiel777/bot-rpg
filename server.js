@@ -2,6 +2,9 @@ const express = require('express');
 const https = require('https');
 const path = require('path');
 const { Markup } = require('telegraf');
+const { mnemonicToPrivateKey } = require('@ton/crypto');
+const { TonClient, WalletContractV4, internal, toNano } = require('@ton/ton');
+
 const {
   Player,
   MAX_ENERGY,
@@ -13,6 +16,41 @@ const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 
 const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
 const LOGS_GROUP_ID = -1004496297432;
+
+// Función para transferir TON automáticamente desde la wallet v4R2 del bot
+async function transferTonFromBot(toAddress, amountTon) {
+  const mnemonic = process.env.BOT_WALLET_MNEMONIC;
+  if (!mnemonic) {
+    throw new Error('BOT_WALLET_MNEMONIC no está configurado en las variables de entorno.');
+  }
+
+  const client = new TonClient({
+    endpoint: 'https://toncenter.com/api/v2/jsonRPC'
+  });
+
+  const words = mnemonic.trim().split(/\s+/);
+  const keyPair = await mnemonicToPrivateKey(words);
+  const workchain = 0;
+  const wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
+
+  const walletContract = client.open(wallet);
+  const seqno = await walletContract.getSeqno();
+
+  await walletContract.sendTransfer({
+    secretKey: keyPair.secretKey,
+    seqno: seqno,
+    messages: [
+      internal({
+        to: toAddress,
+        value: toNano(amountTon.toString()),
+        bounce: false,
+        body: 'Pago automático - Abyss RPG'
+      })
+    ]
+  });
+
+  return true;
+}
 
 // Función dinámica para reportar pagos al grupo de logs
 async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
@@ -624,6 +662,56 @@ function startServer(bot) {
     } catch (err) {
       console.error('Error en /confirm-test-pay:', err);
       return res.status(500).json({ success: false, msg: 'Error al emitir el log de prueba.' });
+    }
+  });
+
+  // ==========================================
+  // ENDPOINT: PAGO AUTOMÁTICO DE PRUEBA (BOT -> ADMIN)
+  // ==========================================
+  app.post('/send-ton-payout', async (req, res) => {
+    try {
+      const { userId, toAddress, amountTon } = req.body;
+      const ADMIN_ID = 835648800;
+
+      if (parseInt(userId, 10) !== ADMIN_ID) {
+        return res.status(403).json({ success: false, msg: 'Acceso no autorizado.' });
+      }
+
+      if (!toAddress) {
+        return res.status(400).json({ success: false, msg: 'Dirección de destino faltante.' });
+      }
+
+      const payoutAmount = amountTon || 0.005;
+      await transferTonFromBot(toAddress, payoutAmount);
+
+      const now = new Date();
+      const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
+
+      // Reportar al canal de logs
+      try {
+        await bot.telegram.sendMessage(
+          LOGS_GROUP_ID,
+          `📤 *¡PAGO AUTOMÁTICO EMITIDO (TEST)!* 📤\n\n` +
+          `👤 *Destinatario:* Administrador\n` +
+          `💳 *Billetera:* \`\${toAddress}\`\n` +
+          `💰 *Monto Enviado:* ${payoutAmount} TON\n` +
+          `⏰ *Fecha y Hora:* ${fechaHoraUtc} UTC\n\n` +
+          `🔍 [Ver en Tonviewer](https://tonviewer.com/${toAddress})`,
+          {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+              [Markup.button.url('🔍 Ver en Tonviewer', `https://tonviewer.com/${toAddress}`)]
+            ])
+          }
+        );
+      } catch (logErr) {
+        console.error('Error enviando log de payout:', logErr.message);
+      }
+
+      return res.json({ success: true, msg: 'Transferencia emitida exitosamente.' });
+    } catch (err) {
+      console.error('Error en /send-ton-payout:', err);
+      return res.status(500).json({ success: false, msg: err.message });
     }
   });
 
