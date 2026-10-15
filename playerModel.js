@@ -83,6 +83,13 @@ const playerSchema = new mongoose.Schema({
   lastAdClaimDate: { type: String, default: '' },
   totalAdsClaimed: { type: Number, default: 0 },
 
+  // Sistema Económico Web3 (Off-Chain)
+  gram: { type: Number, default: 0 },
+
+  // Estadísticas PvP
+  pvpWins: { type: Number, default: 0 },
+  pvpLosses: { type: Number, default: 0 },
+
   // Reclutamiento / Referidos
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: Number, default: null },
