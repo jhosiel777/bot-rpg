@@ -50,6 +50,7 @@ const playerSchema = new mongoose.Schema({
   statPoints: { type: Number, default: 0 },
   lastRestTime: { type: Number, default: 0 },
   onMissionUntil: { type: Number, default: 0 },
+  currentDungeonKey: { type: String, default: 'bosque' },
   potionsUsedInMission: { type: Number, default: 0 },
   knockedOutUntil: { type: Number, default: 0 },
 
