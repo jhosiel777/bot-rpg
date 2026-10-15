@@ -628,7 +628,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // PANTALLA DE ANUNCIO: BONO DIARIO (2 ANUNCIOS EN SECUENCIA)
+  // PANTALLA DE ANUNCIO: BONO DIARIO (2 PASOS MANUALES)
   // ==========================================
   app.get('/ad-daily', async (req, res) => {
     const userId = req.query.userId || '';
@@ -714,12 +714,12 @@ function startServer(bot) {
 
         <div class="icon">🎁✨</div>
         <h2>Bono Diario del Reino</h2>
-        <p>
+        <p id="descText">
           Mira 2 breves anuncios patrocinados para respaldar el desarrollo de Abyss y recibir tu botín diario.
         </p>
 
-        <button class="btn" id="watchBtn" onclick="startDailyAds()">📺 Ver Anuncios (0/2)</button>
-        <div class="footer-note">Al finalizar ambos anuncios se acreditará tu recompensa automáticamente.</div>
+        <button class="btn" id="watchBtn" onclick="watchStepAd()">📺 Ver Anuncio (1/2)</button>
+        <div class="footer-note" id="noteText">Mira el primer anuncio para avanzar en la barra.</div>
       </div>
 
       <script>
@@ -730,6 +730,9 @@ function startServer(bot) {
         if (!userId && tg?.initDataUnsafe?.user?.id) {
           userId = tg.initDataUnsafe.user.id;
         }
+
+        let adsWatched = 0;
+        const totalAds = 2;
 
         async function triggerDailyClaim() {
           const btn = document.getElementById('watchBtn');
@@ -749,45 +752,47 @@ function startServer(bot) {
             } else {
               alert(data.msg || 'No se pudo reclamar el bono.');
               btn.disabled = false;
-              btn.innerText = 'Intentar de nuevo';
+              btn.innerText = 'Reintentar Reclamo';
             }
           } catch (err) {
             alert('Error conectando con el servidor.');
             btn.disabled = false;
-            btn.innerText = 'Reintentar';
+            btn.innerText = 'Reintentar Reclamo';
           }
         }
 
-        async function startDailyAds() {
+        async function watchStepAd() {
           const btn = document.getElementById('watchBtn');
           btn.disabled = true;
 
           if (typeof show_12000502 !== 'function') {
-            alert('El proveedor de anuncios aún se está iniciando. Espera unos segundos.');
+            alert('El proveedor de anuncios se está cargando. Espera unos segundos.');
             btn.disabled = false;
             return;
           }
 
           try {
-            for (let i = 1; i <= 2; i++) {
-              btn.innerText = 'Viendo anuncio ' + i + ' de 2...';
-              await show_12000502();
+            btn.innerText = 'Cargando anuncio...';
+            await show_12000502();
 
-              const bar = document.getElementById('bar-' + i);
-              if (bar) bar.classList.add('completed');
+            adsWatched++;
+            const bar = document.getElementById('bar-' + adsWatched);
+            if (bar) bar.classList.add('completed');
 
-              if (i < 2) {
-                btn.innerText = 'Cargando segundo anuncio...';
-                await new Promise(r => setTimeout(r, 700));
-              }
+            if (adsWatched < totalAds) {
+              btn.disabled = false;
+              btn.innerText = '📺 Ver Anuncio (2/2)';
+              document.getElementById('noteText').innerText = '¡Falta 1 anuncio! Toca para ver el último.';
+            } else {
+              btn.innerText = '¡Completado! Entregando botín...';
+              document.getElementById('noteText').innerText = '¡Secuencia completada con éxito!';
+              await triggerDailyClaim();
             }
-
-            await triggerDailyClaim();
           } catch (err) {
-            console.error('Error en secuencia de anuncios:', err);
-            alert('Debes ver los 2 anuncios completos para recibir el bono.');
+            console.error('Error al ver anuncio:', err);
+            alert('Debes ver el anuncio completo para avanzar.');
             btn.disabled = false;
-            btn.innerText = 'Reintentar';
+            btn.innerText = adsWatched === 0 ? '📺 Ver Anuncio (1/2)' : '📺 Ver Anuncio (2/2)';
           }
         }
       </script>
