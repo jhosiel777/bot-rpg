@@ -59,6 +59,10 @@ const playerSchema = new mongoose.Schema({
   potionsEnergyDrink: { type: Number, default: 0 },
   potionsDragonBlood: { type: Number, default: 0 },
 
+  // Botin Diario
+  dailyStreak: { type: Number, default: 0 },
+  lastDailyClaimDate: { type: String, default: null },
+
   // Anuncios
   adsClaimedToday: { type: Number, default: 0 },
   lastAdClaimDate: { type: String, default: '' },
