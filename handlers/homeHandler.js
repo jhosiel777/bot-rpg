@@ -98,7 +98,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
                  `💳 *Billetera conectada:* ${walletDisplay}\n\n` +
                  '¿Qué deseas gestionar?';
 
-const ADMIN_ID = 835648800;
+    const ADMIN_ID = 835648800;
     const isOwner = (ctx.from.id === ADMIN_ID);
 
     const buttons = [
@@ -106,10 +106,11 @@ const ADMIN_ID = 835648800;
       [Markup.button.callback('🎖️ Títulos Honoríficos', 'home_titles')]
     ];
 
-    // Botón visible exclusivamente para ti
+    // Botones de prueba exclusivos para ti (Owner)
     if (isOwner) {
-      const testUrl = 'https://bot-rpg-wu42.onrender.com/test-pay?userId=' + player.userId;
-      buttons.push([Markup.button.webApp('🧪 Test Transacción (0.011 TON)', testUrl)]);
+      const testBuyUrl = 'https://bot-rpg-wu42.onrender.com/test-pay?userId=' + player.userId;
+      buttons.push([Markup.button.webApp('🧪 Test Compra (0.011 TON)', testBuyUrl)]);
+      buttons.push([Markup.button.callback('💸 Test Pago Bot (0.005 TON)', 'admin_test_payout')]);
     }
 
     buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
@@ -118,6 +119,38 @@ const ADMIN_ID = 835648800;
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     });
+  });
+
+  // Listener para ejecutar el pago de prueba desde la wallet del bot
+  bot.action('admin_test_payout', async (ctx) => {
+    const ADMIN_ID = 835648800;
+    if (ctx.from.id !== ADMIN_ID) {
+      return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
+    }
+
+    await safeAnswerCb(ctx, 'Enviando pago de prueba...');
+    await ctx.reply('⏳ *Iniciando transferencia de 0.005 TON desde la billetera del bot hacia tu wallet personal...*', { parse_mode: 'Markdown' });
+
+    try {
+      const res = await fetch('https://bot-rpg-wu42.onrender.com/send-ton-payout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: ctx.from.id,
+          toAddress: 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O',
+          amountTon: 0.005
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        await ctx.reply(`✅ *¡Transferencia completada!*\n\nEl bot envió exitosamente *0.005 TON* a tu billetera personal.\nRevisa el grupo de registros.`, { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(`❌ *Error al transferir:* ${data.msg || 'Fallo desconocido'}`);
+      }
+    } catch (err) {
+      await ctx.reply(`❌ Error de comunicación con el servidor: ${err.message}`);
+    }
   });
 
   // Información y vinculación de Wallet TON
