@@ -11,6 +11,30 @@ const {
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 
 const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
+const LOGS_GROUP_ID = -1004496297432;
+
+// Función dinámica para reportar pagos al grupo de logs
+async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
+  const now = new Date();
+  const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
+  const walletDisplay = player.tonWalletAddress ? `\`${player.tonWalletAddress}\`` : '`No vinculada`';
+  const hashDisplay = txHash ? `\`${txHash}\`` : '`N/A`';
+
+  const logText = `💎 *¡NUEVA COMPRA DETECTADA!* 💎\n\n` +
+                  `👤 *Aventurero:* ${player.name}\n` +
+                  `🆔 *ID de Telegram:* \`\${player.userId}\`\n` +
+                  `💳 *Billetera:* ${walletDisplay}\n` +
+                  `📦 *Artículo:* ${productName}\n` +
+                  `💰 *Monto Pagado:* ${amount} TON\n` +
+                  `🔗 *Hash / TxID:* ${hashDisplay}\n` +
+                  `⏰ *Fecha y Hora:* ${fechaHoraUtc} UTC`;
+
+  try {
+    await bot.telegram.sendMessage(LOGS_GROUP_ID, logText, { parse_mode: 'Markdown' });
+  } catch (err) {
+    console.error('Error enviando log de compra a Telegram:', err.message);
+  }
+}
 
 function startServer(bot) {
   const app = express();
@@ -357,7 +381,7 @@ function startServer(bot) {
             const res = await fetch('/confirm-ancestral-gem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: userId, boc: result.boc })
+              body: JSON.stringify({ userId: userId, boc: result.boc, amount: '0.15' })
             });
 
             const data = await res.json();
@@ -385,7 +409,7 @@ function startServer(bot) {
   // Endpoint para acreditar la Gema Ancestral (+2 ⚡) y el Título
   app.post('/confirm-ancestral-gem', async (req, res) => {
     try {
-      const { userId } = req.body;
+      const { userId, boc, amount } = req.body;
       if (!userId) {
         return res.status(400).json({ success: false, msg: 'ID de usuario ausente.' });
       }
@@ -411,6 +435,14 @@ function startServer(bot) {
       player.activeTitle = 'Mecenas de Abyss';
 
       await player.save();
+
+      // Envío de log dinámico al grupo de registros
+      await sendPaymentLog(bot, {
+        player,
+        productName: 'Gema Ancestral (+2 ⚡ y Título «Mecenas de Abyss»)',
+        amount: amount || '0.15',
+        txHash: boc ? boc.slice(0, 32) + '...' : null
+      });
 
       try {
         await bot.telegram.sendMessage(
@@ -763,7 +795,7 @@ function startServer(bot) {
               alert(data.msg);
               const counter = document.getElementById('bountyCounter');
               if (counter) {
-                const currentCount = parseInt(counter.innerText.match(/\\d+/)?.[0] || '0', 10);
+                const currentCount = parseInt(counter.innerText.match(/\d+/)?.[0] || '0', 10);
                 const nextCount = Math.min(2, currentCount + 1);
                 counter.innerText = 'Anuncios hoy: ' + nextCount + ' / 2';
               }
