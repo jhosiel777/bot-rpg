@@ -309,7 +309,6 @@ async function getPlayer(userId, name = 'Aventurero') {
       needsSave = true;
     }
 
-    // Comprobamos la regeneración y guardamos directamente
     if (player.checkAndRegenEnergy()) {
       needsSave = true;
     }
@@ -359,6 +358,10 @@ module.exports = {
   recordDrop,
   getGlobalStats,
   creditReferralBonus,
+  getTodayUtc,
+  getYesterdayUtc,
+  getTimeUntilMidnightUtc,
+  getDailyReward,
   MAX_LEVEL,
   MAX_STAT,
   MAX_BASE_HP,
