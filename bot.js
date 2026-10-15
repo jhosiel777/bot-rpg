@@ -612,7 +612,7 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 bot.hears('⚔️ Estado', async (ctx) => {
@@ -1206,4 +1206,276 @@ bot.action('boss_use_pot_small', async (ctx) => {
 bot.action('boss_use_pot_medium', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.potionsMedium || player.potionsMedium <= 0) return await safeAnswerCb(ctx, 'Sin pociones.', true);
-  if (player.hp >= player.max
+  if (player.hp >= player.maxHp) return await safeAnswerCb(ctx, 'Salud al máximo.', true);
+  player.potionsMedium -= 1;
+  player.hp = Math.min(player.maxHp, player.hp + 35);
+  await player.save();
+  await safeAnswerCb(ctx, '+35 HP');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_pot_energy', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+  if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  player.potionsEnergy -= 1;
+  player.energy = Math.min(playerMaxEnergy, player.energy + 1);
+  await player.save();
+  await safeAnswerCb(ctx, '+1⚡ Energía');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_energy_drink', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+  if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  player.potionsEnergyDrink -= 1;
+  player.energy = Math.min(playerMaxEnergy, player.energy + 2);
+  await player.save();
+  await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+bot.action('boss_use_dragon_blood', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin sangre de dragón.', true);
+  player.potionsDragonBlood -= 1;
+  player.hp = player.maxHp;
+  player.knockedOutUntil = 0;
+  await player.save();
+  await safeAnswerCb(ctx, '🩸 Salud restaurada al 100%.', true);
+  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
+});
+
+// ==========================================
+// MERCADO P2P
+// ==========================================
+bot.action('menu_market', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const userId = ctx.from.id;
+  pendingMarketSales.delete(userId);
+  const { text, listings } = await getMarketView(userId);
+  const buttons = [];
+
+  listings.forEach((item, idx) => {
+    const idStr = String(item._id);
+    if (String(item.sellerId) === String(userId)) {
+      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
+    } else {
+      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+    }
+  });
+
+  buttons.push([
+    Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'),
+    Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')
+  ]);
+  buttons.push([
+    Markup.button.callback('🔄 Actualizar', 'menu_market'),
+    Markup.button.callback('⬅️ Volver', 'status')
+  ]);
+
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action('mkt_trends', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const text = await getMarketTrendsView();
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Actualizar', 'mkt_trends')],
+    [Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]
+  ]);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action('mkt_sell_menu', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const userId = ctx.from.id;
+  pendingMarketSales.delete(userId);
+
+  const player = await getPlayer(userId, ctx.from.first_name);
+  const buttons = [];
+
+  for (const key in ITEMS) {
+    const it = ITEMS[key];
+    const count = player[it.field] || 0;
+    if (count > 0) {
+      buttons.push([Markup.button.callback(`${it.name} (x${count})`, `mkt_prep_${it.id}`)]);
+    }
+  }
+
+  if (!buttons.length) {
+    return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nNo tienes ningún objeto para vender.', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]])
+    });
+  }
+
+  buttons.push([Markup.button.callback('⬅️ Cancelar', 'menu_market')]);
+  return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nSelecciona el objeto:', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard(buttons)
+  });
+});
+
+Object.keys(ITEMS).forEach((key) => {
+  const item = ITEMS[key];
+  bot.action(`mkt_prep_${item.id}`, async (ctx) => {
+    await safeAnswerCb(ctx);
+    const userId = ctx.from.id;
+    const bounds = getItemBounds(item.id);
+    pendingMarketSales.set(userId, item.id);
+
+    const text = `📦 *Vender: ${item.name}*\n\n` +
+                 `• Precio base: *${bounds.basePrice}g*\n` +
+                 `• Rango permitido: *${bounds.minPrice}g* a *${bounds.maxPrice}g*\n` +
+                 `• Comisión: 8%\n\n` +
+                 `💬 *Escribe en el chat el precio en oro:*`;
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'mkt_sell_menu')]])
+    });
+  });
+});
+
+bot.action(/mkt_buy_(.+)/, async (ctx) => {
+  try {
+    const listingId = ctx.match[1];
+    const res = await buyListing(listingId, ctx.from.id);
+    await safeAnswerCb(ctx, res.msg, true);
+
+    if (res.success && res.sellerId) {
+      try {
+        await bot.telegram.sendMessage(
+          res.sellerId,
+          `💰 *¡Tu oferta fue vendida en el mercado!*\n\n` +
+          `📦 Objeto: *${res.itemName}*\n` +
+          `🪙 Ganancia neta: *+${res.sellerProfit}g* _(comisión del 8% descontada)_.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (err) {
+        console.error('No se pudo enviar notificación al vendedor:', err.message);
+      }
+    }
+
+    const { text, listings } = await getMarketView(ctx.from.id);
+    const buttons = [];
+    listings.forEach((item, idx) => {
+      const idStr = String(item._id);
+      if (String(item.sellerId) === String(ctx.from.id)) {
+        buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
+      } else {
+        buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+      }
+    });
+    buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+    buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  } catch (err) {
+    console.error('Error en mkt_buy:', err);
+    await safeAnswerCb(ctx, 'Error al procesar la compra.', true);
+  }
+});
+
+bot.action(/mkt_del_(.+)/, async (ctx) => {
+  const listingId = ctx.match[1];
+  const res = await cancelListing(listingId, ctx.from.id);
+  await safeAnswerCb(ctx, res.msg, true);
+  const { text, listings } = await getMarketView(ctx.from.id);
+  const buttons = [];
+  listings.forEach((item, idx) => {
+    const idStr = String(item._id);
+    if (String(item.sellerId) === String(ctx.from.id)) {
+      buttons.push([Markup.button.callback(`❌ Cancelar #${idx + 1} (${item.itemName})`, `mkt_del_${idStr}`)]);
+    } else {
+      buttons.push([Markup.button.callback(`🛒 Comprar #${idx + 1} (${item.price}g)`, `mkt_buy_${idStr}`)]);
+    }
+  });
+  buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
+  buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+// ==========================================
+// REFERIDOS Y RANKING (CON TÍTULO ACTIVO)
+// ==========================================
+bot.action('menu_referrals', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const view = getReferralView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('claim_referral_gold', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const claimed = player.claimReferralGold();
+  if (claimed <= 0) return await safeAnswerCb(ctx, 'No tienes oro pendiente.', true);
+  await player.save();
+  await safeAnswerCb(ctx, `💰 ¡Reclamaste +${claimed}g!`, true);
+  const view = getReferralView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('menu_ranking', async (ctx) => {
+  await safeAnswerCb(ctx);
+  const topPlayers = await Player.find({ isVerified: true }).sort({ level: -1, exp: -1 }).limit(10);
+  let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
+  topPlayers.forEach((p, idx) => {
+    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+    const titlePart = p.activeTitle ? `«${p.activeTitle}» ` : '';
+    text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+  });
+
+  return await safeEditMessage(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
+      [Markup.button.callback('⬅️ Volver', 'status')]
+    ])
+  });
+});
+
+bot.command(['top', 'ranking'], async (ctx) => {
+  const topPlayers = await Player.find({ isVerified: true }).sort({ level: -1, exp: -1 }).limit(10);
+  let text = '🏆 *SALÓN DE LA FAMA (TOP 10)* 🏆\n\n';
+  topPlayers.forEach((p, idx) => {
+    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+    const titlePart = p.activeTitle ? `«${p.activeTitle}» ` : '';
+    text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
+  });
+
+  return await ctx.reply(text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Ir al Menú', 'status')]])
+  });
+});
+
+// ==========================================
+// CONTROL DE ERRORES Y ARRANQUE
+// ==========================================
+bot.catch((err, ctx) => {
+  console.error(`Error controlado (${ctx?.updateType}):`, err.message);
+});
+
+async function startBotWithRetry(retries = 5, delayMs = 4000) {
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    await bot.launch({ dropPendingUpdates: true });
+    console.log('✅ Bot conectado con éxito a Telegram');
+  } catch (err) {
+    if (err.response?.error_code === 409 && retries > 0) {
+      setTimeout(() => startBotWithRetry(retries - 1, delayMs), delayMs);
+    } else {
+      console.error('Error al lanzar Telegraf:', err.message);
+    }
+  }
+}
+
+startBotWithRetry();
+
+const safeStop = (signal) => { try { bot.stop(signal); } catch (e) {} };
+process.once('SIGINT', () => safeStop('SIGINT'));
+process.once('SIGTERM', () => safeStop('SIGTERM'));
