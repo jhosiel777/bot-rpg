@@ -58,6 +58,11 @@ const playerSchema = new mongoose.Schema({
   hasEnergyGem2: { type: Boolean, default: false },
   hasAncestralGem: { type: Boolean, default: false },
 
+  // TON Wallet y Títulos
+  tonWalletAddress: { type: String, default: '' },
+  activeTitle: { type: String, default: 'Aventurero Novato' },
+  unlockedTitles: { type: [String], default: ['Aventurero Novato'] },
+
   // Inventario
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
@@ -198,6 +203,33 @@ playerSchema.methods.claimReferralGold = function() {
   return totalToClaim;
 };
 
+// Validación y auto-reparación de gemas y títulos comprados
+playerSchema.methods.checkAndRepairPurchases = function() {
+  let modified = false;
+
+  // Cálculo matemático del tope teórico de energía según las gemas que posee
+  let expectedMax = 10;
+  if (this.hasEnergyGem1) expectedMax += 1;
+  if (this.hasEnergyGem2) expectedMax += 1;
+  if (this.hasAncestralGem) expectedMax += 2;
+
+  if (!this.maxEnergy || this.maxEnergy < expectedMax) {
+    this.maxEnergy = expectedMax;
+    modified = true;
+  }
+
+  // Garantizar que si tiene la gema ancestral, posea el título Mecenas de Abyss
+  if (this.hasAncestralGem) {
+    if (!this.unlockedTitles) this.unlockedTitles = ['Aventurero Novato'];
+    if (!this.unlockedTitles.includes('Mecenas de Abyss')) {
+      this.unlockedTitles.push('Mecenas de Abyss');
+      modified = true;
+    }
+  }
+
+  return modified;
+};
+
 const Player = mongoose.model('Player', playerSchema);
 
 // --- FUNCIONES DEL BONO DIARIO (UTC) ---
@@ -312,6 +344,10 @@ async function getPlayer(userId, name = 'Aventurero') {
 
     if (!player.referralCode) {
       player.referralCode = await generateUniqueReferralCode();
+      needsSave = true;
+    }
+
+    if (player.checkAndRepairPurchases()) {
       needsSave = true;
     }
 
