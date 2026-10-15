@@ -62,6 +62,7 @@ const {
 const { registerDungeonHandlers } = require('./handlers/dungeonHandler');
 const { registerAdminHandlers } = require('./handlers/adminHandler');
 const { registerBossHandlers } = require('./handlers/bossHandler');
+const { registerTavernHandlers } = require('./handlers/tavernHandler');
 const { startBackgroundSchedulers } = require('./utils/schedulers');
 
 const ADMIN_ID = 835648800;
@@ -116,9 +117,9 @@ bot.use(async (ctx, next) => {
   }
 
   const maintMsg = '🚧 *REINO EN RECONSTRUCCIÓN* 🚧\n\n' +
-                   'Las puertas de Abyss están cerradas en este momento debido a labores de reconstrucción.\n\n' +
-                   '⏳ *No puedes acceder en este instante. Por favor, regresa más tarde.*\n' +
-                   '🛡️ _Tus datos y progresos se encuentran totalmente a salvo._';
+                    'Las puertas de Abyss están cerradas en este momento debido a labores de reconstrucción.\n\n' +
+                    '⏳ *No puedes acceder en este instante. Por favor, regresa más tarde.*\n' +
+                    '🛡️ _Tus datos y progresos se encuentran totalmente a salvo._';
 
   if (ctx.callbackQuery) {
     try {
@@ -181,6 +182,11 @@ const bossController = registerBossHandlers(bot, {
   adminFlags
 });
 
+registerTavernHandlers(bot, {
+  Player,
+  getPlayer
+});
+
 // ==========================================
 // TECLADOS Y VISTAS BASE
 // ==========================================
@@ -210,12 +216,13 @@ async function getStatusView(player) {
 
   const reqExp = getRequiredExp(player.level);
   const restSecLeft = getRestTimeRemaining(player);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
   let text = `⚔️ Aventurero: ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
              `🔮 EXP: ${player.exp}/${reqExp}\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n` +
+             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n` +
              `💰 Oro: ${player.gold}\n\n`;
 
   if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
@@ -364,6 +371,15 @@ function getShopView(player) {
     if (item.npcSell === false) continue;
     text += `• ${item.name} — 💰 ${item.cost} oro\n  _${item.desc}_\n\n`;
     buttons.push([Markup.button.callback(`Comprar ${item.name} (${item.cost}g)`, `buy_${item.id}`)]);
+  }
+
+  // Lógica secuencial de Gemas de Resistencia (Tope de energía)
+  if (!player.hasEnergyGem1) {
+    text += `• 💎 *Gema de Resistencia I* — 💰 15.000 oro\n  _Aumenta permanentemente tu energía máxima a 11 ⚡._\n\n`;
+    buttons.push([Markup.button.callback('💎 Comprar Gema Resistencia I (15.000g)', 'buy_gem_1')]);
+  } else if (!player.hasEnergyGem2) {
+    text += `• 💎 *Gema de Resistencia II* — 💰 45.000 oro\n  _Aumenta permanentemente tu energía máxima a 12 ⚡._\n\n`;
+    buttons.push([Markup.button.callback('💎 Comprar Gema Resistencia II (45.000g)', 'buy_gem_2')]);
   }
 
   text += `• 🥤 Bebida Energética — 📺 Gratis (Patrocinio)\n  _Recupera +2 ⚡. Límite: 3/día. Máx: 5 en mochila._\n\n`;
@@ -591,9 +607,10 @@ bot.hears('🎒 Inventario', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.isVerified && ctx.from.id !== ADMIN_ID) return ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
 
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   let text = `🎒 *Mochila de Aventurero*\n\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n`;
+             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n\n`;
 
   text += `*Objetos:*\n` +
           `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
@@ -694,12 +711,14 @@ bot.action('menu_explore', async (ctx) => {
                '• 🌲 *Expediciones y Mazmorras:* Exploración rápida.\n' +
                '• 📜 *Tablón de Caza Diaria:* Contrato diario.\n' +
                '• 🐲 *Jefe Mundial (Coloso):* Asalto a los colosos.\n' +
+               '• 🍻 *Taberna del Jabalí Ebrio:* Ocio, misterios y descanso.\n' +
                '• 🚩 *Reclutar Aventureros:* Tu código de reclutamiento.';
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
     [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
     [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
+    [Markup.button.callback('🍻 Taberna del Jabalí Ebrio', 'menu_tavern')],
     [Markup.button.callback('🚩 Reclutar Aventureros', 'menu_referrals')],
     [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
@@ -782,10 +801,11 @@ bot.action('bounty_back_to_fight', async (ctx) => {
 bot.action('bounty_inv', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
   let text = `🎒 *Mochila en Pleno Combate*\n\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
-             `⚡ Energía: ${player.energy}/${MAX_ENERGY}\n\n` +
+             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n\n` +
              `*Objetos:*\n` +
              `• Poción Menor (+10 HP): ${player.potionsSmall || 0}\n` +
              `• Poción Mayor (+35 HP): ${player.potionsMedium || 0}\n` +
@@ -829,10 +849,11 @@ bot.action('bounty_use_pot_medium', async (ctx) => {
 
 bot.action('bounty_use_pot_energy', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergy -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 1);
   await player.save();
   await safeAnswerCb(ctx, '+1⚡ Energía');
   return await getCombatView(ctx);
@@ -840,10 +861,11 @@ bot.action('bounty_use_pot_energy', async (ctx) => {
 
 bot.action('bounty_use_energy_drink', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergyDrink -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 2);
   await player.save();
   await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
   return await getCombatView(ctx);
@@ -970,10 +992,11 @@ bot.action('menu_inv', async (ctx) => {
     const pEnergy = player.potionsEnergy || 0;
     const pDrink = player.potionsEnergyDrink || 0;
     const pDragon = player.potionsDragonBlood || 0;
+    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
     let text = `🎒 *Mochila de Aventurero*\n\n` +
                `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
-               `⚡ Energía: *${player.energy}/${MAX_ENERGY}*\n\n` +
+               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
                `*Objetos:*\n` +
                `• Poción Menor (+10 HP): *${pSmall}*\n` +
                `• Poción Mayor (+35 HP): *${pMed}*\n` +
@@ -1026,10 +1049,11 @@ bot.action('use_potion_medium', async (ctx) => {
 
 bot.action('use_potion_energy', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergy -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 1);
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
   const view = await getStatusView(player);
@@ -1038,10 +1062,11 @@ bot.action('use_potion_energy', async (ctx) => {
 
 bot.action('use_energy_drink', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergyDrink -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 2);
   await player.save();
   await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
   const view = await getStatusView(player);
@@ -1090,10 +1115,11 @@ bot.action('boss_inv', async (ctx) => {
     const pEnergy = player.potionsEnergy || 0;
     const pDrink = player.potionsEnergyDrink || 0;
     const pDragon = player.potionsDragonBlood || 0;
+    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
     let text = `🎒 *Mochila frente al Coloso*\n\n` +
                `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
-               `⚡ Energía: *${player.energy}/${MAX_ENERGY}*\n\n` +
+               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
                `*Objetos:*\n` +
                `• Poción Menor (+10 HP): *${pSmall}*\n` +
                `• Poción Mayor (+35 HP): *${pMed}*\n` +
@@ -1141,10 +1167,11 @@ bot.action('boss_use_pot_medium', async (ctx) => {
 
 bot.action('boss_use_pot_energy', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergy || player.potionsEnergy <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergy -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 1);
   await player.save();
   await safeAnswerCb(ctx, '+1⚡ Energía');
   return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
@@ -1152,10 +1179,11 @@ bot.action('boss_use_pot_energy', async (ctx) => {
 
 bot.action('boss_use_energy_drink', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   if (!player.potionsEnergyDrink || player.potionsEnergyDrink <= 0) return await safeAnswerCb(ctx, 'Sin bebidas energéticas.', true);
-  if (player.energy >= MAX_ENERGY) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
+  if (player.energy >= playerMaxEnergy) return await safeAnswerCb(ctx, 'Energía al máximo.', true);
   player.potionsEnergyDrink -= 1;
-  player.energy = Math.min(MAX_ENERGY, player.energy + 2);
+  player.energy = Math.min(playerMaxEnergy, player.energy + 2);
   await player.save();
   await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
   return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'boss_inv' } });
@@ -1196,6 +1224,56 @@ Object.keys(ITEMS).forEach((key) => {
     const view = getShopView(player);
     return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   });
+});
+
+// Compras de Gemas de Resistencia (Tope de energía con oro)
+bot.action('buy_gem_1', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+  if (player.hasEnergyGem1) {
+    return await safeAnswerCb(ctx, 'Ya compraste esta gema.', true);
+  }
+
+  const cost = 15000;
+  if (player.gold < cost) {
+    return await safeAnswerCb(ctx, `❌ Oro insuficiente. Necesitas ${cost}g.`, true);
+  }
+
+  player.gold -= cost;
+  player.hasEnergyGem1 = true;
+  player.maxEnergy = (player.maxEnergy || 10) + 1;
+  player.energy = player.maxEnergy;
+  await player.save();
+
+  await safeAnswerCb(ctx, `✨ ¡Compraste la Gema I! Tu energía máxima ahora es ${player.maxEnergy} ⚡.`, true);
+  const view = getShopView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
+});
+
+bot.action('buy_gem_2', async (ctx) => {
+  const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+  if (!player.hasEnergyGem1) {
+    return await safeAnswerCb(ctx, 'Debes adquirir primero la Gema de Resistencia I.', true);
+  }
+  if (player.hasEnergyGem2) {
+    return await safeAnswerCb(ctx, 'Ya compraste el máximo de gemas en la tienda.', true);
+  }
+
+  const cost = 45000;
+  if (player.gold < cost) {
+    return await safeAnswerCb(ctx, `❌ Oro insuficiente. Necesitas ${cost}g.`, true);
+  }
+
+  player.gold -= cost;
+  player.hasEnergyGem2 = true;
+  player.maxEnergy = (player.maxEnergy || 11) + 1;
+  player.energy = player.maxEnergy;
+  await player.save();
+
+  await safeAnswerCb(ctx, `✨ ¡Compraste la Gema II! Tu energía máxima ahora es ${player.maxEnergy} ⚡.`, true);
+  const view = getShopView(player);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 // ==========================================
