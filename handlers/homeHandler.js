@@ -98,11 +98,21 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
                  `💳 *Billetera conectada:* ${walletDisplay}\n\n` +
                  '¿Qué deseas gestionar?';
 
+const ADMIN_ID = 835648800;
+    const isOwner = (ctx.from.id === ADMIN_ID);
+
     const buttons = [
       [Markup.button.callback('💳 Vincular / Cambiar Billetera TON', 'home_wallet_info')],
-      [Markup.button.callback('🎖️ Títulos Honoríficos', 'home_titles')],
-      [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
+      [Markup.button.callback('🎖️ Títulos Honoríficos', 'home_titles')]
     ];
+
+    // Botón visible exclusivamente para ti
+    if (isOwner) {
+      const testUrl = 'https://bot-rpg-wu42.onrender.com/test-pay?userId=' + player.userId;
+      buttons.push([Markup.button.webApp('🧪 Test Transacción (0.011 TON)', testUrl)]);
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
