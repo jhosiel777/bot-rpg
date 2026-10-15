@@ -819,6 +819,8 @@ function startServer(bot) {
 
         let adsWatched = 0;
         const totalAds = 2;
+        let stepAdActive = false;
+        let stepAdStartTime = 0;
 
         async function triggerDailyClaim() {
           const btn = document.getElementById('watchBtn');
@@ -847,7 +849,24 @@ function startServer(bot) {
           }
         }
 
-        async function watchStepAd() {
+        function handleStepAdSuccess() {
+          const btn = document.getElementById('watchBtn');
+          adsWatched++;
+          const bar = document.getElementById('bar-' + adsWatched);
+          if (bar) bar.classList.add('completed');
+
+          if (adsWatched < totalAds) {
+            btn.disabled = false;
+            btn.innerText = '📺 Ver Anuncio (2/2)';
+            document.getElementById('noteText').innerText = '¡Falta 1 anuncio! Toca para ver el último.';
+          } else {
+            btn.innerText = '¡Completado! Entregando botín...';
+            document.getElementById('noteText').innerText = '¡Secuencia completada con éxito!';
+            triggerDailyClaim();
+          }
+        }
+
+        function watchStepAd() {
           const btn = document.getElementById('watchBtn');
           btn.disabled = true;
 
@@ -857,26 +876,64 @@ function startServer(bot) {
             return;
           }
 
-          try {
-            btn.innerText = 'Cargando anuncio...';
-            await show_12000502();
+          stepAdActive = true;
+          stepAdStartTime = Date.now();
+          btn.innerText = 'Cargando anuncio...';
 
-            adsWatched++;
-            const bar = document.getElementById('bar-' + adsWatched);
-            if (bar) bar.classList.add('completed');
-
-            if (adsWatched < totalAds) {
+          const safetyTimeout = setTimeout(() => {
+            if (stepAdActive) {
+              stepAdActive = false;
               btn.disabled = false;
-              btn.innerText = '📺 Ver Anuncio (2/2)';
-              document.getElementById('noteText').innerText = '¡Falta 1 anuncio! Toca para ver el último.';
-            } else {
-              btn.innerText = '¡Completado! Entregando botín...';
-              document.getElementById('noteText').innerText = '¡Secuencia completada con éxito!';
-              await triggerDailyClaim();
+              btn.innerText = adsWatched === 0 ? '📺 Ver Anuncio (1/2)' : '📺 Ver Anuncio (2/2)';
             }
-          } catch (err) {
-            console.error('Error al ver anuncio:', err);
-            alert('Debes ver el anuncio completo para avanzar.');
+          }, 35000);
+
+          const onReturnFocus = () => {
+            if (!stepAdActive) return;
+            const elapsed = (Date.now() - stepAdStartTime) / 1000;
+            if (elapsed >= 10) {
+              stepAdActive = false;
+              clearTimeout(safetyTimeout);
+              window.removeEventListener('focus', onReturnFocus);
+              document.removeEventListener('visibilitychange', onReturnFocus);
+              handleStepAdSuccess();
+            }
+          };
+
+          window.addEventListener('focus', onReturnFocus);
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') onReturnFocus();
+          });
+
+          try {
+            Promise.resolve(show_12000502())
+              .then(() => {
+                if (stepAdActive) {
+                  stepAdActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  handleStepAdSuccess();
+                }
+              })
+              .catch((err) => {
+                console.warn('Monetag catch event:', err);
+                const elapsed = (Date.now() - stepAdStartTime) / 1000;
+                if (elapsed >= 10 && stepAdActive) {
+                  stepAdActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  handleStepAdSuccess();
+                } else {
+                  stepAdActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  alert('Debes ver el anuncio completo para avanzar.');
+                  btn.disabled = false;
+                  btn.innerText = adsWatched === 0 ? '📺 Ver Anuncio (1/2)' : '📺 Ver Anuncio (2/2)';
+                }
+              });
+          } catch (e) {
+            console.error('Error al invocar SDK:', e);
             btn.disabled = false;
             btn.innerText = adsWatched === 0 ? '📺 Ver Anuncio (1/2)' : '📺 Ver Anuncio (2/2)';
           }
@@ -1054,6 +1111,9 @@ function startServer(bot) {
           userId = tg.initDataUnsafe.user.id;
         }
 
+        let adActive = false;
+        let adStartTime = 0;
+
         async function triggerRewardClaim() {
           const btn = document.getElementById('watchBtn');
           btn.innerText = 'Registrando recompensa...';
@@ -1076,12 +1136,12 @@ function startServer(bot) {
             } else {
               alert(data.msg || 'No se pudo entregar la recompensa.');
               btn.disabled = false;
-              btn.innerText = 'Intentar de nuevo';
+              btn.innerText = '📺 Ver Anuncio';
             }
           } catch (err) {
             alert('Error al conectar con el servidor.');
             btn.disabled = false;
-            btn.innerText = 'Reintentar';
+            btn.innerText = '📺 Ver Anuncio';
           }
         }
 
@@ -1097,16 +1157,66 @@ function startServer(bot) {
             return;
           }
 
-          show_12000502()
-            .then(() => {
-              triggerRewardClaim();
-            })
-            .catch((err) => {
-              console.error('Error mostrando anuncio Monetag:', err);
-              alert('Debes ver el anuncio completo para recibir la recompensa.');
+          adActive = true;
+          adStartTime = Date.now();
+
+          const safetyTimeout = setTimeout(() => {
+            if (adActive) {
+              adActive = false;
               btn.disabled = false;
               btn.innerText = '📺 Ver Anuncio';
-            });
+            }
+          }, 35000);
+
+          const onReturnFocus = () => {
+            if (!adActive) return;
+            const elapsed = (Date.now() - adStartTime) / 1000;
+            if (elapsed >= 10) {
+              adActive = false;
+              clearTimeout(safetyTimeout);
+              window.removeEventListener('focus', onReturnFocus);
+              document.removeEventListener('visibilitychange', onReturnFocus);
+              triggerRewardClaim();
+            }
+          };
+
+          window.addEventListener('focus', onReturnFocus);
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') onReturnFocus();
+          });
+
+          try {
+            Promise.resolve(show_12000502())
+              .then(() => {
+                if (adActive) {
+                  adActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  triggerRewardClaim();
+                }
+              })
+              .catch((err) => {
+                console.warn('Monetag catch event:', err);
+                const elapsed = (Date.now() - adStartTime) / 1000;
+                if (elapsed >= 10 && adActive) {
+                  adActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  triggerRewardClaim();
+                } else {
+                  adActive = false;
+                  clearTimeout(safetyTimeout);
+                  window.removeEventListener('focus', onReturnFocus);
+                  alert('Debes ver el anuncio completo para recibir la recompensa.');
+                  btn.disabled = false;
+                  btn.innerText = '📺 Ver Anuncio';
+                }
+              });
+          } catch (e) {
+            console.error('Error al invocar SDK:', e);
+            btn.disabled = false;
+            btn.innerText = '📺 Ver Anuncio';
+          }
         }
       </script>
     </body>
