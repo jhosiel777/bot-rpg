@@ -85,7 +85,10 @@ function startBackgroundSchedulers(bot, deps) {
       });
 
       for (const p of finishedExpeditions) {
-        const dungeon = DUNGEONS.bosque; // Por defecto resolución segura
+        // Lee la clave de la mazmorra guardada en el jugador (por defecto 'bosque')
+        const dungeonKey = p.currentDungeonKey || 'bosque';
+        const dungeon = DUNGEONS[dungeonKey] || DUNGEONS.bosque;
+
         const resultMsg = resolveExpeditionCombat(p, dungeon, recordDrop);
         await p.save();
         await creditReferralBonus(p.userId, p.gold);
