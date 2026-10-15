@@ -193,6 +193,43 @@ playerSchema.methods.claimReferralGold = function() {
 
 const Player = mongoose.model('Player', playerSchema);
 
+// --- FUNCIONES DEL BONO DIARIO (UTC) ---
+function getTodayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getYesterdayUtc() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function getTimeUntilMidnightUtc() {
+  const now = new Date();
+  const nextUtc = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0, 0, 0
+  ));
+  const diffSec = Math.max(0, Math.ceil((nextUtc - now) / 1000));
+  const hours = Math.floor(diffSec / 3600);
+  const minutes = Math.floor((diffSec % 3600) / 60);
+  return hours + 'h ' + minutes + 'm';
+}
+
+function getDailyReward(streak) {
+  let gold = 100;
+  if (streak >= 30) gold = 1000;
+  else if (streak >= 22) gold = 800;
+  else if (streak >= 15) gold = 600;
+  else if (streak >= 8) gold = 400;
+  else if (streak >= 4) gold = 200;
+
+  const givesElixir = streak > 0 && streak % 3 === 0;
+  return { gold, givesElixir };
+}
+
 // Temporizador automático en segundo plano cada 60s
 setInterval(async () => {
   try {
