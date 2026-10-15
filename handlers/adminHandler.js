@@ -28,6 +28,10 @@ function registerAdminHandlers(bot, deps) {
       [Markup.button.callback(maintenanceState.enabled ? '🟢 Reabrir Reino (Fin Mantenimiento)' : '🔴 Cerrar Reino (Modo Mantenimiento)', 'adm_toggle_maint')],
       [Markup.button.callback('👥 Gestionar Whitelist de Testers', 'adm_whitelist_menu')],
       [Markup.button.callback('⭐ Cambiar Mi Propio Nivel', 'adm_change_lvl_' + ADMIN_ID)],
+      [
+        Markup.button.callback('💰 +10.000g Oro', 'adm_give_gold_10k'),
+        Markup.button.callback('💰 +50.000g Oro', 'adm_give_gold_50k')
+      ],
       [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
       [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
       [Markup.button.callback('🛡️ Aspirantes No Verificados', 'adm_unverified')],
@@ -133,6 +137,22 @@ function registerAdminHandlers(bot, deps) {
     return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   });
 
+  bot.action('adm_give_gold_10k', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+    const p = await getPlayer(ADMIN_ID);
+    p.gold = (p.gold || 0) + 10000;
+    await p.save();
+    await safeAnswerCb(ctx, '💰 ¡Te agregaste +10.000g de oro! (Total: ' + p.gold + 'g)', true);
+  });
+
+  bot.action('adm_give_gold_50k', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+    const p = await getPlayer(ADMIN_ID);
+    p.gold = (p.gold || 0) + 50000;
+    await p.save();
+    await safeAnswerCb(ctx, '💰 ¡Te agregaste +50.000g de oro! (Total: ' + p.gold + 'g)', true);
+  });
+
   bot.action('adm_toggle_maint', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
 
@@ -215,241 +235,6 @@ function registerAdminHandlers(bot, deps) {
     let text = '👥 *GESTIÓN DE WHITELIST DE TESTERS*\n\n' +
                'Los siguientes IDs de Telegram tienen autorización para ingresar al reino:\n\n' +
                '👑 Creador: `' + ADMIN_ID + '` (Permanente)\n' +
-               '_No hay testers adicionales autorizados._\n\n' +
-               '¿Qué deseas hacer?';
-
-    const buttons = [
-      [Markup.button.callback('➕ Añadir Tester por ID', 'adm_wl_add')],
-      [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
-    ];
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  });
-
-  bot.action('adm_unverified', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-
-    const pending = await Player.find({ isVerified: false });
-    let text = '🛡️ *Aspirantes Detenidos en las Puertas*\n\n' +
-               'Usuarios que abrieron el bot pero no han canjeado un código de recluta:\n\n';
-
-    if (!pending.length) {
-      text += '_No hay ningún aspirante esperando en los muros actualmente._';
-    } else {
-      pending.forEach((p, idx) => {
-        text += (idx + 1) + '. *' + p.name + '* (ID: `' + p.userId + '`) — Código propio: `' + p.referralCode + '`\n';
-      });
-    }
-
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Actualizar', 'adm_unverified')],
-      [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
-    ]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
-  });
-
-  bot.action(/adm_change_lvl_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-    const targetId = parseInt(ctx.match[1], 10);
-    adminFlags.targetLevelChangeId = targetId;
-
-    const u = await Player.findOne({ userId: targetId });
-    const name = u ? u.name : 'Usuario';
-
-    const text = '⭐ *Cambiar Nivel de ' + name + '*\n\n' +
-                 'Nivel actual: *' + (u ? u.level : 'N/A') + '*\n\n' +
-                 '💬 *Escribe en el chat el nuevo nivel (1 - ' + MAX_LEVEL + ')* que deseas asignarle.\n' +
-                 '_Nota: Su EXP se reseteará a 1 / reqExp de ese nivel._';
-
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'adm_home')]])
-    });
-  });
-
-  bot.action(/adm_users_page_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-
-    const page = parseInt(ctx.match[1], 10) || 1;
-    const limit = 10;
-    const skip = (page - 1) * limit;
-
-    const totalUsers = await Player.countDocuments();
-    const totalPages = Math.ceil(totalUsers / limit) || 1;
-
-    const users = await Player.find()
-      .sort({ level: -1, exp: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    let text = '👥 *Lista de Usuarios Registrados* (Pág. ' + page + '/' + totalPages + ')\n' +
-               'Total de jugadores: *' + totalUsers + '*\n\n' +
-               'Toca cualquier aventurero para ver sus datos y mochila:';
-
-    const buttons = [];
-    for (const u of users) {
-      buttons.push([
-        Markup.button.callback(
-          '⭐ Lv.' + u.level + ' | ' + u.name.substring(0, 18) + ' (ID: ' + u.userId + ')',
-          'adm_user_' + u.userId + '_' + page
-        )
-      ]);
-    }
-
-    const navRow = [];
-    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', 'adm_users_page_' + (page - 1)));
-    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', 'adm_users_page_' + (page + 1)));
-    if (navRow.length) buttons.push(navRow);
-
-    buttons.push([Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]);
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  });
-
-  bot.action(/adm_user_(\d+)_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-
-    const targetId = parseInt(ctx.match[1], 10);
-    const backPage = parseInt(ctx.match[2], 10) || 1;
-
-    const u = await Player.findOne({ userId: targetId });
-    if (!u) return await safeAnswerCb(ctx, 'Usuario no encontrado.', true);
-
-    return await renderUserDetails(ctx, u, backPage);
-  });
-
-  bot.action(/adm_reduce_ko_(\d+)_(\d+)_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-
-    const targetId = parseInt(ctx.match[1], 10);
-    const minutesToReduce = parseInt(ctx.match[2], 10);
-    const backPage = parseInt(ctx.match[3], 10) || 1;
-
-    const u = await Player.findOne({ userId: targetId });
-    if (!u) return await safeAnswerCb(ctx, 'Usuario no encontrado.', true);
-
-    const now = Date.now();
-    if (!u.knockedOutUntil || u.knockedOutUntil <= now) {
-      u.knockedOutUntil = 0;
-      if (u.hp <= 0) u.hp = Math.max(1, Math.round(u.maxHp * 0.3));
-      await u.save();
-      await safeAnswerCb(ctx, 'El aventurero ya no está inconsciente.', true);
-    } else {
-      const msToSubtract = minutesToReduce * 60 * 1000;
-      u.knockedOutUntil -= msToSubtract;
-
-      if (u.knockedOutUntil <= now) {
-        u.knockedOutUntil = 0;
-        if (u.hp <= 0) u.hp = Math.max(1, Math.round(u.maxHp * 0.3));
-        await safeAnswerCb(ctx, '⏳ Tiempo reducido. ¡' + u.name + ' ha despertado!', true);
-      } else {
-        const remainingSec = Math.ceil((u.knockedOutUntil - now) / 1000);
-        await safeAnswerCb(ctx, '⏳ Se restaron ' + minutesToReduce + ' min. Le quedan ' + formatHoursMinutes(remainingSec) + '.', true);
-      }
-      await u.save();
-    }
-
-    return await renderUserDetails(ctx, u, backPage);
-  });
-
-  bot.action('adm_revive_self', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    const p = await getPlayer(ADMIN_ID);
-    p.knockedOutUntil = 0;
-    p.hp = p.maxHp;
-    await p.save();
-    await safeAnswerCb(ctx, '❤️‍🩹 ¡Has revivido! Salud restaurada a ' + p.maxHp + ' HP.', true);
-    const view = getAdminHomeView();
-    return await safeEditMessage(ctx, view.text, view.keyboard);
-  });
-
-  bot.action(/adm_revive_target_(\d+)_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    const targetId = parseInt(ctx.match[1], 10);
-    const backPage = parseInt(ctx.match[2], 10) || 1;
-
-    const u = await Player.findOne({ userId: targetId });
-    if (u) {
-      u.knockedOutUntil = 0;
-      u.hp = u.maxHp;
-      await u.save();
-      await safeAnswerCb(ctx, '✨ ' + u.name + ' ha sido revivido con éxito.', true);
-      return await renderUserDetails(ctx, u, backPage);
-    }
-  });
-
-  bot.action(/adm_mkt_page_(\d+)/, async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-
-    const page = parseInt(ctx.match[1], 10) || 1;
-    const { logs, total, totalPages } = await getMarketHistory(page, 5);
-
-    let text = '📜 *Historial Global de Mercado P2P* (Pág. ' + page + '/' + totalPages + ')\n' +
-               'Total de transacciones: *' + total + '*\n\n';
-
-    if (!logs.length) {
-      text += '_Aún no se han realizado transacciones en el mercado._';
-    } else {
-      logs.forEach((log, idx) => {
-        const dateStr = new Date(log.createdAt).toLocaleString('es-VE', {
-          timeZone: 'America/Caracas',
-          dateStyle: 'short',
-          timeStyle: 'short'
-        });
-        text += '*#' + ((page - 1) * 5 + idx + 1) + ' • ' + log.itemName + '*\n' +
-                '• Comprador: ' + log.buyerName + ' (' + log.buyerId + ')\n' +
-                '• Vendedor: ' + log.sellerName + ' (' + log.sellerId + ')\n' +
-                '• Precio: 💰 ' + log.price + 'g (Comisión: ' + log.tax + 'g | Neto: ' + log.sellerProfit + 'g)\n' +
-                '• Fecha: ' + dateStr + '\n\n';
-      });
-    }
-
-    const buttons = [];
-    const navRow = [];
-    if (page > 1) navRow.push(Markup.button.callback('⬅️ Anterior', 'adm_mkt_page_' + (page - 1)));
-    if (page < totalPages) navRow.push(Markup.button.callback('Siguiente ➡️', 'adm_mkt_page_' + (page + 1)));
-    if (navRow.length) buttons.push(navRow);
-
-    buttons.push([
-      Markup.button.callback('🔄 Actualizar', 'adm_mkt_page_' + page),
-      Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')
-    ]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  });
-
-  bot.action('adm_drops', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-
-    const stats = await getGlobalStats();
-    const text = '📊 *Estadísticas Globales de Drops*\n\n' +
-                 'Cantidad total de ítems caídos en expediciones:\n\n' +
-                 '• 🧪 *Pociones Menores de Vida:* ' + stats.totalDropsSmall + '\n' +
-                 '• 🧪 *Pociones Mayores de Vida:* ' + stats.totalDropsMedium + '\n' +
-                 '• ⚡ *Elixires de Energía:* ' + stats.totalDropsEnergy + '\n\n' +
-                 '*Total histórico de objetos dropeados:* ' + (stats.totalDropsSmall + stats.totalDropsMedium + stats.totalDropsEnergy);
-
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Actualizar', 'adm_drops')],
-      [Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]
-    ]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
-  });
-
-  bot.action('adm_prompt_broadcast', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
-    await safeAnswerCb(ctx);
-    adminFlags.broadcastWaiting = true;
-
-    const text = '📢 *Transmisión Global del Creador*\n\n' +
-                 'Escribe ' + ADMIN_ID + '` (Permanente)\n' +
                '_No hay testers adicionales autorizados._\n\n' +
                '¿Qué deseas hacer?';
 
