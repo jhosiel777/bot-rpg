@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const path = require('path');
+const { Markup } = require('telegraf');
 const {
   Player,
   MAX_ENERGY,
@@ -17,20 +18,38 @@ const LOGS_GROUP_ID = -1004496297432;
 async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
   const now = new Date();
   const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
-  const walletDisplay = player.tonWalletAddress ? `\`${player.tonWalletAddress}\`` : '`No vinculada`';
+
+  let walletDisplay = '`No vinculada`';
+  let tonviewerLink = '';
+  let inlineKeyboard = null;
+
+  if (player.tonWalletAddress) {
+    walletDisplay = `\`${player.tonWalletAddress}\``;
+    const url = 'https://tonviewer.com/' + player.tonWalletAddress;
+    tonviewerLink = `\n🔍 [Ver en Tonviewer](\${url})`;
+    inlineKeyboard = Markup.inlineKeyboard([
+      [Markup.button.url('🔍 Ver en Tonviewer (Billetera)', url)]
+    ]);
+  }
+
   const hashDisplay = txHash ? `\`${txHash}\`` : '`N/A`';
 
-  const logText = `💎 *¡NUEVA COMPRA DETECTADA!* 💎\n\n` +
-                  `👤 *Aventurero:* ${player.name}\n` +
-                  `🆔 *ID de Telegram:* \`\${player.userId}\`\n` +
-                  `💳 *Billetera:* ${walletDisplay}\n` +
-                  `📦 *Artículo:* ${productName}\n` +
-                  `💰 *Monto Pagado:* ${amount} TON\n` +
-                  `🔗 *Hash / TxID:* ${hashDisplay}\n` +
-                  `⏰ *Fecha y Hora:* ${fechaHoraUtc} UTC`;
+  const logText = '💎 *¡NUEVA COMPRA DETECTADA!* 💎\n\n' +
+                  '👤 *Aventurero:* ' + player.name + '\n' +
+                  '🆔 *ID de Telegram:* `' + player.userId + '`\n' +
+                  '💳 *Billetera:* ' + walletDisplay + '\n' +
+                  '📦 *Artículo:* ' + productName + '\n' +
+                  '💰 *Monto Pagado:* ' + amount + ' TON\n' +
+                  '🔗 *Hash / TxID:* ' + hashDisplay + '\n' +
+                  '⏰ *Fecha y Hora:* ' + fechaHoraUtc + ' UTC' +
+                  tonviewerLink;
 
   try {
-    await bot.telegram.sendMessage(LOGS_GROUP_ID, logText, { parse_mode: 'Markdown' });
+    const extra = { parse_mode: 'Markdown' };
+    if (inlineKeyboard) {
+      Object.assign(extra, inlineKeyboard);
+    }
+    await bot.telegram.sendMessage(LOGS_GROUP_ID, logText, extra);
   } catch (err) {
     console.error('Error enviando log de compra a Telegram:', err.message);
   }
@@ -378,10 +397,17 @@ function startServer(bot) {
             const result = await tonConnectUI.sendTransaction(transaction);
             statusText.innerText = 'Transacción firmada. Verificando en el reino...';
 
+            const userWallet = tonConnectUI.account?.address || '';
+
             const res = await fetch('/confirm-ancestral-gem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: userId, boc: result.boc, amount: '0.15' })
+              body: JSON.stringify({
+                userId: userId,
+                boc: result.boc,
+                amount: '0.15',
+                walletAddress: userWallet
+              })
             });
 
             const data = await res.json();
@@ -409,7 +435,7 @@ function startServer(bot) {
   // Endpoint para acreditar la Gema Ancestral (+2 ⚡) y el Título
   app.post('/confirm-ancestral-gem', async (req, res) => {
     try {
-      const { userId, boc, amount } = req.body;
+      const { userId, boc, amount, walletAddress } = req.body;
       if (!userId) {
         return res.status(400).json({ success: false, msg: 'ID de usuario ausente.' });
       }
@@ -422,6 +448,11 @@ function startServer(bot) {
 
       if (player.hasAncestralGem) {
         return res.status(400).json({ success: false, msg: 'Ya posees la Gema Ancestral en tu inventario.' });
+      }
+
+      // Si conectó la billetera para pagar, se la vinculamos de inmediato
+      if (walletAddress) {
+        player.tonWalletAddress = walletAddress;
       }
 
       player.hasAncestralGem = true;
