@@ -454,7 +454,7 @@ function getDailyBonusView(player) {
     };
   }
 
-  text += 'Para reclamar el botín de hoy, apoya al reino viendo un anuncio rápido en la Mini App:';
+  text += 'Para reclamar el botín de hoy, apoya al reino viendo unos anuncios rápidos en la Mini App:';
 
   const miniAppUrl = 'https://bot-rpg-wu42.onrender.com/ad-daily?userId=' + player.userId;
 
