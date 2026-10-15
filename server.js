@@ -25,7 +25,8 @@ async function transferTonFromBot(toAddress, amountTon) {
   }
 
   const client = new TonClient({
-    endpoint: 'https://toncenter.com/api/v2/jsonRPC'
+    endpoint: 'https://toncenter.com/api/v2/jsonRPC',
+    apiKey: 'a251c1477baa2d17ace0208040e6e630ae127e0ed6bb319afc0c6245abd813dc'
   });
 
   const words = mnemonic.trim().split(/\s+/);
@@ -504,7 +505,6 @@ function startServer(bot) {
 
       await player.save();
 
-      // Envío de log dinámico al grupo de registros
       await sendPaymentLog(bot, {
         player,
         productName: 'Gema Ancestral (+2 ⚡ y Título «Mecenas de Abyss»)',
@@ -650,7 +650,6 @@ function startServer(bot) {
         await player.save();
       }
 
-      // Enviar log con el nombre de producto "Test xd"
       await sendPaymentLog(bot, {
         player: player || { name: 'Admin', userId: uid, tonWalletAddress: walletAddress },
         productName: 'Test xd',
@@ -687,7 +686,6 @@ function startServer(bot) {
       const now = new Date();
       const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
 
-      // Reportar al canal de logs
       try {
         await bot.telegram.sendMessage(
           LOGS_GROUP_ID,
