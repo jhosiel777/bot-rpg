@@ -450,7 +450,6 @@ function startServer(bot) {
         return res.status(400).json({ success: false, msg: 'Ya posees la Gema Ancestral en tu inventario.' });
       }
 
-      // Si conectó la billetera para pagar, se la vinculamos de inmediato
       if (walletAddress) {
         player.tonWalletAddress = walletAddress;
       }
@@ -629,7 +628,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // PANTALLA DE ANUNCIO: BONO DIARIO
+  // PANTALLA DE ANUNCIO: BONO DIARIO (2 ANUNCIOS EN SECUENCIA)
   // ==========================================
   app.get('/ad-daily', async (req, res) => {
     const userId = req.query.userId || '';
@@ -668,6 +667,23 @@ function startServer(bot) {
           max-width: 380px;
           width: 100%;
           box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+          position: relative;
+        }
+        .story-bars {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 20px;
+          width: 100%;
+        }
+        .bar {
+          flex: 1;
+          height: 4px;
+          background: #334155;
+          border-radius: 2px;
+          transition: background 0.3s;
+        }
+        .bar.completed {
+          background: #38bdf8;
         }
         .icon { font-size: 54px; margin-bottom: 12px; }
         h2 { margin: 0 0 10px 0; color: #38bdf8; font-size: 22px; }
@@ -691,14 +707,19 @@ function startServer(bot) {
     </head>
     <body>
       <div class="card">
+        <div class="story-bars">
+          <div id="bar-1" class="bar"></div>
+          <div id="bar-2" class="bar"></div>
+        </div>
+
         <div class="icon">🎁✨</div>
         <h2>Bono Diario del Reino</h2>
         <p>
-          Mira este breve anuncio para respaldar el desarrollo del reino y acreditar tu oro y elixires del día.
+          Mira 2 breves anuncios patrocinados para respaldar el desarrollo de Abyss y recibir tu botín diario.
         </p>
 
-        <button class="btn" id="watchBtn" onclick="watchAd()">📺 Ver Anuncio y Reclamar</button>
-        <div class="footer-note">Al finalizar el anuncio se entregará tu recompensa automáticamente.</div>
+        <button class="btn" id="watchBtn" onclick="startDailyAds()">📺 Ver Anuncios (0/2)</button>
+        <div class="footer-note">Al finalizar ambos anuncios se acreditará tu recompensa automáticamente.</div>
       </div>
 
       <script>
@@ -737,35 +758,36 @@ function startServer(bot) {
           }
         }
 
-        function watchAd() {
+        async function startDailyAds() {
           const btn = document.getElementById('watchBtn');
           btn.disabled = true;
-          btn.innerText = 'Cargando anuncio...';
 
-          if (typeof show_12000502 === 'function') {
-            show_12000502().then(() => {
-              triggerDailyClaim();
-            }).catch((err) => {
-              console.error('Error en anuncio Monetag:', err);
-              alert('Debes ver el anuncio completo para recibir la recompensa.');
-              btn.disabled = false;
-              btn.innerText = 'Intentar de nuevo';
-            });
-          } else {
-            setTimeout(() => {
-              if (typeof show_12000502 === 'function') {
-                show_12000502().then(() => {
-                  triggerDailyClaim();
-                }).catch(() => {
-                  btn.disabled = false;
-                  btn.innerText = 'Intentar de nuevo';
-                });
-              } else {
-                alert('No se pudo cargar el anuncio. Comprueba tu conexión e intenta de nuevo.');
-                btn.disabled = false;
-                btn.innerText = 'Intentar de nuevo';
+          if (typeof show_12000502 !== 'function') {
+            alert('El proveedor de anuncios aún se está iniciando. Espera unos segundos.');
+            btn.disabled = false;
+            return;
+          }
+
+          try {
+            for (let i = 1; i <= 2; i++) {
+              btn.innerText = 'Viendo anuncio ' + i + ' de 2...';
+              await show_12000502();
+
+              const bar = document.getElementById('bar-' + i);
+              if (bar) bar.classList.add('completed');
+
+              if (i < 2) {
+                btn.innerText = 'Cargando segundo anuncio...';
+                await new Promise(r => setTimeout(r, 700));
               }
-            }, 1500);
+            }
+
+            await triggerDailyClaim();
+          } catch (err) {
+            console.error('Error en secuencia de anuncios:', err);
+            alert('Debes ver los 2 anuncios completos para recibir el bono.');
+            btn.disabled = false;
+            btn.innerText = 'Reintentar';
           }
         }
       </script>
