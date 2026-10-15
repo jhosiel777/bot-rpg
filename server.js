@@ -1090,32 +1090,23 @@ function startServer(bot) {
           btn.disabled = true;
           btn.innerText = 'Cargando anuncio...';
 
-          if (typeof show_12000502 === 'function') {
-            show_12000502().then(() => {
+          if (typeof show_12000502 !== 'function') {
+            alert('El proveedor de anuncios aún no está listo. Espera unos segundos e intenta nuevamente.');
+            btn.disabled = false;
+            btn.innerText = '📺 Ver Anuncio';
+            return;
+          }
+
+          show_12000502()
+            .then(() => {
               triggerRewardClaim();
-            }).catch((err) => {
+            })
+            .catch((err) => {
               console.error('Error mostrando anuncio Monetag:', err);
               alert('Debes ver el anuncio completo para recibir la recompensa.');
               btn.disabled = false;
-              btn.innerText = 'Intentar de nuevo';
+              btn.innerText = '📺 Ver Anuncio';
             });
-          } else {
-            console.warn('SDK de Monetag no disponible aún, reintentando...');
-            setTimeout(() => {
-              if (typeof show_12000502 === 'function') {
-                show_12000502().then(() => {
-                  triggerRewardClaim();
-                }).catch(() => {
-                  btn.disabled = false;
-                  btn.innerText = 'Intentar de nuevo';
-                });
-              } else {
-                alert('No se pudo cargar el anuncio. Comprueba tu conexión e intenta de nuevo.');
-                btn.disabled = false;
-                btn.innerText = 'Intentar de nuevo';
-              }
-            }, 1500);
-          }
         }
       </script>
     </body>
