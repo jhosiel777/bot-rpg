@@ -42,7 +42,7 @@ function registerBossHandlers(bot, deps) {
   }
 
   async function getBossCensus() {
-    const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
+    const aptPlayers = await Player.find({ level: { \$gte: 5 }, isVerified: true });
     const totalAptos = aptPlayers.length;
     const activeCount = Math.max(totalAptos, 3);
 
@@ -224,6 +224,29 @@ function registerBossHandlers(bot, deps) {
       if (top1) {
         elixirWinners.add(top1.userId);
         dropsSummary.push(`• 🩸 *${formatPlayerName(top1.name)}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
+
+        // Asignación de título: Verdugo de Titanes
+        const top1Player = await Player.findOne({ userId: top1.userId });
+        if (top1Player) {
+          if (!top1Player.unlockedTitles) top1Player.unlockedTitles = ['Aventurero Novato'];
+          if (!top1Player.unlockedTitles.includes('Verdugo de Titanes')) {
+            top1Player.unlockedTitles.push('Verdugo de Titanes');
+            if (typeof top1Player.markModified === 'function') {
+              top1Player.markModified('unlockedTitles');
+            }
+            await top1Player.save();
+
+            try {
+              await bot.telegram.sendMessage(
+                top1.userId,
+                `🎖️🎉 *¡DISTINCIÓN LEGENDARIA DESBLOQUEADA!*\n\n` +
+                `Por tu hazaña como máximo atacante (MVP) frente al Coloso, has obtenido: «*Verdugo de Titanes*».\n\n` +
+                `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
+                { parse_mode: 'Markdown' }
+              );
+            } catch (e) {}
+          }
+        }
       }
 
       let secondRecipient = lastHitter;
@@ -557,7 +580,7 @@ function registerBossHandlers(bot, deps) {
       buttons.push([Markup.button.callback('🔄 Restaurar Mensaje por Defecto', 'adm_boss_reset_msg')]);
     }
 
-    buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]);
+    buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')] );
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
