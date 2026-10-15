@@ -580,7 +580,7 @@ function registerBossHandlers(bot, deps) {
       buttons.push([Markup.button.callback('🔄 Restaurar Mensaje por Defecto', 'adm_boss_reset_msg')]);
     }
 
-    buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')] );
+    buttons.push([Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
