@@ -1,6 +1,12 @@
 const express = require('express');
 const https = require('https');
-const { Player, MAX_ENERGY } = require('./playerModel');
+const {
+  Player,
+  MAX_ENERGY,
+  getTodayUtc,
+  getYesterdayUtc,
+  getDailyReward
+} = require('./playerModel');
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 
 function startServer(bot) {
@@ -19,7 +25,211 @@ function startServer(bot) {
     res.status(200).send('pong');
   });
 
-  // Pantalla de anuncios interactiva según propósito
+  // ==========================================
+  // PANTALLA DE ANUNCIO: BONO DIARIO
+  // ==========================================
+  app.get('/ad-daily', async (req, res) => {
+    const userId = req.query.userId || '';
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Bono Diario del Reino</title>
+      <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+      <!-- SDK MONETAG (REWARDED INTERSTITIAL) -->
+      <script src="//libtl.com/sdk.js" data-zone="12000502" data-sdk="show_12000502"></script>
+
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: #121826;
+          color: #f1f5f9;
+          margin: 0;
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-height: 90vh;
+          text-align: center;
+        }
+        .card {
+          background: #1e293b;
+          border: 1px solid #334155;
+          padding: 24px;
+          border-radius: 16px;
+          max-width: 380px;
+          width: 100%;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+        .icon { font-size: 54px; margin-bottom: 12px; }
+        h2 { margin: 0 0 10px 0; color: #38bdf8; font-size: 22px; }
+        p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0; }
+        .btn {
+          background: #0284c7;
+          color: white;
+          border: none;
+          padding: 14px 20px;
+          font-size: 16px;
+          font-weight: bold;
+          border-radius: 12px;
+          cursor: pointer;
+          width: 100%;
+          transition: background 0.2s;
+        }
+        .btn:hover { background: #0369a1; }
+        .btn:disabled { background: #475569; cursor: not-allowed; }
+        .footer-note { font-size: 12px; color: #64748b; margin-top: 14px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="icon">🎁✨</div>
+        <h2>Bono Diario del Reino</h2>
+        <p>
+          Mira este breve anuncio para respaldar el desarrollo del reino y acreditar tu oro y elixires del día.
+        </p>
+
+        <button class="btn" id="watchBtn" onclick="watchAd()">📺 Ver Anuncio y Reclamar</button>
+        <div class="footer-note">Al finalizar el anuncio se entregará tu recompensa automáticamente.</div>
+      </div>
+
+      <script>
+        const tg = window.Telegram?.WebApp;
+        if (tg) tg.expand();
+
+        let userId = '${userId}';
+        if (!userId && tg?.initDataUnsafe?.user?.id) {
+          userId = tg.initDataUnsafe.user.id;
+        }
+
+        async function triggerDailyClaim() {
+          const btn = document.getElementById('watchBtn');
+          btn.innerText = 'Acreditando botín...';
+
+          try {
+            const res = await fetch('/claim-daily', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: userId })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+              alert(data.msg);
+              if (tg) tg.close();
+            } else {
+              alert(data.msg || 'No se pudo reclamar el bono.');
+              btn.disabled = false;
+              btn.innerText = 'Intentar de nuevo';
+            }
+          } catch (err) {
+            alert('Error conectando con el servidor.');
+            btn.disabled = false;
+            btn.innerText = 'Reintentar';
+          }
+        }
+
+        function watchAd() {
+          const btn = document.getElementById('watchBtn');
+          btn.disabled = true;
+          btn.innerText = 'Cargando anuncio...';
+
+          if (typeof show_12000502 === 'function') {
+            show_12000502().then(() => {
+              triggerDailyClaim();
+            }).catch((err) => {
+              console.error('Error en anuncio Monetag:', err);
+              alert('Debes ver el anuncio completo para recibir la recompensa.');
+              btn.disabled = false;
+              btn.innerText = 'Intentar de nuevo';
+            });
+          } else {
+            setTimeout(() => {
+              if (typeof show_12000502 === 'function') {
+                show_12000502().then(() => {
+                  triggerDailyClaim();
+                }).catch(() => {
+                  btn.disabled = false;
+                  btn.innerText = 'Intentar de nuevo';
+                });
+              } else {
+                alert('No se pudo cargar el anuncio. Comprueba tu conexión e intenta de nuevo.');
+                btn.disabled = false;
+                btn.innerText = 'Intentar de nuevo';
+              }
+            }, 1500);
+          }
+        }
+      </script>
+    </body>
+    </html>
+    `;
+
+    res.send(html);
+  });
+
+  // Endpoint para procesar el Bono Diario
+  app.post('/claim-daily', async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ success: false, msg: 'Identificador de usuario faltante.' });
+      }
+
+      const uid = parseInt(userId, 10);
+      const player = await Player.findOne({ userId: uid });
+      if (!player) {
+        return res.status(404).json({ success: false, msg: 'Aventurero no registrado.' });
+      }
+
+      const today = getTodayUtc();
+      const yesterday = getYesterdayUtc();
+
+      if (player.lastDailyClaimDate === today) {
+        return res.status(400).json({
+          success: false,
+          msg: 'Ya reclamaste tu bono diario de hoy. Vuelve tras las 00:00 UTC.'
+        });
+      }
+
+      if (player.lastDailyClaimDate === yesterday) {
+        player.dailyStreak = (player.dailyStreak || 0) + 1;
+      } else {
+        player.dailyStreak = 1;
+      }
+
+      player.lastDailyClaimDate = today;
+
+      const reward = getDailyReward(player.dailyStreak);
+      player.gold = (player.gold || 0) + reward.gold;
+
+      if (reward.givesElixir) {
+        player.potionsEnergy = (player.potionsEnergy || 0) + 1;
+      }
+
+      player.totalAdsClaimed = (player.totalAdsClaimed || 0) + 1;
+      await player.save();
+
+      let rewardText = `🎉 ¡Bono del Día ${player.dailyStreak} reclamado!\n+${reward.gold} de Oro`;
+      if (reward.givesElixir) {
+        rewardText += ' y +1 Elixir de Energía (⚡)';
+      }
+
+      return res.json({ success: true, msg: rewardText });
+    } catch (err) {
+      console.error('Error en /claim-daily:', err);
+      return res.status(500).json({ success: false, msg: 'Error interno del servidor.' });
+    }
+  });
+
+  // ==========================================
+  // PANTALLA DE ANUNCIOS: TIENDA Y CAZA
+  // ==========================================
   app.get('/ad-reward', async (req, res) => {
     const userId = req.query.userId || '';
     const purpose = req.query.purpose || 'energy_drink';
@@ -199,7 +409,7 @@ function startServer(bot) {
     res.send(html);
   });
 
-  // Reclamo de recompensas
+  // Reclamo de recompensas generales
   app.post('/claim-reward', async (req, res) => {
     try {
       const { userId, purpose } = req.body;
