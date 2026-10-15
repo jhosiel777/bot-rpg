@@ -6,27 +6,33 @@ function getSpentPoints(player) {
   return (player.strength || 0) + (player.agility || 0) + (player.luck || 0) + hpPts;
 }
 
-function syncPlayerTitles(player) {
+async function syncPlayerTitles(player, bot = null) {
   let changed = false;
+  const newlyUnlocked = [];
 
   if (!player.unlockedTitles || !Array.isArray(player.unlockedTitles) || player.unlockedTitles.length === 0) {
     player.unlockedTitles = ['Aventurero Novato'];
+    changed = true;
+  } else if (!player.unlockedTitles.includes('Aventurero Novato')) {
+    player.unlockedTitles.unshift('Aventurero Novato');
     changed = true;
   }
 
   // Desbloqueo inicial por invertir 3 o más puntos
   if (getSpentPoints(player) >= 3 && !player.unlockedTitles.includes('Caminante de Senderos')) {
     player.unlockedTitles.push('Caminante de Senderos');
+    newlyUnlocked.push('Caminante de Senderos');
     changed = true;
   }
 
   // Desbloqueo de Mecenas por Gema Ancestral
   if (player.hasAncestralGem && !player.unlockedTitles.includes('Mecenas de Abyss')) {
     player.unlockedTitles.push('Mecenas de Abyss');
+    newlyUnlocked.push('Mecenas de Abyss');
     changed = true;
   }
 
-  // Asignar por defecto solo si no tiene ninguno o si su título activo no existe en su lista
+  // Asignar título activo si está vacío o no es válido
   if (!player.activeTitle || !player.unlockedTitles.includes(player.activeTitle)) {
     player.activeTitle = player.unlockedTitles.includes('Caminante de Senderos')
       ? 'Caminante de Senderos'
@@ -36,6 +42,24 @@ function syncPlayerTitles(player) {
 
   if (changed && typeof player.markModified === 'function') {
     player.markModified('unlockedTitles');
+    await player.save();
+  }
+
+  // Notificar al jugador si hubo un nuevo desbloqueo
+  if (bot && newlyUnlocked.length > 0) {
+    for (const title of newlyUnlocked) {
+      try {
+        await bot.telegram.sendMessage(
+          player.userId,
+          `🎖️🎉 *¡NUEVO TÍTULO HONORÍFICO DESBLOQUEADO!*\n\n` +
+          `Has obtenido la distinción: «*\${title}*».\n\n` +
+          `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (e) {
+        console.error('Error enviando notificación de título:', e.message);
+      }
+    }
   }
 
   return changed;
@@ -48,9 +72,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    if (syncPlayerTitles(player)) {
-      await player.save();
-    }
+    await syncPlayerTitles(player, bot);
 
     const title = player.activeTitle || 'Aventurero Novato';
     let walletDisplay = '❌ _No vinculada_';
@@ -110,15 +132,13 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    if (syncPlayerTitles(player)) {
-      await player.save();
-    }
+    await syncPlayerTitles(player, bot);
 
     const currentTitle = player.activeTitle || 'Aventurero Novato';
     const unlocked = player.unlockedTitles || ['Aventurero Novato'];
 
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
-               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Estado**, en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
                `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
                'Toca un título para equipártelo:\n\n';
 
@@ -139,7 +159,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const idx = parseInt(ctx.match[1], 10);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    syncPlayerTitles(player);
+    await syncPlayerTitles(player, bot);
 
     const unlocked = player.unlockedTitles || ['Aventurero Novato'];
     if (idx < 0 || idx >= unlocked.length) {
@@ -161,7 +181,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
     const currentTitle = player.activeTitle;
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
-               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Estado**, en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
                `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
                'Toca un título para equipártelo:\n\n';
 
@@ -178,4 +198,4 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
   });
 }
 
-module.exports = { registerHomeHandlers };
+module.exports = { registerHomeHandlers, syncPlayerTitles };
