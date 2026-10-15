@@ -63,6 +63,9 @@ const playerSchema = new mongoose.Schema({
   activeTitle: { type: String, default: 'Aventurero Novato' },
   unlockedTitles: { type: [String], default: ['Aventurero Novato'] },
 
+  // Cazas Diarias Totales
+  bountiesCompletedCount: { type: Number, default: 0 },
+
   // Inventario
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
