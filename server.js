@@ -298,7 +298,7 @@ function startServer(bot) {
         <div class="icon">🔮✨</div>
         <h2>Gema Ancestral</h2>
         <div class="tag">ARTEFACTO LEGENDARIO ÚNICO</div>
-        <p>Aumenta permanentemente tu límite a <b>+1 Energía Máxima</b> y te otorga el título exclusivo <b>«Mecenas de Abyss»</b>.</p>
+        <p>Aumenta permanentemente tu límite a <b>+2 Energía Máxima ⚡</b> y te otorga el título exclusivo <b>«Mecenas de Abyss»</b>.</p>
 
         <div class="price-badge">💎 0.15 TON</div>
 
@@ -382,7 +382,7 @@ function startServer(bot) {
     res.send(html);
   });
 
-  // Endpoint para acreditar la Gema Ancestral y el Título
+  // Endpoint para acreditar la Gema Ancestral (+2 ⚡) y el Título
   app.post('/confirm-ancestral-gem', async (req, res) => {
     try {
       const { userId } = req.body;
@@ -401,7 +401,7 @@ function startServer(bot) {
       }
 
       player.hasAncestralGem = true;
-      player.maxEnergy = (player.maxEnergy || 12) + 1;
+      player.maxEnergy = (player.maxEnergy || 10) + 2;
       player.energy = player.maxEnergy;
 
       if (!player.unlockedTitles) player.unlockedTitles = ['Aventurero Novato'];
@@ -417,7 +417,7 @@ function startServer(bot) {
           uid,
           `🔮✨ *¡FELICITACIONES, AVENTURERO!*\n\n` +
           `Has adquirido la legendaria *Gema Ancestral*.\n\n` +
-          `⚡ Tu energía máxima ha aumentado a *${player.maxEnergy} ⚡*.\n` +
+          `⚡ Tu energía máxima ha aumentado en *+2* (Ahora tienes *${player.maxEnergy} ⚡*).\n` +
           `🎖️ Se te ha conferido el título honorífico: «*Mecenas de Abyss*».\n\n` +
           `_El reino recuerda con gratitud a sus protectores y benefactores._`,
           { parse_mode: 'Markdown' }
@@ -428,7 +428,7 @@ function startServer(bot) {
 
       return res.json({
         success: true,
-        msg: `¡Éxito! Gema Ancestral activada. Tu energía máxima ahora es ${player.maxEnergy} y recibiste el título «Mecenas de Abyss».`
+        msg: `¡Éxito! Gema Ancestral activada (+2 ⚡). Tu energía máxima ahora es ${player.maxEnergy} y recibiste el título «Mecenas de Abyss».`
       });
     } catch (err) {
       console.error('Error en /confirm-ancestral-gem:', err);
