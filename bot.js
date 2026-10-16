@@ -927,21 +927,20 @@ bot.action('bounty_use_dragon_blood', async (ctx) => {
   await safeAnswerCb(ctx);
   const confirmText = `🩸 *Confirmación:*\n\n¿Deseas beber el elixir para sanar al 100% (${player.hp}/${player.maxHp} HP)?`;
   const confirmBtns = Markup.inlineKeyboard([
-    [Markup.button.callback('🩸 Sí, beber', 'use_dragon_blood_confirm')],
-    [Markup.button.callback('❌ No, cancelar', 'menu_inv')]
+    [Markup.button.callback('🩸 Sí, beber', 'bounty_dragon_blood_confirm')],
+    [Markup.button.callback('❌ No, cancelar', 'bounty_inv')]
   ]);
   return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
 });
 
-bot.action('use_dragon_blood_confirm', async (ctx) => {
+bot.action('bounty_dragon_blood_confirm', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.potionsDragonBlood || player.potionsDragonBlood <= 0) return await safeAnswerCb(ctx, 'Sin elixires.', true);
   player.potionsDragonBlood -= 1;
   player.hp = player.maxHp;
   await player.save();
-  await safeAnswerCb(ctx, '🩸 Salud restaurada.', true);
-  const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  await safeAnswerCb(ctx, '🩸 Salud restaurada al 100%.', true);
+  return await getCombatView(ctx);
 });
 
 // ==========================================
