@@ -499,7 +499,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
   bot.action('tavern_pvp_ranking', async (ctx) => {
     await safeAnswerCb(ctx);
 
-    const topGladiators = await Player.find({ pvpWins: { $gt: 0 } })
+    const topGladiators = await Player.find({ pvpWins: { \$gt: 0 } })
       .sort({ pvpWins: -1, pvpLosses: 1 })
       .limit(10);
 
@@ -529,7 +529,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       buttons.push([Markup.button.callback('⚠️ Reiniciar Ranking PvP', 'admin_pvp_reset_prompt')]);
     }
 
-    buttons.push([Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]]);
+    buttons.push([Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
