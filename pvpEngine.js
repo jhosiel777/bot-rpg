@@ -4,7 +4,7 @@ function getEquipmentAndMitigation(player, incomingDamageType = 'physical') {
   // 1. Mitigación base por Fuerza (Escala hasta un tope de 25% a nivel/stat máximo)
   const strengthMitigation = Math.min(0.25, ((player.strength || 0) / 100) * 0.25);
 
-  // 2. Estructura modular de equipo (Preparada para Cabeza, Coraza, Pantalones y Arma)
+  // 2. Estructura modular de equipo
   const equipment = player.equipped || {
     weapon: player.equippedWeapon || null,
     head: player.equippedHead || null,
@@ -13,12 +13,11 @@ function getEquipmentAndMitigation(player, incomingDamageType = 'physical') {
   };
 
   const weapon = equipment.weapon || {
-    type: player.equippedWeaponType || 'none', // 'espada', 'arco', 'baston', 'none'
+    type: player.equippedWeaponType || 'none',
     bonusDmg: player.weaponBonusDmg || 0,
     bonusCrit: player.weaponBonusCrit || 0
   };
 
-  // Configuración de arma y tipo de daño infligido
   let damageType = 'physical';
   let weaponDmg = weapon.bonusDmg || 0;
   let weaponCrit = weapon.bonusCrit || 0;
@@ -29,7 +28,7 @@ function getEquipmentAndMitigation(player, incomingDamageType = 'physical') {
   } else if (weapon.type === 'arco') {
     damageType = 'physical';
     weaponDmg += 1;
-    weaponCrit += 10; // +10% de probabilidad crítica
+    weaponCrit += 10;
   } else if (weapon.type === 'baston') {
     damageType = 'elemental';
     weaponDmg += 3;
@@ -44,8 +43,8 @@ function getEquipmentAndMitigation(player, incomingDamageType = 'physical') {
   let clothCount = 0;
 
   for (const piece of pieces) {
-    const material = piece.material; // 'metal', 'cuero', 'tela'
-    const tierPct = piece.mitigationPct || 0.05; // % de mitigación según tier
+    const material = piece.material;
+    const tierPct = piece.mitigationPct || 0.05;
 
     if (material === 'metal') {
       metalCount++;
@@ -55,18 +54,18 @@ function getEquipmentAndMitigation(player, incomingDamageType = 'physical') {
       if (incomingDamageType === 'elemental') gearMitigation += tierPct;
     } else if (material === 'cuero') {
       leatherCount++;
-      gearMitigation += tierPct * 0.5; // Balanceado para ambos daños
+      gearMitigation += tierPct * 0.5;
     }
   }
 
-  // 4. Bonos por Set Completo (3 piezas del mismo tipo)
+  // 4. Bonos por Set Completo (3 piezas)
   const setBonuses = {
-    hpMultiplier: metalCount === 3 ? 1.05 : 1.0,     // Full Metal: +5% HP
-    extraDodge: leatherCount === 3 ? 5 : 0,           // Full Cuero: +5% Esquive
-    extraCritDmg: clothCount === 3 ? 0.05 : 0.0       // Full Tela: +5% Daño Crítico
+    hpMultiplier: metalCount === 3 ? 1.05 : 1.0,
+    extraDodge: leatherCount === 3 ? 5 : 0,
+    extraCritDmg: clothCount === 3 ? 0.05 : 0.0
   };
 
-  // 5. Total de mitigación con Hard Cap del 60% en PvP
+  // 5. Hard Cap de mitigación del 60% en PvP
   const totalMitigation = Math.min(0.60, strengthMitigation + gearMitigation);
 
   return {
@@ -84,21 +83,25 @@ function simulatePvPDuel(p1, p2) {
   const eqP1 = getEquipmentAndMitigation(p1, 'physical');
   const eqP2 = getEquipmentAndMitigation(p2, 'physical');
 
-  // Vida máxima ajustada por bonos de set (si aplica)
   let hp1 = Math.round(p1.maxHp * eqP1.setBonuses.hpMultiplier);
   let hp2 = Math.round(p2.maxHp * eqP2.setBonuses.hpMultiplier);
 
   const maxHp1 = hp1;
   const maxHp2 = hp2;
 
-  let potionsUsed1 = 0;
-  let potionsUsed2 = 0;
+  // Seguimiento de pociones reales en la mochila
+  let p1SmallAvailable = p1.potionsSmall || 0;
+  let p1MedAvailable = p1.potionsMedium || 0;
+  let p1SmallUsed = 0;
+  let p1MedUsed = 0;
 
-  const maxPotionsAllowed = 2;
-  const availablePotions1 = p1.potionsSmall || 0;
-  const availablePotions2 = p2.potionsSmall || 0;
+  let p2SmallAvailable = p2.potionsSmall || 0;
+  let p2MedAvailable = p2.potionsMedium || 0;
+  let p2SmallUsed = 0;
+  let p2MedUsed = 0;
 
-  // Iniciativa según Agilidad
+  const MAX_POTIONS_PER_DUEL = 2;
+
   let attacker = (p1.agility >= p2.agility) ? p1 : p2;
   let defender = (attacker === p1) ? p2 : p1;
 
@@ -110,15 +113,31 @@ function simulatePvPDuel(p1, p2) {
   while (hp1 > 0 && hp2 > 0 && round <= MAX_ROUNDS) {
     const isP1Attacking = (attacker === p1);
 
-    // 1. Uso automático de poción si cae por debajo del 40% de vida
-    if (isP1Attacking && hp1 <= maxHp1 * 0.4 && potionsUsed1 < maxPotionsAllowed && potionsUsed1 < availablePotions1) {
-      potionsUsed1++;
-      hp1 = Math.min(maxHp1, hp1 + 20);
-      log.push(`🧪 ${p1.name} bebió una Poción de Salud (+20 HP).`);
-    } else if (!isP1Attacking && hp2 <= maxHp2 * 0.4 && potionsUsed2 < maxPotionsAllowed && potionsUsed2 < availablePotions2) {
-      potionsUsed2++;
-      hp2 = Math.min(maxHp2, hp2 + 20);
-      log.push(`🧪 ${p2.name} bebió una Poción de Salud (+20 HP).`);
+    // 1. Uso automático de pociones (Prioriza Mayor +35 HP, luego Menor +10 HP)
+    if (isP1Attacking && hp1 <= maxHp1 * 0.4 && (p1SmallUsed + p1MedUsed) < MAX_POTIONS_PER_DUEL) {
+      if (p1MedAvailable > 0) {
+        p1MedAvailable--;
+        p1MedUsed++;
+        hp1 = Math.min(maxHp1, hp1 + 35);
+        log.push(`🧪 ${p1.name} bebió una *Poción Mayor de Salud* (+35 HP).`);
+      } else if (p1SmallAvailable > 0) {
+        p1SmallAvailable--;
+        p1SmallUsed++;
+        hp1 = Math.min(maxHp1, hp1 + 10);
+        log.push(`🧪 ${p1.name} bebió una *Poción Menor de Salud* (+10 HP).`);
+      }
+    } else if (!isP1Attacking && hp2 <= maxHp2 * 0.4 && (p2SmallUsed + p2MedUsed) < MAX_POTIONS_PER_DUEL) {
+      if (p2MedAvailable > 0) {
+        p2MedAvailable--;
+        p2MedUsed++;
+        hp2 = Math.min(maxHp2, hp2 + 35);
+        log.push(`🧪 ${p2.name} bebió una *Poción Mayor de Salud* (+35 HP).`);
+      } else if (p2SmallAvailable > 0) {
+        p2SmallAvailable--;
+        p2SmallUsed++;
+        hp2 = Math.min(maxHp2, hp2 + 10);
+        log.push(`🧪 ${p2.name} bebió una *Poción Menor de Salud* (+10 HP).`);
+      }
     }
 
     const attEq = isP1Attacking ? eqP1 : eqP2;
@@ -126,7 +145,7 @@ function simulatePvPDuel(p1, p2) {
       ? getEquipmentAndMitigation(p2, attEq.damageType) 
       : getEquipmentAndMitigation(p1, attEq.damageType);
 
-    // 2. Probabilidad de Esquive (Agilidad + Bono de Set Cuero, máx 25%)
+    // 2. Esquive por Agilidad
     const baseDodge = (defender.agility - attacker.agility) * 1.5;
     const dodgeChance = Math.min(25, Math.max(5, baseDodge + defEq.setBonuses.extraDodge));
     const dodged = Math.random() * 100 < dodgeChance;
@@ -134,17 +153,15 @@ function simulatePvPDuel(p1, p2) {
     if (dodged) {
       log.push(`💨 ${defender.name} esquivó el ataque de ${attacker.name}.`);
     } else {
-      // 3. Daño base + arma
+      // 3. Daño base
       let rawDamage = 10 + (attacker.strength * 1.2) + attEq.weaponDmg;
-
-      // Variación aleatoria (-2 a +2)
       rawDamage += Math.floor(Math.random() * 5) - 2;
 
-      // 4. Aplicar mitigación porcentual del defensor (Tope 60%)
+      // 4. Mitigación (máx 60%)
       let finalDamage = Math.round(rawDamage * (1 - defEq.totalMitigation));
       finalDamage = Math.max(3, finalDamage);
 
-      // 5. Probabilidad de Crítico según Suerte (Multiplicador x1.25)
+      // 5. Crítico (x1.25)
       const critChance = Math.min(35, Math.max(5, (attacker.luck * 1.2) + attEq.weaponCrit));
       const isCrit = Math.random() * 100 < critChance;
 
@@ -157,7 +174,6 @@ function simulatePvPDuel(p1, p2) {
         log.push(`${attackIcon} ${attacker.name} golpeó a ${defender.name} por *${finalDamage}* de daño.`);
       }
 
-      // Descontar daño
       if (isP1Attacking) {
         hp2 = Math.max(0, hp2 - finalDamage);
       } else {
@@ -167,14 +183,12 @@ function simulatePvPDuel(p1, p2) {
 
     if (hp1 <= 0 || hp2 <= 0) break;
 
-    // Alternar turno
     const temp = attacker;
     attacker = defender;
     defender = temp;
     round++;
   }
 
-  // Definición del ganador
   let winner = null;
   let loser = null;
 
@@ -185,7 +199,6 @@ function simulatePvPDuel(p1, p2) {
     winner = p2;
     loser = p1;
   } else {
-    // Desempate por mayor porcentaje de HP restante
     const p1Ratio = hp1 / maxHp1;
     const p2Ratio = hp2 / maxHp2;
     winner = (p1Ratio >= p2Ratio) ? p1 : p2;
@@ -198,8 +211,8 @@ function simulatePvPDuel(p1, p2) {
     winnerId: winner.userId,
     loserId: loser.userId,
     combatLog: log,
-    potionsConsumedP1: potionsUsed1,
-    potionsConsumedP2: potionsUsed2
+    potionsUsedP1: { small: p1SmallUsed, medium: p1MedUsed },
+    potionsUsedP2: { small: p2SmallUsed, medium: p2MedUsed }
   };
 }
 
