@@ -397,7 +397,9 @@ function getStatsView(player) {
 
 function getReferralView(player) {
   player.checkAndBurnReferralGold();
-  const totalToClaim = (player.referralGoldToday || 0) + (player.referralGoldUnclaimed || 0);
+
+  const pendingToday = Math.max(0, (player.referralGoldToday || 0) - (player.referralGoldTodayClaimed || 0));
+  const totalPending = pendingToday + (player.referralGoldUnclaimed || 0);
 
   let text = '🚩 *SISTEMA DE RECLUTAMIENTO DEL GREMIO*\n\n' +
              'Invita a nuevos aventureros a inscribirse en el reino bajo tu bandera.\n\n' +
@@ -408,7 +410,7 @@ function getReferralView(player) {
              '🛡️ *Reclutas en tu hermandad:* ' + (player.recruitsCount || 0) + '\n\n' +
              '📊 *Tributos de Oro de Reclutas:*\n' +
              '• Oro ganado hoy: *' + (player.referralGoldToday || 0) + ' / 3,000g*\n' +
-             '• Oro pendiente por reclamar: *' + (player.referralGoldUnclaimed || 0) + 'g*\n' +
+             '• Oro pendiente por reclamar: *' + totalPending + 'g*\n' +
              '• Total histórico obtenido: *' + (player.referralGoldTotalEarned || 0) + 'g*\n\n' +
              '📜 *Reglas del Gremio:*\n' +
              '• Recibes el *2.5%* del oro generado en expediciones, eventos y jefes.\n' +
@@ -418,8 +420,8 @@ function getReferralView(player) {
              '• ⚠️ _Tributos calculados únicamente en Oro (no aplica a TON)._';
 
   const buttons = [];
-  if (totalToClaim > 0) {
-    buttons.push([Markup.button.callback('📥 Reclamar +' + totalToClaim + 'g a mi Bolsa', 'claim_referral_gold')]);
+  if (totalPending > 0) {
+    buttons.push([Markup.button.callback('📥 Reclamar +' + totalPending + 'g a mi Bolsa', 'claim_referral_gold')]);
   }
   buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
@@ -544,7 +546,7 @@ bot.on('text', async (ctx, next) => {
 
     const view = await getStatusView(player);
     await ctx.reply('⚔️ ¡Bienvenido al reino!', MAIN_BOTTOM_KEYBOARD);
-    const sent = await ctx.reply(view.text, view.keyboard);
+    const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
     lastUserMessages.set(userId, sent.message_id);
     return;
   }
@@ -615,7 +617,7 @@ async function handleStartMenu(ctx) {
 
     const view = await getStatusView(player);
     await ctx.reply('⚔️ ¡Campamento listo!', MAIN_BOTTOM_KEYBOARD);
-    const sent = await ctx.reply(view.text, view.keyboard);
+    const sent = await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
     lastUserMessages.set(userId, sent.message_id);
   } catch (err) {
     console.error('Error en start/menu:', err);
@@ -732,7 +734,7 @@ bot.action('menu_daily_bonus', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   const view = getDailyBonusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('status', async (ctx) => {
@@ -740,7 +742,7 @@ bot.action('status', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   await checkAndNotifyTitles(bot, player, ctx);
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('menu_explore', async (ctx) => {
@@ -767,7 +769,7 @@ bot.action('menu_explore', async (ctx) => {
     [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
   ]);
 
-  return await safeEditMessage(ctx, text, keyboard);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
 // ==========================================
@@ -777,7 +779,7 @@ bot.action('menu_bounty', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   const view = await getBountyBoardView(ctx.from.id, player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('bounty_refresh', async (ctx) => {
@@ -798,13 +800,13 @@ bot.action('bounty_depart_prompt', async (ctx) => {
     [Markup.button.callback('⬅️ Volver al Tablón', 'menu_bounty')]
   ]);
 
-  return await safeEditMessage(ctx, text, keyboard);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
 bot.action('bounty_auto_select', async (ctx) => {
   await safeAnswerCb(ctx);
   const view = await getAutoSelectionView(ctx.from.id);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('bounty_go_auto_normal', (ctx) => startBountyTravel(ctx, bot, 'auto', false));
@@ -827,7 +829,7 @@ bot.action('bounty_admin_reset', async (ctx) => {
 bot.action('bounty_merchant_menu', async (ctx) => {
   await safeAnswerCb(ctx);
   const view = await getMerchantView(ctx.from.id);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('bounty_buy_pot_small', (ctx) => buyFromMerchant(ctx, 'small'));
@@ -866,7 +868,7 @@ bot.action('bounty_inv', async (ctx) => {
   if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'bounty_use_dragon_blood')]);
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
-  return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('bounty_use_pot_small', async (ctx) => {
@@ -929,7 +931,7 @@ bot.action('bounty_use_dragon_blood', async (ctx) => {
     await player.save();
     await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Ya no estás inconsciente y tienes 100% HP.', true);
     const view = await getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   }
 
   await safeAnswerCb(ctx);
@@ -938,7 +940,7 @@ bot.action('bounty_use_dragon_blood', async (ctx) => {
     [Markup.button.callback('🩸 Sí, beber', 'bounty_dragon_blood_confirm')],
     [Markup.button.callback('❌ No, cancelar', 'bounty_inv')]
   ]);
-  return await safeEditMessage(ctx, confirmText, confirmBtns);
+  return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
 });
 
 bot.action('bounty_dragon_blood_confirm', async (ctx) => {
@@ -967,14 +969,14 @@ bot.action('rest', async (ctx) => {
 
   await safeAnswerCb(ctx, `Descansaste y recuperaste ${healAmount} HP (+30%).`, true);
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('menu_stats', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('add_str', async (ctx) => {
@@ -985,7 +987,7 @@ bot.action('add_str', async (ctx) => {
   await safeAnswerCb(ctx, '+1 Fuerza');
   await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('add_hp', async (ctx) => {
@@ -996,7 +998,7 @@ bot.action('add_hp', async (ctx) => {
   await safeAnswerCb(ctx, '+5 HP');
   await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('add_agi', async (ctx) => {
@@ -1007,7 +1009,7 @@ bot.action('add_agi', async (ctx) => {
   await safeAnswerCb(ctx, '+1 Agilidad');
   await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('add_luk', async (ctx) => {
@@ -1018,7 +1020,7 @@ bot.action('add_luk', async (ctx) => {
   await safeAnswerCb(ctx, '+1 Suerte');
   await checkAndNotifyTitles(bot, player, ctx);
   const view = getStatsView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 // ==========================================
@@ -1061,7 +1063,7 @@ bot.action('menu_inv', async (ctx) => {
     
     buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
 
-    return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en menu_inv:', err);
     try {
@@ -1079,7 +1081,7 @@ bot.action('use_potion_small', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +10 HP');
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('use_potion_medium', async (ctx) => {
@@ -1091,7 +1093,7 @@ bot.action('use_potion_medium', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +35 HP');
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('use_potion_energy', async (ctx) => {
@@ -1104,7 +1106,7 @@ bot.action('use_potion_energy', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('use_energy_drink', async (ctx) => {
@@ -1117,7 +1119,7 @@ bot.action('use_energy_drink', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('use_dragon_blood', async (ctx) => {
@@ -1134,7 +1136,7 @@ bot.action('use_dragon_blood', async (ctx) => {
     await player.save();
     await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Ya no estás inconsciente y tienes 100% HP.', true);
     const view = await getStatusView(player);
-    return await safeEditMessage(ctx, view.text, view.keyboard);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   }
 
   await safeAnswerCb(ctx);
@@ -1143,7 +1145,7 @@ bot.action('use_dragon_blood', async (ctx) => {
     [Markup.button.callback('🩸 Sí, beber', 'use_dragon_blood_confirm')],
     [Markup.button.callback('❌ No, cancelar', 'menu_inv')]
   ]);
-  return await safeEditMessage(ctx, confirmText, confirmBtns);
+  return await safeEditMessage(ctx, confirmText, { parse_mode: 'Markdown', ...confirmBtns });
 });
 
 bot.action('use_dragon_blood_confirm', async (ctx) => {
@@ -1154,7 +1156,7 @@ bot.action('use_dragon_blood_confirm', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, '🩸 Salud restaurada.', true);
   const view = await getStatusView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 // ==========================================
@@ -1195,7 +1197,7 @@ bot.action('boss_inv', async (ctx) => {
 
     buttons.push([Markup.button.callback('⬅️ Volver al Coloso', 'menu_boss')]);
 
-    return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en boss_inv:', err);
   }
@@ -1286,7 +1288,7 @@ bot.action('menu_market', async (ctx) => {
     Markup.button.callback('⬅️ Volver', 'status')
   ]);
 
-  return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('mkt_trends', async (ctx) => {
@@ -1296,7 +1298,7 @@ bot.action('mkt_trends', async (ctx) => {
     [Markup.button.callback('🔄 Actualizar', 'mkt_trends')],
     [Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]
   ]);
-  return await safeEditMessage(ctx, text, keyboard);
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
 });
 
 bot.action('mkt_sell_menu', async (ctx) => {
@@ -1316,11 +1318,17 @@ bot.action('mkt_sell_menu', async (ctx) => {
   }
 
   if (!buttons.length) {
-    return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nNo tienes ningún objeto para vender.', Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]]));
+    return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nNo tienes ningún objeto para vender.', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Mercado', 'menu_market')]])
+    });
   }
 
   buttons.push([Markup.button.callback('⬅️ Cancelar', 'menu_market')]);
-  return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nSelecciona el objeto:', Markup.inlineKeyboard(buttons));
+  return await safeEditMessage(ctx, '📦 *Publicar en el Mercado*\n\nSelecciona el objeto:', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard(buttons)
+  });
 });
 
 Object.keys(ITEMS).forEach((key) => {
@@ -1337,7 +1345,10 @@ Object.keys(ITEMS).forEach((key) => {
                  `• Comisión: 8%\n\n` +
                  `💬 *Escribe en el chat el precio en oro:*`;
 
-    return await safeEditMessage(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'mkt_sell_menu')]]));
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'mkt_sell_menu')]])
+    });
   });
 });
 
@@ -1373,7 +1384,7 @@ bot.action(/mkt_buy_(.+)/, async (ctx) => {
     });
     buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
     buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
-    return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
     console.error('Error en mkt_buy:', err);
     await safeAnswerCb(ctx, 'Error al procesar la compra.', true);
@@ -1396,7 +1407,7 @@ bot.action(/mkt_del_(.+)/, async (ctx) => {
   });
   buttons.push([Markup.button.callback('📊 Tendencias (4h)', 'mkt_trends'), Markup.button.callback('📦 Publicar un Objeto', 'mkt_sell_menu')]);
   buttons.push([Markup.button.callback('🔄 Actualizar', 'menu_market'), Markup.button.callback('⬅️ Volver', 'status')]);
-  return await safeEditMessage(ctx, text, Markup.inlineKeyboard(buttons));
+  return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 // ==========================================
@@ -1406,7 +1417,7 @@ bot.action('menu_referrals', async (ctx) => {
   await safeAnswerCb(ctx);
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   const view = getReferralView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('claim_referral_gold', async (ctx) => {
@@ -1416,7 +1427,7 @@ bot.action('claim_referral_gold', async (ctx) => {
   await player.save();
   await safeAnswerCb(ctx, `💰 ¡Reclamaste +${claimed}g!`, true);
   const view = getReferralView(player);
-  return await safeEditMessage(ctx, view.text, view.keyboard);
+  return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.action('menu_ranking', async (ctx) => {
@@ -1429,10 +1440,13 @@ bot.action('menu_ranking', async (ctx) => {
     text += `${medal} ${titlePart}*${p.name}* — Nivel ${p.level} (EXP: ${p.exp})\n`;
   });
 
-  return await safeEditMessage(ctx, text, Markup.inlineKeyboard([
-    [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
-    [Markup.button.callback('⬅️ Volver', 'status')]
-  ]));
+  return await safeEditMessage(ctx, text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Actualizar Ranking', 'menu_ranking')],
+      [Markup.button.callback('⬅️ Volver', 'status')]
+    ])
+  });
 });
 
 bot.command(['top', 'ranking'], async (ctx) => {
