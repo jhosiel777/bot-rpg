@@ -512,7 +512,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
   bot.action('tavern_pvp_ranking', async (ctx) => {
     await safeAnswerCb(ctx);
 
-    const topGladiators = await Player.find({ pvpWins: { \$gt: 0 } })
+    const topGladiators = await Player.find({ pvpWins: { $gt: 0 } })
       .sort({ pvpWins: -1, pvpLosses: 1 })
       .limit(10);
 
