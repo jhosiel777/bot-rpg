@@ -311,9 +311,11 @@ async function getCombatView(ctx) {
     return await renderBountyView(ctx, player, ctx.telegram ? { telegram: ctx.telegram } : null);
   }
 
+  const effectiveMaxEnergy = player.maxEnergy || MAX_ENERGY;
+
   const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
                      '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
-                     '⚡ Tu energía: *' + player.energy + '/' + MAX_ENERGY + '*\n' +
+                     '⚡ Tu energía: *' + player.energy + '/' + effectiveMaxEnergy + '*\n' +
                      '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
                      '¿Qué decides hacer?';
 
@@ -1016,12 +1018,14 @@ async function executeManualBountyAttack(ctx, bot) {
 
   armManualAfkTimer(bot, userId, bounty);
 
+  const effectiveMaxEnergy = player.maxEnergy || MAX_ENERGY;
+
   const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
                      (isCrit ? '✨ *¡Golpe Crítico!* (1.4x)\n' : '') +
                      '💥 Daño infligido: *' + pDmg + '*\n' +
                      '🛡️ Daño recibido: *' + finalEnemyDmg + ' HP*\n\n' +
                      '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
-                     '⚡ Tu energía: *' + player.energy + '/' + MAX_ENERGY + '*\n' +
+                     '⚡ Tu energía: *' + player.energy + '/' + effectiveMaxEnergy + '*\n' +
                      '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
                      '¿Qué decides hacer?';
 
