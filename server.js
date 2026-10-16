@@ -38,7 +38,7 @@ async function getBotWalletAddress() {
   }
 }
 
-// Transferencia desde la wallet v4R2 del bot (soporta 1 o varias transferencias simultáneas)
+// Transferencia desde la wallet v4R2 del bot
 async function transferTonFromBot(messagesList) {
   const mnemonic = process.env.BOT_WALLET_MNEMONIC;
   if (!mnemonic) {
@@ -231,7 +231,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // RECARGA DE FONDOS GRAM (/deposit-gram) -> VA A LA WALLET DEL BOT
+  // RECARGA DE FONDOS GRAM (/deposit-gram) -> LLEGA A LA WALLET DEL BOT
   // ==========================================
   app.get('/deposit-gram', async (req, res) => {
     const userId = req.query.userId || '';
@@ -444,7 +444,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // COMPRA DE GEMA ANCESTRAL (/buy-web3) -> VA DIRECTO A TU WALLET ADMIN
+  // COMPRA DE GEMA ANCESTRAL (/buy-web3) -> LLEGA A TU WALLET ADMIN
   // ==========================================
   app.get('/buy-web3', async (req, res) => {
     const userId = req.query.userId || '';
@@ -722,7 +722,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // PAGO / RETIRO AUTOMÁTICO (BOT -> WALLET DEL USUARIO + COMISIÓN AL ADMIN)
+  // PAGO / RETIRO AUTOMÁTICO (BOT -> DESTINATARIO + COMISIÓN DIFERIDA)
   // ==========================================
   app.post('/send-ton-payout', async (req, res) => {
     try {
@@ -736,35 +736,24 @@ function startServer(bot) {
       if (!toAddress) return res.status(400).json({ success: false, msg: 'Dirección de destino faltante.' });
 
       const payoutAmount = amountTon || 0.01;
-      const transferMessages = [];
-
-      // 1. Transferencia hacia el destinatario (Usuario o Admin según el caso)
-      transferMessages.push({
-        to: toAddress,
-        amount: payoutAmount,
-        body: isUserWithdrawal ? 'Retiro de saldo - Abyss RPG' : 'Pago automático - Abyss RPG'
-      });
-
-      // 2. Si es retiro de usuario y hay comisión, se envía en la misma transacción hacia tu wallet personal
       const numFee = fee ? parseFloat(fee) : 0;
-      if (isUserWithdrawal && numFee > 0) {
-        transferMessages.push({
-          to: ADMIN_WALLET_ADDRESS,
-          amount: numFee,
-          body: 'Comisión retiro - Abyss RPG'
-        });
-      }
 
-      await transferTonFromBot(transferMessages);
+      // 1. Enviar primero el retiro neto a la billetera del usuario
+      await transferTonFromBot([
+        {
+          to: toAddress,
+          amount: payoutAmount,
+          body: isUserWithdrawal ? 'Retiro de saldo - Abyss RPG' : 'Pago automático - Abyss RPG'
+        }
+      ]);
 
       const now = new Date();
       const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
-
       const headerText = isUserWithdrawal ? '📤 *¡RETIRO DE GRAM COMPLETADO!* 📤' : '📤 *¡PAGO AUTOMÁTICO EMITIDO (TEST)!* 📤';
       const userText = isUserWithdrawal ? (playerName || 'Aventurero') : 'Administrador';
-      const feeNote = numFee > 0 ? ('\n💡 *Comisión enviada al creador:* ' + numFee + ' TON') : '';
+      const feeNote = numFee > 0 ? ('\n💡 *Comisión al creador (programada):* ' + numFee + ' TON') : '';
 
-      // Log detallado al Grupo de Auditoría
+      // Log para el grupo administrativo
       try {
         const logMsg = headerText + '\n\n' +
                        '👤 *Destinatario:* ' + userText + '\n' +
@@ -788,29 +777,22 @@ function startServer(bot) {
         console.error('Error enviando log de payout:', logErr.message);
       }
 
-      // Recibo privado para el aventurero
-      if (userId) {
-        try {
-          const userReceipt = '📤 *¡RETIRO COMPLETADO!* 📤\n\n' +
-                              'Hemos enviado *' + payoutAmount + ' TON* directamente a tu billetera:\n' +
-                              '`' + toAddress + '`\n\n' +
-                              (numFee > 0 ? '💡 _Comisión aplicada: ' + numFee + ' TON_\n\n' : '') +
-                              '🔍 [Ver en Tonviewer](https://tonviewer.com/' + toAddress + ')\n\n' +
-                              '✨ _¡Gracias por jugar y respaldar Abyss RPG!_';
-
-          await bot.telegram.sendMessage(
-            userId,
-            userReceipt,
-            {
-              parse_mode: 'Markdown',
-              ...Markup.inlineKeyboard([
-                [Markup.button.url('🔍 Ver en Tonviewer', 'https://tonviewer.com/' + toAddress)]
-              ])
-            }
-          );
-        } catch (uErr) {
-          console.error('Error enviando recibo privado al usuario:', uErr.message);
-        }
+      // 2. Transferencia de comisión diferida (15 seg para que TON actualice el seqno)
+      if (isUserWithdrawal && numFee > 0) {
+        setTimeout(async () => {
+          try {
+            await transferTonFromBot([
+              {
+                to: ADMIN_WALLET_ADDRESS,
+                amount: numFee,
+                body: 'Comisión retiro - Abyss RPG'
+              }
+            ]);
+            console.log('✅ Comisión de ' + numFee + ' TON enviada exitosamente al creador.');
+          } catch (feeErr) {
+            console.error('Error enviando comisión diferida al creador:', feeErr.message);
+          }
+        }, 15000);
       }
 
       return res.json({ success: true, msg: 'Transferencia emitida exitosamente.' });
@@ -1138,7 +1120,7 @@ function startServer(bot) {
           }, 35000);
 
           const onReturnFocus = () => {
-            if (!adActive) return;
+            if (!stepAdActive) return;
             const elapsed = (Date.now() - adStartTime) / 1000;
             if (elapsed >= 10) {
               adActive = false;
@@ -1165,7 +1147,7 @@ function startServer(bot) {
                 }
               })
               .catch(() => {
-                const elapsed = (Date.now() - adStartTime) / 1000;
+                const elapsed = (Date.now() - stepAdStartTime) / 1000;
                 if (elapsed >= 10 && adActive) {
                   adActive = false;
                   clearTimeout(safetyTimeout);
