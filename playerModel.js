@@ -5,6 +5,7 @@ const MAX_STAT = 100;
 const MAX_BASE_HP = 500;
 const MAX_ENERGY = 10;
 const ADMIN_ID = 835648800;
+const DAILY_REFERRAL_CAP = 3000;
 
 // 1 punto de energía cada 10 minutos (600,000 ms)
 const ENERGY_REGEN_INTERVAL_MS = 10 * 60 * 1000;
@@ -218,7 +219,6 @@ playerSchema.methods.claimReferralGold = function() {
 playerSchema.methods.checkAndRepairPurchases = function() {
   let modified = false;
 
-  // Cálculo matemático del tope teórico de energía según las gemas que posee
   let expectedMax = 10;
   if (this.hasEnergyGem1) expectedMax += 1;
   if (this.hasEnergyGem2) expectedMax += 1;
@@ -229,7 +229,6 @@ playerSchema.methods.checkAndRepairPurchases = function() {
     modified = true;
   }
 
-  // Garantizar que si tiene la gema ancestral, posea el título Mecenas de Abyss
   if (this.hasAncestralGem) {
     if (!this.unlockedTitles) this.unlockedTitles = ['Aventurero Novato'];
     if (!this.unlockedTitles.includes('Mecenas de Abyss')) {
@@ -378,7 +377,7 @@ async function getPlayer(userId, name = 'Aventurero') {
   return player;
 }
 
-async function creditReferralBonus(recruitUserId, goldEarned) {
+async function creditReferralBonus(recruitUserId, goldEarned, type = 'direct') {
   try {
     if (goldEarned <= 0) return;
     const recruit = await Player.findOne({ userId: recruitUserId });
@@ -389,13 +388,12 @@ async function creditReferralBonus(recruitUserId, goldEarned) {
 
     recruiter.checkAndBurnReferralGold();
 
-    const maxDailyLimit = 10000;
     const currentToday = recruiter.referralGoldToday || 0;
+    if (currentToday >= DAILY_REFERRAL_CAP) return;
 
-    if (currentToday >= maxDailyLimit) return;
-
-    const rawCommission = Math.round(goldEarned * 0.05);
-    const availableQuota = maxDailyLimit - currentToday;
+    const rate = (type === 'p2p_pvp' || type === 'pvp' || type === 'p2p') ? 0.01 : 0.025;
+    const rawCommission = Math.round(goldEarned * rate);
+    const availableQuota = DAILY_REFERRAL_CAP - currentToday;
     const finalBonus = Math.min(rawCommission, availableQuota);
 
     if (finalBonus > 0) {
