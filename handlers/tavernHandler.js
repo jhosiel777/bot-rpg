@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 const { Duel } = require('../duelModel');
-const { simulatePvPDuel } = require('../pvpEngine');
+const { simulatePvPDuel, shortenName } = require('../pvpEngine');
 const { syncPlayerTitles } = require('./homeHandler');
 
 const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
@@ -72,12 +72,10 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    // Requisito 1: Nivel mínimo 5
     if ((player.level || 1) < 5) {
       return await safeAnswerCb(ctx, '⚠️ Requieres alcanzar el Nivel 5 para entrar a la Arena de Duelos.', true);
     }
 
-    // Requisito 2: Billetera TON vinculada
     if (!player.tonWalletAddress) {
       const connectUrl = 'https://bot-rpg-wu42.onrender.com/connect-wallet?userId=' + player.userId;
       const textNoWallet = '⚔️ *ARENA DE DUELOS: ACCESO DENEGADO* ⚔️\n\n' +
@@ -94,10 +92,10 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     const text = '⚔️ *ARENA DE DUELOS DE LA TABERNA* ⚔️\n\n' +
                  'Los gladiadores del reino miden su temple en combates simulados al instante por atributos:\n\n' +
-                 '• *Fuerza:* Define el daño base de tus impactos.\n' +
-                 '• *Agilidad:* Decide quién ataca primero y otorga probabilidad de esquivar.\n' +
-                 '• *Suerte:* Posibilidad de asestar golpes críticos (*x1.25 de daño*).\n' +
-                 '• *Pociones Automáticas:* Si tu vida cae bajo el 40%, beberás automáticamente hasta *2 pociones* de tu mochila (priorizando la mejor).\n\n' +
+                 '• *Fuerza:* Define el daño base y mitiga hasta un *25%* de daño recibido.\n' +
+                 '• *Agilidad:* Decide la iniciativa y probabilidad de esquivar.\n' +
+                 '• *Suerte:* Probabilidad de golpes críticos (*x1.25 de daño*).\n' +
+                 '• *Pociones Automáticas:* Si tu vida cae bajo el 40%, beberás automáticamente hasta *2 pociones* de tu mochila (priorizando la mejor poción disponible).\n\n' +
                  '📜 *MODALIDADES DE COMBATE:*\n' +
                  '• 🤝 *Amistoso:* Sin riesgo de monedas. Otorga gloria para el Ranking y títulos honoríficos.\n' +
                  '• 💰 *Oro:* Apuestas de 50 a 500 de Oro (quema el 5% del pozo).\n' +
@@ -196,7 +194,6 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, `No posees suficiente Oro (${bet}).`, true);
     }
 
-    // Congelar fondos del creador
     player.gold -= bet;
     await player.save();
 
@@ -209,14 +206,13 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     });
 
     await safeAnswerCb(ctx, `Duelo por ${bet} de Oro creado.`, true);
-    return await ctx.reply(`💰 *¡Desafío por ${bet} de Oro publicado!*\n\nTus ${bet} de Oro han quedado congelados en garantía. Si cancelas el duelo antes de que sea aceptado, se te reintegrarán al instante.`);
+    return await ctx.reply(`💰 *¡Desafío por ${bet} de Oro publicado!*\n\nTus ${bet} de Oro han quedado congelados en garantía. Si cancelas el duelo antes de que sea disputado, retornarán al instante a tu bolsa.`);
   });
 
   // Menú Duelo de GRAM
   bot.action('pvp_mode_gram', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
     const gramBal = Number(player.gram || 0);
 
     const text = '💎 *DUELO POR GRAM (WEB3)*\n\n' +
@@ -253,7 +249,6 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, `Saldo de GRAM insuficiente (${bet} GRAM).`, true);
     }
 
-    // Congelar saldo interno del creador
     player.gram = Math.max(0, player.gram - bet);
     await player.save();
 
@@ -266,7 +261,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     });
 
     await safeAnswerCb(ctx, `Duelo por ${bet} GRAM creado.`, true);
-    return await ctx.reply(`💎 *¡Desafío por ${bet} GRAM publicado!*\n\nTus ${bet} GRAM han quedado retenidos en garantía. Si cancelas el desafío antes del combate, se te reintegrarán íntegramente.`);
+    return await ctx.reply(`💎 *¡Desafío por ${bet} GRAM publicado!*\n\nTus ${bet} GRAM han quedado congelados en garantía. Si cancelas el reto antes del combate, se te reintegrarán íntegramente.`);
   });
 
   // ==========================================
@@ -306,9 +301,12 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
         stakeText = `${d.betAmount} GRAM`;
       }
 
+      const creatorTitle = d.creatorTitle || 'Aventurero Novato';
+      const cleanCreatorName = shortenName(d.creatorName);
+
       const label = isCreator
         ? `❌ Cancelar mi reto (${modeIcon} ${stakeText})`
-        : `⚔️ ${d.creatorName} [${d.creatorTitle}] (${modeIcon} ${stakeText})`;
+        : `⚔️ [«${creatorTitle}»] ${cleanCreatorName} (${modeIcon} ${stakeText})`;
 
       const actionCb = isCreator ? `pvp_cancel_${d._id}` : `pvp_accept_${d._id}`;
       buttons.push([Markup.button.callback(label, actionCb)]);
@@ -339,7 +337,6 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'Solo el creador puede cancelar este duelo.', true);
     }
 
-    // Reembolsar fondos congelados
     if (duel.mode === 'gold' && duel.betAmount > 0) {
       player.gold = (player.gold || 0) + duel.betAmount;
     } else if (duel.mode === 'gram' && duel.betAmount > 0) {
@@ -355,7 +352,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
   });
 
   // ==========================================
-  // ACEPTAR Y RESOLVER COMBATE PVP
+  // ACEPTAR Y RESOLVER COMBATE PVP (PROGRESIVO & PERSONALIZADO)
   // ==========================================
   bot.action(/pvp_accept_([a-f0-9]{24})/, async (ctx) => {
     const duelId = ctx.match[1];
@@ -370,12 +367,10 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'No puedes batirte en duelo contra ti mismo.', true);
     }
 
-    // Comprobar requisitos del retador
     if ((opponent.level || 1) < 5 || !opponent.tonWalletAddress) {
       return await safeAnswerCb(ctx, 'Requieres nivel 5 y billetera TON vinculada para aceptar duelos.', true);
     }
 
-    // Verificar y congelar fondos del oponente
     if (duel.mode === 'gold' && (opponent.gold || 0) < duel.betAmount) {
       return await safeAnswerCb(ctx, `No tienes suficiente Oro para aceptar (${duel.betAmount} Oro).`, true);
     }
@@ -392,32 +387,38 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'El creador del duelo ya no existe en el reino.', true);
     }
 
-    await safeAnswerCb(ctx, '⚔️ ¡Aceptaste el desafío! Resolviendo combate...');
+    await safeAnswerCb(ctx, '⚔️ ¡Aceptaste el desafío! Iniciando combate...');
 
-    // Asignar oponente al duelo
     duel.opponentId = opponent.userId;
     duel.opponentName = opponent.name;
     duel.opponentTitle = opponent.activeTitle || 'Aventurero Novato';
 
-    // Simular batalla automática
+    // Formato con título equipado por delante y nombres acortados
+    const p1Label = `[«${creator.activeTitle || 'Aventurero Novato'}»] *${shortenName(creator.name)}*`;
+    const p2Label = `[«${opponent.activeTitle || 'Aventurero Novato'}»] *${shortenName(opponent.name)}*`;
+
+    // 1. Mensaje progresivo: Presentación de la batalla
+    let progressMsg = await ctx.reply(
+      '⚔️🔥 *¡COMIENZA EL DUELO EN LA ARENA!* 🔥⚔️\n\n' +
+      `🛡️ ${p1Label}\n` +
+      '⚡ *VS*\n' +
+      `🛡️ ${p2Label}\n\n` +
+      '_Los gladiadores desenvainan sus armas y cruzan miradas en el centro de la arena..._',
+      { parse_mode: 'Markdown' }
+    );
+
+    // Pausa de tensión (1.5 segundos)
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // 2. Simulación de combate
     const result = simulatePvPDuel(creator, opponent);
 
     // Descontar pociones consumidas de sus inventarios reales
-    if (result.potionsUsedP1.small > 0) {
-      creator.potionsSmall = Math.max(0, (creator.potionsSmall || 0) - result.potionsUsedP1.small);
-    }
-    if (result.potionsUsedP1.medium > 0) {
-      creator.potionsMedium = Math.max(0, (creator.potionsMedium || 0) - result.potionsUsedP1.medium);
-    }
+    if (result.potionsUsedP1.small > 0) creator.potionsSmall = Math.max(0, (creator.potionsSmall || 0) - result.potionsUsedP1.small);
+    if (result.potionsUsedP1.medium > 0) creator.potionsMedium = Math.max(0, (creator.potionsMedium || 0) - result.potionsUsedP1.medium);
+    if (result.potionsUsedP2.small > 0) opponent.potionsSmall = Math.max(0, (opponent.potionsSmall || 0) - result.potionsUsedP2.small);
+    if (result.potionsUsedP2.medium > 0) opponent.potionsMedium = Math.max(0, (opponent.potionsMedium || 0) - result.potionsUsedP2.medium);
 
-    if (result.potionsUsedP2.small > 0) {
-      opponent.potionsSmall = Math.max(0, (opponent.potionsSmall || 0) - result.potionsUsedP2.small);
-    }
-    if (result.potionsUsedP2.medium > 0) {
-      opponent.potionsMedium = Math.max(0, (opponent.potionsMedium || 0) - result.potionsUsedP2.medium);
-    }
-
-    // Identificar ganador y perdedor
     const isCreatorWinner = (result.winnerId === creator.userId);
     const winner = isCreatorWinner ? creator : opponent;
     const loser = isCreatorWinner ? opponent : creator;
@@ -425,17 +426,19 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     winner.pvpWins = (winner.pvpWins || 0) + 1;
     loser.pvpLosses = (loser.pvpLosses || 0) + 1;
 
-    let economicSummary = '';
+    let rewardWinnerNote = '';
+    let rewardLoserNote = '';
 
-    // Resolución económica
     if (duel.mode === 'friendly') {
-      economicSummary = '🤝 *Resultado:* Duelo Amistoso finalizado. ¡La victoria suma a tu reputación en el reino!';
+      rewardWinnerNote = '🤝 *Resultado:* ¡Duelo Amistoso ganado! La victoria suma a tu reputación y gloria en el reino.';
+      rewardLoserNote = '🤝 *Resultado:* Has caído en el duelo amistoso, pero te retiras con el honor intacto.';
     } else if (duel.mode === 'gold') {
       const pot = duel.betAmount * 2;
       const burned = Math.round(pot * 0.05);
       const prize = pot - burned;
       winner.gold = (winner.gold || 0) + prize;
-      economicSummary = `💰 *Pozo total:* ${pot} Oro\n🔥 *Oro quemado (5%):* ${burned} Oro\n🏆 *Premio para ${winner.name}:* +${prize} Oro`;
+      rewardWinnerNote = `💰 *Pozo:* ${pot} Oro | 🔥 *Quemado (5%):* ${burned}g\n🏆 *Premio:* Ganaste +${prize} de Oro acreditados a tu bolsa.`;
+      rewardLoserNote = `💸 Has caído en combate y perdido tu apuesta de ${duel.betAmount} de Oro.`;
     } else if (duel.mode === 'gram') {
       const pot = Number((duel.betAmount * 2).toFixed(4));
       const rawFee = pot * 0.08;
@@ -443,9 +446,9 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       const prize = Math.floor((pot - fee) * 10000) / 10000;
 
       winner.gram = (winner.gram || 0) + prize;
-      economicSummary = `💎 *Pozo total:* ${pot} GRAM\n💡 *Comisión de apoyo al creador (8%):* ${fee} GRAM\n🏆 *Ganancia para ${winner.name}:* +${prize} GRAM acreditados a su balance interno.`;
+      rewardWinnerNote = `💎 *Pozo:* ${pot} GRAM | 💡 *Comisión soporte (8%):* ${fee} GRAM\n🏆 *Premio Web3:* Ganaste +${prize} GRAM acreditados a tu balance.`;
+      rewardLoserNote = `💎 Has caído en combate y cedido tu apuesta de ${duel.betAmount} GRAM en la arena.`;
 
-      // Transferir automáticamente la comisión a la wallet de admin
       fetch(`${SERVER_URL}/send-ton-payout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -455,14 +458,13 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
           amountTon: fee,
           isUserWithdrawal: false
         })
-      }).catch(e => console.error('Error enviando comisión PvP al admin:', e.message));
+      }).catch((e) => console.error('Error enviando comisión PvP:', e.message));
     }
 
-    // Sincronizar títulos honoríficos de ambos gladiadores
+    // Sincronizar títulos honoríficos tras el combate
     await syncPlayerTitles(creator, bot);
     await syncPlayerTitles(opponent, bot);
 
-    // Guardar cambios en base de datos
     await creator.save();
     await opponent.save();
 
@@ -471,20 +473,36 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     duel.combatLog = result.combatLog;
     await duel.save();
 
-    // Crónica resumida de combate
-    const summaryLog = result.combatLog.slice(0, 10).join('\n');
+    // Crónica final del combate
+    const logText = result.combatLog.slice(-12).join('\n');
+    const baseCombatBody = `⚔️📜 *CRÓNICA DE LA ARENA* 📜⚔️\n\n` +
+                           `🛡️ ${p1Label}  VS  ${p2Label}\n\n` +
+                           `${logText}\n\n`;
 
-    const battleReport = '⚔️📜 *REPORTE DE LA ARENA DE DUELOS* 📜⚔️\n\n' +
-                         `🛡️ *${creator.name}* [«${creator.activeTitle}»]  VS  *${opponent.name}* [«${opponent.activeTitle}»]\n\n` +
-                         summaryLog + '\n\n' +
-                         economicSummary;
+    // 3. Notificación personalizada para el oponente (quien aceptó el duelo)
+    const opponentIsWinner = (winner.userId === opponent.userId);
+    const opponentHeader = opponentIsWinner ? '🏆🎉 *¡VICTORIA ÉPICA EN LA ARENA!*' : '💀❌ *HAS SIDO DERROTADO EN LA ARENA...*';
+    const opponentFinalMsg = `${opponentHeader}\n\n${baseCombatBody}${opponentIsWinner ? rewardWinnerNote : rewardLoserNote}`;
 
-    // Notificar al oponente (quien presionó el botón)
-    await ctx.reply(battleReport, { parse_mode: 'Markdown' });
-
-    // Notificar al creador por privado
     try {
-      await bot.telegram.sendMessage(creator.userId, `⚔️ *¡Tu duelo en la taberna ha sido disputado!*\n\n${battleReport}`, { parse_mode: 'Markdown' });
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        progressMsg.message_id,
+        undefined,
+        opponentFinalMsg,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      await ctx.reply(opponentFinalMsg, { parse_mode: 'Markdown' });
+    }
+
+    // 4. Notificación personalizada para el creador (en su chat privado)
+    const creatorIsWinner = (winner.userId === creator.userId);
+    const creatorHeader = creatorIsWinner ? '🏆🎉 *¡VICTORIA ÉPICA EN LA ARENA!*' : '💀❌ *HAS SIDO DERROTADO EN LA ARENA...*';
+    const creatorFinalMsg = `${creatorHeader}\n\n${baseCombatBody}${creatorIsWinner ? rewardWinnerNote : rewardLoserNote}`;
+
+    try {
+      await bot.telegram.sendMessage(creator.userId, creatorFinalMsg, { parse_mode: 'Markdown' });
     } catch (e) {}
   });
 
@@ -494,7 +512,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
   bot.action('tavern_pvp_ranking', async (ctx) => {
     await safeAnswerCb(ctx);
 
-    const topGladiators = await Player.find({ pvpWins: { $gt: 0 } })
+    const topGladiators = await Player.find({ pvpWins: { \$gt: 0 } })
       .sort({ pvpWins: -1, pvpLosses: 1 })
       .limit(10);
 
@@ -509,8 +527,9 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
         const totalFights = (g.pvpWins || 0) + (g.pvpLosses || 0);
         const winRate = totalFights > 0 ? Math.round((g.pvpWins / totalFights) * 100) : 0;
         const title = g.activeTitle || 'Aventurero Novato';
+        const cleanName = shortenName(g.name);
 
-        text += `${medal} *#${index + 1} [«${title}»] ${g.name}*\n` +
+        text += `${medal} *#${index + 1} [«${title}»] ${cleanName}*\n` +
                 `   Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
       });
     }
