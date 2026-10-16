@@ -12,10 +12,11 @@ async function safeAnswerCb(ctx, text, showAlert = false) {
 
 async function safeEditMessage(ctx, text, extra = {}) {
   try {
-    return await ctx.editMessageText(text, extra);
+    const options = { parse_mode: 'Markdown', ...extra };
+    return await ctx.editMessageText(text, options);
   } catch (err) {
     if (!err.description?.includes('message is not modified')) {
-      console.error('Error al editar mensaje:', err.message);
+      console.error('Error en safeEditMessage:', err.message);
     }
   }
 }
