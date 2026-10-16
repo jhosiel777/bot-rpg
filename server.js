@@ -17,7 +17,7 @@ const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
 const LOGS_GROUP_ID = -1004496297432;
 
-// Función para transferir TON automáticamente desde la wallet v4R2 del bot
+// Transferencia desde la wallet v4R2 del bot
 async function transferTonFromBot(toAddress, amountTon) {
   const mnemonic = process.env.BOT_WALLET_MNEMONIC;
   if (!mnemonic) {
@@ -53,7 +53,7 @@ async function transferTonFromBot(toAddress, amountTon) {
   return true;
 }
 
-// Función dinámica para reportar pagos y compras al grupo de logs
+// Log general de pagos y compras para el grupo administrativo
 async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
   const now = new Date();
   const fechaHoraUtc = now.toISOString().replace('T', ' ').slice(0, 19);
@@ -85,9 +85,7 @@ async function sendPaymentLog(bot, { player, productName, amount, txHash }) {
 
   try {
     const extra = { parse_mode: 'Markdown' };
-    if (inlineKeyboard) {
-      Object.assign(extra, inlineKeyboard);
-    }
+    if (inlineKeyboard) Object.assign(extra, inlineKeyboard);
     await bot.telegram.sendMessage(LOGS_GROUP_ID, logText, extra);
   } catch (err) {
     console.error('Error enviando log de compra a Telegram:', err.message);
@@ -102,16 +100,11 @@ function startServer(bot) {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
 
-  app.get('/', (req, res) => {
-    res.send('Servidor del bot RPG activo.');
-  });
-
-  app.get('/ping', (req, res) => {
-    res.status(200).send('pong');
-  });
+  app.get('/', (req, res) => res.send('Servidor del bot RPG activo.'));
+  app.get('/ping', (req, res) => res.status(200).send('pong'));
 
   // ==========================================
-  // PANTALLA: CONECTAR WALLET (TON CONNECT)
+  // CONECTAR WALLET (TON CONNECT)
   // ==========================================
   app.get('/connect-wallet', async (req, res) => {
     const userId = req.query.userId || '';
@@ -215,7 +208,7 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // PANTALLA: RECARGA DE FONDOS GRAM (/deposit-gram)
+  // RECARGA DE FONDOS GRAM (/deposit-gram)
   // ==========================================
   app.get('/deposit-gram', async (req, res) => {
     const userId = req.query.userId || '';
@@ -372,7 +365,6 @@ function startServer(bot) {
     res.send(html);
   });
 
-  // Endpoint para registrar el depósito de GRAM
   app.post('/confirm-gram-deposit', async (req, res) => {
     try {
       const { userId, boc, amount, walletAddress } = req.body;
@@ -390,29 +382,31 @@ function startServer(bot) {
       player.gram = (player.gram || 0) + numAmount;
       await player.save();
 
+      // Log detallado al grupo de administración
       await sendPaymentLog(bot, {
         player,
-        productName: `Recarga de ${numAmount} GRAM`,
+        productName: 'Recarga de ' + numAmount + ' GRAM',
         amount: numAmount.toString(),
         txHash: boc ? boc.slice(0, 32) + '...' : null
       });
 
+      // Notificación directa y concisa al aventurero
       try {
-        await bot.telegram.sendMessage(
-          uid,
-          `💎 *¡RECARGA EXITOSA!*\n\nSe han acreditado *+${numAmount} GRAM* a tu saldo interno.\nTu balance actual es de *${player.gram.toFixed(3)} GRAM*.\n\n_¡Ya puedes retar a otros aventureros en la Arena de Duelos!_`,
-          { parse_mode: 'Markdown' }
-        );
+        const depositReceipt = '💎 *¡RECARGA EXITOSA!* 💎\n\n' +
+                               'Se han acreditado *+' + numAmount.toFixed(2) + ' GRAM* a tu saldo interno.\n' +
+                               'Balance disponible: *' + player.gram.toFixed(3) + ' GRAM*.\n\n' +
+                               '¡Ya puedes utilizarlo en la Arena de Duelos o gestionarlo en tu Hogar!';
+        await bot.telegram.sendMessage(uid, depositReceipt, { parse_mode: 'Markdown' });
       } catch (e) {}
 
-      return res.json({ success: true, msg: `¡Éxito! Se añadieron +${numAmount} GRAM a tu cuenta.` });
+      return res.json({ success: true, msg: '¡Éxito! Se añadieron +' + numAmount + ' GRAM a tu cuenta.' });
     } catch (err) {
       return res.status(500).json({ success: false, msg: 'Error procesando la recarga.' });
     }
   });
 
   // ==========================================
-  // PANTALLA: COMPRA DE GEMA ANCESTRAL (/buy-web3)
+  // COMPRA DE GEMA ANCESTRAL (/buy-web3)
   // ==========================================
   app.get('/buy-web3', async (req, res) => {
     const userId = req.query.userId || '';
@@ -561,19 +555,23 @@ function startServer(bot) {
       try {
         await bot.telegram.sendMessage(
           uid,
-          `🔮✨ *¡FELICITACIONES, AVENTURERO!*\n\nHas adquirido la legendaria *Gema Ancestral*.\n\n⚡ Tu energía máxima ha aumentado en *+2* (Ahora tienes *${player.maxEnergy} ⚡*).\n🎖️ Se te ha conferido el título honorífico: «*Mecenas de Abyss*».\n\n_El reino recuerda con gratitud a sus protectores y benefactores._`,
+          '🔮✨ *¡FELICITACIONES, AVENTURERO!*\n\n' +
+          'Has adquirido la legendaria *Gema Ancestral*.\n\n' +
+          '⚡ Tu energía máxima ha aumentado en *+2* (Ahora tienes *' + player.maxEnergy + ' ⚡*).\n' +
+          '🎖️ Se te ha conferido el título honorífico: «*Mecenas de Abyss*».\n\n' +
+          '_El reino recuerda con gratitud a sus protectores y benefactores._',
           { parse_mode: 'Markdown' }
         );
       } catch (e) {}
 
-      return res.json({ success: true, msg: `¡Éxito! Gema Ancestral activada (+2 ⚡). Tu energía máxima ahora es ${player.maxEnergy} y recibiste el título «Mecenas de Abyss».` });
+      return res.json({ success: true, msg: '¡Éxito! Gema Ancestral activada (+2 ⚡). Tu energía máxima ahora es ' + player.maxEnergy + ' y recibiste el título «Mecenas de Abyss».' });
     } catch (err) {
       return res.status(500).json({ success: false, msg: 'Error procesando la entrega.' });
     }
   });
 
   // ==========================================
-  // PANTALLA: TEST DE TRANSACCIÓN (/test-pay)
+  // TEST DE TRANSACCIÓN (/test-pay)
   // ==========================================
   app.get('/test-pay', async (req, res) => {
     const userId = req.query.userId || '';
@@ -686,14 +684,13 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // ENDPOINT: PAGO / RETIRO AUTOMÁTICO (BOT -> WALLET)
+  // PAGO / RETIRO AUTOMÁTICO (BOT -> WALLET)
   // ==========================================
   app.post('/send-ton-payout', async (req, res) => {
     try {
       const { userId, toAddress, amountTon, isUserWithdrawal, fee, playerName } = req.body;
       const ADMIN_ID = 835648800;
 
-      // Si no es un retiro legítimo de usuario verificado, restringir al admin
       if (!isUserWithdrawal && parseInt(userId, 10) !== ADMIN_ID) {
         return res.status(403).json({ success: false, msg: 'Acceso no autorizado.' });
       }
@@ -708,27 +705,45 @@ function startServer(bot) {
 
       const headerText = isUserWithdrawal ? '📤 *¡RETIRO DE GRAM COMPLETADO!* 📤' : '📤 *¡PAGO AUTOMÁTICO EMITIDO (TEST)!* 📤';
       const userText = isUserWithdrawal ? (playerName || 'Aventurero') : 'Administrador';
-      const feeNote = fee ? `\n💡 *Comisión creador (apoyo):* ${fee} GRAM` : '';
+      const feeNote = fee ? ('\n💡 *Comisión creador (apoyo):* ' + fee + ' GRAM') : '';
 
+      // 1. Mensaje detallado para el Grupo de Logs / Canal Administrativo (Concatenación limpia)
       try {
+        const logMsg = headerText + '\n\n' +
+                       '👤 *Destinatario:* ' + userText + '\n' +
+                       '🆔 *ID:* `' + userId + '`\n' +
+                       '💳 *Billetera:* `' + toAddress + '`\n' +
+                       '💰 *Monto Enviado:* ' + payoutAmount + ' TON' + feeNote + '\n' +
+                       '⏰ *Fecha y Hora:* ' + fechaHoraUtc + ' UTC\n\n' +
+                       '🔍 [Ver en Tonviewer](https://tonviewer.com/' + toAddress + ')';
+
         await bot.telegram.sendMessage(
           LOGS_GROUP_ID,
-          `${headerText}\n\n` +
-          `👤 *Destinatario:* ${userText}\n` +
-          `🆔 *ID:* \`\${userId}\`\n` +
-          `💳 *Billetera:* \`\${toAddress}\`\n` +
-          `💰 *Monto Enviado:* ${payoutAmount} TON${feeNote}\n` +
-          `⏰ *Fecha y Hora:* ${fechaHoraUtc} UTC\n\n` +
-          `🔍 [Ver en Tonviewer](https://tonviewer.com/${toAddress})`,
+          logMsg,
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
-              [Markup.button.url('🔍 Ver en Tonviewer', `https://tonviewer.com/${toAddress}`)]
+              [Markup.button.url('🔍 Ver en Tonviewer', 'https://tonviewer.com/' + toAddress)]
             ])
           }
         );
       } catch (logErr) {
         console.error('Error enviando log de payout:', logErr.message);
+      }
+
+      // 2. Mensaje directo al Aventurero (Privado, conciso)
+      if (userId) {
+        try {
+          const userReceipt = '📤 *¡RETIRO COMPLETADO!* 📤\n\n' +
+                              'Hemos enviado *' + payoutAmount + ' TON* directamente a tu billetera:\n' +
+                              '`' + toAddress + '`\n\n' +
+                              (fee ? '💡 _Comisión aplicada: ' + fee + ' GRAM_\n\n' : '') +
+                              '✨ _¡Gracias por jugar y respaldar Abyss RPG!_';
+
+          await bot.telegram.sendMessage(userId, userReceipt, { parse_mode: 'Markdown' });
+        } catch (uErr) {
+          console.error('Error enviando recibo privado al usuario:', uErr.message);
+        }
       }
 
       return res.json({ success: true, msg: 'Transferencia emitida exitosamente.' });
@@ -940,7 +955,7 @@ function startServer(bot) {
       player.totalAdsClaimed = (player.totalAdsClaimed || 0) + 1;
       await player.save();
 
-      let rewardText = `🎉 ¡Bono del Día ${player.dailyStreak} reclamado!\n+${reward.gold} de Oro`;
+      let rewardText = '🎉 ¡Bono del Día ' + player.dailyStreak + ' reclamado!\n+' + reward.gold + ' de Oro';
       if (reward.givesElixir) rewardText += ' y +1 Elixir de Energía (⚡)';
 
       return res.json({ success: true, msg: rewardText });
