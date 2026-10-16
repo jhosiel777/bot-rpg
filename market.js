@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const ITEMS = require('./shop');
-const { Player } = require('./playerModel');
+const { Player, creditReferralBonus } = require('./playerModel');
 
 // Esquema de publicaciones activas en el mercado
 const marketListingSchema = new mongoose.Schema({
@@ -301,6 +301,9 @@ async function buyListing(listingId, buyerId) {
 
   seller.gold += sellerProfit;
   await seller.save();
+
+  // Acredita tributo del 1.0% al reclutador del vendedor por actividad comercial P2P
+  await creditReferralBonus(seller.userId, sellerProfit, 'p2p');
 
   await MarketLog.create({
     sellerId: seller.userId,
