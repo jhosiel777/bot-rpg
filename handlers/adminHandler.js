@@ -66,13 +66,30 @@ function registerAdminHandlers(bot, deps) {
     const adsToday = (u.lastAdClaimDate === today) ? (u.adsClaimedToday || 0) : 0;
     const adsTotal = Math.max(u.totalAdsClaimed || 0, adsToday);
 
+    const gemsList = [];
+    if (u.hasEnergyGem1) gemsList.push('Gema +1⚡');
+    if (u.hasEnergyGem2) gemsList.push('Gema +1⚡ (II)');
+    if (u.hasAncestralGem) gemsList.push('Ancestral +2⚡');
+    const gemsText = gemsList.length ? gemsList.join(', ') : 'Ninguna';
+
+    const maxEnergyDisplay = u.maxEnergy || 10;
+    const gramBalance = Number(u.gram || 0).toFixed(3);
+    const tonAddress = u.tonWalletAddress ? '`' + u.tonWalletAddress + '`' : '❌ No vinculada';
+    const lastClaim = u.lastDailyClaimDate || 'Nunca';
+
     let text = '👤 *Detalles del Jugador: ' + u.name + '*\n\n' +
-               '🆔 Telegram ID: ' + u.userId + '\n' +
+               '🆔 Telegram ID: `' + u.userId + '`\n' +
                '⭐ Nivel: ' + u.level + '/' + MAX_LEVEL + '\n' +
                '🔮 EXP: ' + u.exp + '/' + getRequiredExp(u.level) + '\n' +
                '❤️ Salud: ' + u.hp + '/' + u.maxHp + ' HP\n' +
-               '⚡ Energía: ' + u.energy + '/10\n' +
-               '💰 Oro: ' + u.gold + '\n\n';
+               '⚡ Energía: ' + u.energy + '/' + maxEnergyDisplay + '\n' +
+               '💰 Oro: ' + u.gold + '\n' +
+               '💎 GRAM: *' + gramBalance + '*\n' +
+               '🔥 Racha Diaria: *' + (u.dailyStreak || 0) + ' día(s)* (Último: ' + lastClaim + ')\n' +
+               '👛 Billetera TON: ' + tonAddress + '\n' +
+               '🎖️ Título Activo: «' + (u.activeTitle || 'Aventurero Novato') + '»\n' +
+               '🔮 Gemas Web3: ' + gemsText + '\n' +
+               '⚔️ Récord PvP: ' + (u.pvpWins || 0) + 'V - ' + (u.pvpLosses || 0) + 'D\n\n';
 
     if (isKO) {
       const secKO = Math.max(0, Math.ceil((u.knockedOutUntil - now) / 1000));
