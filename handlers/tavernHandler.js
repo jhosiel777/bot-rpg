@@ -560,7 +560,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
     }
 
-    await Player.updateMany({}, { \$set: { pvpWins: 0, pvpLosses: 0 } });
+    await Player.updateMany({}, { $set: { pvpWins: 0, pvpLosses: 0 } });
     await safeAnswerCb(ctx, '🏆 Ranking PvP reiniciado con éxito.', true);
 
     const text = '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\n' +
