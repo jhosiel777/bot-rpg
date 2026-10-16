@@ -397,21 +397,29 @@ function getStatsView(player) {
 
 function getReferralView(player) {
   player.checkAndBurnReferralGold();
-  const unclimed = (player.referralGoldToday || 0) + (player.referralGoldUnclaimed || 0);
+  const totalToClaim = (player.referralGoldToday || 0) + (player.referralGoldUnclaimed || 0);
 
   let text = '🚩 *SISTEMA DE RECLUTAMIENTO DEL GREMIO*\n\n' +
              'Invita a nuevos aventureros a inscribirse en el reino bajo tu bandera.\n\n' +
-             '🔑 *Tu Código de Recluta:* `' + player.referralCode + '`\n\n' +
+             '🔗 *¿Cómo reclutar a un camarada?*\n' +
+             '1. Envíale el enlace del bot: https://t.me/Abyss_LegendBot\n' +
+             '2. Pásale tu código para que lo ingrese al iniciar su aventura.\n\n' +
+             '🔑 *Tu Código de Recluta:* `' + player.referralCode + '`\n' +
              '🛡️ *Reclutas en tu hermandad:* ' + (player.recruitsCount || 0) + '\n\n' +
              '📊 *Tributos de Oro de Reclutas:*\n' +
-             '• Oro ganado hoy: *' + (player.referralGoldToday || 0) + ' / 10,000g*\n' +
-             '• Oro pendiente por reclamar: *' + unclimed + 'g*\n' +
+             '• Oro ganado hoy: *' + (player.referralGoldToday || 0) + ' / 3,000g*\n' +
+             '• Oro pendiente por reclamar: *' + (player.referralGoldUnclaimed || 0) + 'g*\n' +
              '• Total histórico obtenido: *' + (player.referralGoldTotalEarned || 0) + 'g*\n\n' +
-             '⚠️ _Regla del Gremio: Recibes el 5% del oro generado por tus reclutas._';
+             '📜 *Reglas del Gremio:*\n' +
+             '• Recibes el *2.5%* del oro generado en expediciones, eventos y jefes.\n' +
+             '• Recibes el *1.0%* en victorias de duelos PvP y transacciones P2P.\n' +
+             '• Límite diario de recolección: *3,000g* (reinicio 00:00 UTC).\n' +
+             '• 🔥 *Regla de Reclamo:* Si no reclamas antes de las 00:00 UTC, se quema el *5%* del oro del día y el 95% restante pasa a tu saldo pendiente.\n' +
+             '• ⚠️ _Tributos calculados únicamente en Oro (no aplica a TON)._';
 
   const buttons = [];
-  if (unclimed > 0) {
-    buttons.push([Markup.button.callback('📥 Reclamar +' + unclimed + 'g a mi Bolsa', 'claim_referral_gold')]);
+  if (totalToClaim > 0) {
+    buttons.push([Markup.button.callback('📥 Reclamar +' + totalToClaim + 'g a mi Bolsa', 'claim_referral_gold')]);
   }
   buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
