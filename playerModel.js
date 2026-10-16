@@ -97,6 +97,7 @@ const playerSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   recruitsCount: { type: Number, default: 0 },
   referralGoldToday: { type: Number, default: 0 },
+  referralGoldTodayClaimed: { type: Number, default: 0 },
   referralGoldUnclaimed: { type: Number, default: 0 },
   referralGoldTotalEarned: { type: Number, default: 0 },
   lastReferralDateUtc: { type: String, default: getTodayUtcString }
@@ -191,13 +192,17 @@ playerSchema.methods.addExp = function(amount) {
 playerSchema.methods.checkAndBurnReferralGold = function() {
   const todayUtc = getTodayUtcString();
   if (this.lastReferralDateUtc !== todayUtc) {
-    if (this.referralGoldToday > 0) {
-      const burnedAmount = Math.round(this.referralGoldToday * 0.05);
-      const remainingAmount = this.referralGoldToday - burnedAmount;
+    const unclaimedFromYesterday = Math.max(0, (this.referralGoldToday || 0) - (this.referralGoldTodayClaimed || 0));
 
-      this.referralGoldUnclaimed += remainingAmount;
-      this.referralGoldToday = 0;
+    if (unclaimedFromYesterday > 0) {
+      const burnedAmount = Math.round(unclaimedFromYesterday * 0.05);
+      const remainingAmount = unclaimedFromYesterday - burnedAmount;
+
+      this.referralGoldUnclaimed = (this.referralGoldUnclaimed || 0) + remainingAmount;
     }
+
+    this.referralGoldToday = 0;
+    this.referralGoldTodayClaimed = 0;
     this.lastReferralDateUtc = todayUtc;
     return true;
   }
@@ -206,11 +211,14 @@ playerSchema.methods.checkAndBurnReferralGold = function() {
 
 playerSchema.methods.claimReferralGold = function() {
   this.checkAndBurnReferralGold();
-  const totalToClaim = (this.referralGoldToday || 0) + (this.referralGoldUnclaimed || 0);
+
+  const pendingToday = Math.max(0, (this.referralGoldToday || 0) - (this.referralGoldTodayClaimed || 0));
+  const totalToClaim = pendingToday + (this.referralGoldUnclaimed || 0);
+
   if (totalToClaim <= 0) return 0;
 
-  this.gold += totalToClaim;
-  this.referralGoldToday = 0;
+  this.gold = (this.gold || 0) + totalToClaim;
+  this.referralGoldTodayClaimed = this.referralGoldToday;
   this.referralGoldUnclaimed = 0;
   return totalToClaim;
 };
