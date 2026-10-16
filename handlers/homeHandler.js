@@ -63,17 +63,15 @@ async function syncPlayerTitles(player, bot = null) {
     await player.save();
   }
 
-  // Notificar al jugador si desbloqueó nuevos títulos
+  // Notificar al jugador si desbloqueó nuevos títulos (sin caracteres de escape rotos)
   if (bot && newlyUnlocked.length > 0) {
     for (const title of newlyUnlocked) {
       try {
-        await bot.telegram.sendMessage(
-          player.userId,
-          `🎖️🎉 *¡NUEVO TÍTULO HONORÍFICO DESBLOQUEADO!*\n\n` +
-          `Has obtenido la distinción: «*\${title}*».\n\n` +
-          `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
-          { parse_mode: 'Markdown' }
-        );
+        const notifMsg = '🎖️🎉 *¡NUEVO TÍTULO HONORÍFICO DESBLOQUEADO!*\n\n' +
+                         'Has obtenido la distinción: «*' + title + '*».\n\n' +
+                         '_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._';
+
+        await bot.telegram.sendMessage(player.userId, notifMsg, { parse_mode: 'Markdown' });
       } catch (e) {
         console.error('Error enviando notificación de título:', e.message);
       }
@@ -94,17 +92,17 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
     const title = player.activeTitle || 'Aventurero Novato';
     const walletDisplay = player.tonWalletAddress 
-      ? `\`${player.tonWalletAddress.slice(0, 4)}...${player.tonWalletAddress.slice(-4)}\`` 
+      ? '`' + player.tonWalletAddress.slice(0, 4) + '...' + player.tonWalletAddress.slice(-4) + '`' 
       : '❌ No vinculada';
     const gramBalance = Number(player.gram || 0).toFixed(3);
 
     const text = '🏡 *HOGAR DEL AVENTURERO* 🏡\n\n' +
                  'Tu refugio personal en la capital de Abyss. Gestiona tu identidad, tus títulos y tus riquezas Web3.\n\n' +
-                 `👤 *Aventurero:* ${player.name}\n` +
-                 `🎖️ *Título activo:* «*${title}*»\n` +
-                 `💰 *Oro del Reino:* ${player.gold || 0}\n` +
-                 `💎 *Saldo GRAM:* *${gramBalance} GRAM*\n` +
-                 `💳 *Billetera TON:* ${walletDisplay}\n\n` +
+                 '👤 *Aventurero:* ' + player.name + '\n' +
+                 '🎖️ *Título activo:* «*' + title + '*»\n' +
+                 '💰 *Oro del Reino:* ' + (player.gold || 0) + '\n' +
+                 '💎 *Saldo GRAM:* *' + gramBalance + ' GRAM*\n' +
+                 '💳 *Billetera TON:* ' + walletDisplay + '\n\n' +
                  '¿Qué deseas gestionar?';
 
     const ADMIN_ID = 835648800;
@@ -147,8 +145,8 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const gramBal = Number(player.gram || 0);
 
     const text = '📤 *RETIRO DE GRAM A TU BILLETERA* 📤\n\n' +
-                 `💎 *Tu saldo disponible:* *${gramBal.toFixed(3)} GRAM*\n` +
-                 `💳 *Destino:* \`\${player.tonWalletAddress}\`\n\n` +
+                 '💎 *Tu saldo disponible:* *' + gramBal.toFixed(3) + ' GRAM*\n' +
+                 '💳 *Destino:* `' + player.tonWalletAddress + '`\n\n' +
                  '⚙️ *Condiciones de Retiro:*\n' +
                  '• *Mínimo a retirar:* 0.10 GRAM.\n' +
                  '• *Comisión:* 5% (mínimo 0.02 GRAM) destinada a apoyar al creador y mantener activo el desarrollo del reino.\n\n' +
@@ -156,7 +154,6 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
     const buttons = [];
 
-    // Opciones rápidas de retiro según saldo
     if (gramBal >= 0.10) {
       buttons.push([
         Markup.button.callback('0.10 GRAM', 'withdraw_amount_0.10'),
@@ -198,7 +195,6 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
       amount = parseFloat(rawChoice);
     }
 
-    // Redondear a 4 decimales
     amount = Math.floor(amount * 10000) / 10000;
 
     if (amount < 0.10) {
@@ -209,7 +205,6 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'No posees suficiente saldo de GRAM.', true);
     }
 
-    // Cálculo matemático de comisión (5%, mínimo 0.02)
     const rawFee = amount * 0.05;
     const fee = Math.max(0.02, Math.floor(rawFee * 10000) / 10000);
     const netPayout = Math.floor((amount - fee) * 10000) / 10000;
@@ -219,9 +214,12 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     }
 
     await safeAnswerCb(ctx, 'Procesando retiro...');
-    await ctx.reply(`⏳ *Enviando ${netPayout} TON hacia tu billetera personal...*\n_(Monto retirado: ${amount} GRAM | Comisión creador: ${fee} GRAM)_`, { parse_mode: 'Markdown' });
+    await ctx.reply(
+      '⏳ *Enviando ' + netPayout + ' TON hacia tu billetera personal...*\n' +
+      '_(Monto retirado: ' + amount + ' GRAM | Comisión creador: ' + fee + ' GRAM)_',
+      { parse_mode: 'Markdown' }
+    );
 
-    // Descontar saldo preventivamente en base de datos
     player.gram = Math.max(0, player.gram - amount);
     await player.save();
 
@@ -241,17 +239,28 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
       const data = await res.json();
       if (data.success) {
-        await ctx.reply(`✅ *¡Retiro completado exitosamente!*\n\nSe han enviado *${netPayout} TON* a tu billetera personal:\n\`\${player.tonWalletAddress}\`\n\n_¡Gracias por respaldar el crecimiento de Abyss RPG!_`, { parse_mode: 'Markdown' });
+        const successMsg = '✅ *¡Retiro completado exitosamente!*\n\n' +
+                           'Se han enviado *' + netPayout + ' TON* a tu billetera personal:\n' +
+                           '`' + player.tonWalletAddress + '`\n\n' +
+                           '🔍 [Ver en Tonviewer](https://tonviewer.com/' + player.tonWalletAddress + ')\n\n' +
+                           '_¡Gracias por respaldar el crecimiento de Abyss RPG!_';
+
+        await ctx.reply(successMsg, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('🔍 Ver en Tonviewer', 'https://tonviewer.com/' + player.tonWalletAddress)],
+            [Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]
+          ])
+        });
       } else {
-        // En caso de fallo técnico, reembolsar el balance al jugador
         player.gram = (player.gram || 0) + amount;
         await player.save();
-        await ctx.reply(`❌ *Error al procesar el retiro:* ${data.msg || 'Fallo de red'}\n_Tus fondos han sido reintegrados a tu saldo de GRAM._`);
+        await ctx.reply('❌ *Error al procesar el retiro:* ' + (data.msg || 'Fallo de red') + '\n_Tus fondos han sido reintegrados a tu saldo de GRAM._');
       }
     } catch (err) {
       player.gram = (player.gram || 0) + amount;
       await player.save();
-      await ctx.reply(`❌ Error de comunicación con el servidor. Tus fondos han sido reintegrados.`);
+      await ctx.reply('❌ Error de comunicación con el servidor. Tus fondos han sido reintegrados.');
     }
   });
 
@@ -278,12 +287,12 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
       const data = await res.json();
       if (data.success) {
-        await ctx.reply(`✅ *¡Transferencia completada!*\n\nEl bot envió exitosamente *0.01 TON* a tu billetera personal.\nRevisa el grupo de registros.`, { parse_mode: 'Markdown' });
+        await ctx.reply('✅ *¡Transferencia completada!*\n\nEl bot envió exitosamente *0.01 TON* a tu billetera personal.\nRevisa el grupo de registros.', { parse_mode: 'Markdown' });
       } else {
-        await ctx.reply(`❌ *Error al transferir:* ${data.msg || 'Fallo desconocido'}`);
+        await ctx.reply('❌ *Error al transferir:* ' + (data.msg || 'Fallo desconocido'));
       }
     } catch (err) {
-      await ctx.reply(`❌ Error de comunicación con el servidor: ${err.message}`);
+      await ctx.reply('❌ Error de comunicación con el servidor: ' + err.message);
     }
   });
 
@@ -296,7 +305,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
                'Conectar tu billetera te permite recargar GRAM, retirar tus ganancias y participar en la Arena de Duelos PvP.\n\n';
 
     if (player.tonWalletAddress) {
-      text += `🔗 *Billetera conectada:* ✅ Sí\n\`\${player.tonWalletAddress}\`\n\n` +
+      text += '🔗 *Billetera conectada:* ✅ Sí\n`' + player.tonWalletAddress + '`\n\n' +
               'Si deseas cambiarla por otra cuenta, pulsa el botón de abajo:';
     } else {
       text += '🔗 *Billetera conectada:* ❌ No\n\n' +
@@ -325,14 +334,14 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
                'Los títulos condecoran tus hazañas. Se muestran en tu **Estado**, en el **Ranking de la Taberna** y en la **Arena de Duelos**.\n\n' +
-               `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
+               '🎖️ *Equipado actualmente:* «*' + currentTitle + '*»\n\n' +
                'Toca un título para equipártelo:\n\n';
 
     const buttons = [];
-    unlocked.forEach((title, idx) => {
-      const isEquipped = title === currentTitle;
-      const label = `${isEquipped ? '✅ ' : ''}${title}`;
-      buttons.push([Markup.button.callback(label, `equip_title_${idx}`)]);
+    unlocked.forEach((t, idx) => {
+      const isEquipped = (t === currentTitle);
+      const label = (isEquipped ? '✅ ' : '') + t;
+      buttons.push([Markup.button.callback(label, 'equip_title_' + idx)]);
     });
 
     buttons.push([Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]);
@@ -363,19 +372,19 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     }
     await player.save();
 
-    await safeAnswerCb(ctx, `🎖️ Equipaste: «${selectedTitle}»`, true);
+    await safeAnswerCb(ctx, '🎖️ Equipaste: «' + selectedTitle + '»', true);
 
     const currentTitle = player.activeTitle;
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
                'Los títulos condecoran tus hazañas. Se muestran en tu **Estado**, en el **Ranking de la Taberna** y en la **Arena de Duelos**.\n\n' +
-               `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
+               '🎖️ *Equipado actualmente:* «*' + currentTitle + '*»\n\n' +
                'Toca un título para equipártelo:\n\n';
 
     const buttons = [];
-    unlocked.forEach((title, i) => {
-      const isEquipped = title === currentTitle;
-      const label = `${isEquipped ? '✅ ' : ''}${title}`;
-      buttons.push([Markup.button.callback(label, `equip_title_${i}`)]);
+    unlocked.forEach((t, i) => {
+      const isEquipped = (t === currentTitle);
+      const label = (isEquipped ? '✅ ' : '') + t;
+      buttons.push([Markup.button.callback(label, 'equip_title_' + i)]);
     });
 
     buttons.push([Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]);
