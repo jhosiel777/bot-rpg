@@ -42,7 +42,7 @@ function registerBossHandlers(bot, deps) {
   }
 
   async function getBossCensus() {
-    const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
+    const aptPlayers = await Player.find({ level: { \$gte: 5 }, isVerified: true });
     const totalAptos = aptPlayers.length;
     const activeCount = Math.max(totalAptos, 3);
 
@@ -225,7 +225,6 @@ function registerBossHandlers(bot, deps) {
         elixirWinners.add(top1.userId);
         dropsSummary.push(`• 🩸 *${formatPlayerName(top1.name)}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
 
-        // Asignación de título: Verdugo de Titanes
         const top1Player = await Player.findOne({ userId: top1.userId });
         if (top1Player) {
           if (!top1Player.unlockedTitles) top1Player.unlockedTitles = ['Aventurero Novato'];
@@ -481,6 +480,8 @@ function registerBossHandlers(bot, deps) {
     await boss.save();
     await safeAnswerCb(ctx);
 
+    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+
     let combatReport = `⚔️ *Asalto contra ${boss.name}*\n\n` +
                        (isCrit ? `✨ *¡Golpe Crítico Devastador!* (1.4x)\n` : '') +
                        `💥 Daño infligido: *${playerDmg.toLocaleString()} puntos*\n\n` +
@@ -489,6 +490,7 @@ function registerBossHandlers(bot, deps) {
                        (grazed ? `🤸 ¡Impacto rozante de Agilidad! (-50%)\n` : '') +
                        `• Daño final recibido: *${finalDamageTaken} HP*\n` +
                        `❤️ Tu salud restante: *${player.hp}/${player.maxHp} HP*\n` +
+                       `⚡ Tu energía: *${player.energy}/${playerMaxEnergy}*\n` +
                        `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP*` +
                        knockOutMsg;
 
@@ -701,6 +703,7 @@ function registerBossHandlers(bot, deps) {
       const myDmg = myPart ? myPart.totalDamage : 0;
       const hpPct = ((boss.currentHp / boss.maxHp) * 100).toFixed(1);
       const secLeft = Math.max(0, Math.ceil((new Date(boss.battleEndsAt).getTime() - Date.now()) / 1000));
+      const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
       text += `🔥 *¡EL JEFE ESTÁ EN COMBATE!*\n\n` +
               `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP* (${hpPct}%)\n` +
@@ -708,7 +711,7 @@ function registerBossHandlers(bot, deps) {
               `⚔️ Rango de ataque enemigo: *${boss.minDmg} - ${boss.maxDmg}* Físico\n` +
               `💥 Tu daño aportado: *${myDmg.toLocaleString()} puntos*\n\n` +
               `❤️ Tu salud actual: *${player.hp}/${player.maxHp} HP*\n` +
-              `⚡ Tu energía: *${player.energy}/${MAX_ENERGY}*\n\n` +
+              `⚡ Tu energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
               `¿Deseas asestar un asalto?`;
 
       const buttons = [
