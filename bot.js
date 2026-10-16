@@ -273,13 +273,15 @@ async function getStatusView(player) {
   const restSecLeft = getRestTimeRemaining(player);
   const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
   const activeTitle = player.activeTitle || 'Aventurero Novato';
+  const gramBalance = Number(player.gram || 0).toFixed(3);
 
   let text = `⚔️ *${activeTitle}:* ${player.name}\n` +
              `⭐ Nivel: ${player.level}/${MAX_LEVEL}\n` +
              `🔮 EXP: ${player.exp}/${reqExp}\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
              `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n` +
-             `💰 Oro: ${player.gold}\n\n`;
+             `💰 Oro: ${player.gold}\n` +
+             `💎 GRAM: *${gramBalance}*\n\n`;
 
   if (player.onMissionUntil && Date.now() < player.onMissionUntil) {
     const missionSecLeft = Math.ceil((player.onMissionUntil - Date.now()) / 1000);
@@ -743,7 +745,7 @@ bot.action('menu_explore', async (ctx) => {
                '• 🌲 *Expediciones y Mazmorras:* Exploración rápida.\n' +
                '• 📜 *Tablón de Caza Diaria:* Contrato diario.\n' +
                '• 🐲 *Jefe Mundial (Coloso):* Asalto a los colosos.\n' +
-               '• 🍻 *Taberna del Jabalí Ebrio:* Ocio, misterios y descanso.\n' +
+               '• 🍻 *Taberna del Jabalí Ebrio:* Ocio, misterios, duelos y descanso.\n' +
                '• 🏡 *Hogar del Aventurero:* Tus aposentos, billetera y títulos.\n' +
                '• 🚩 *Reclutar Aventureros:* Tu código de reclutamiento.';
 
