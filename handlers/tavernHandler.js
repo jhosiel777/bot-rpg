@@ -97,7 +97,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
                  '• *Fuerza:* Define el daño base de tus impactos.\n' +
                  '• *Agilidad:* Decide quién ataca primero y otorga probabilidad de esquivar.\n' +
                  '• *Suerte:* Posibilidad de asestar golpes críticos (*x1.25 de daño*).\n' +
-                 '• *Pociones Automáticas:* Si tu vida cae bajo el 40%, beberás automáticamente hasta *2 Pociones de Salud* (+20 HP c/u) si las llevas en tu mochila.\n\n' +
+                 '• *Pociones Automáticas:* Si tu vida cae bajo el 40%, beberás automáticamente hasta *2 pociones* de tu mochila (priorizando la mejor).\n\n' +
                  '📜 *MODALIDADES DE COMBATE:*\n' +
                  '• 🤝 *Amistoso:* Sin riesgo de monedas. Otorga gloria para el Ranking y títulos honoríficos.\n' +
                  '• 💰 *Oro:* Apuestas de 50 a 500 de Oro (quema el 5% del pozo).\n' +
@@ -402,12 +402,19 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     // Simular batalla automática
     const result = simulatePvPDuel(creator, opponent);
 
-    // Descontar pociones consumidas de sus inventarios
-    if (result.potionsConsumedP1 > 0) {
-      creator.potionsSmall = Math.max(0, (creator.potionsSmall || 0) - result.potionsConsumedP1);
+    // Descontar pociones consumidas de sus inventarios reales
+    if (result.potionsUsedP1.small > 0) {
+      creator.potionsSmall = Math.max(0, (creator.potionsSmall || 0) - result.potionsUsedP1.small);
     }
-    if (result.potionsConsumedP2 > 0) {
-      opponent.potionsSmall = Math.max(0, (opponent.potionsSmall || 0) - result.potionsConsumedP2);
+    if (result.potionsUsedP1.medium > 0) {
+      creator.potionsMedium = Math.max(0, (creator.potionsMedium || 0) - result.potionsUsedP1.medium);
+    }
+
+    if (result.potionsUsedP2.small > 0) {
+      opponent.potionsSmall = Math.max(0, (opponent.potionsSmall || 0) - result.potionsUsedP2.small);
+    }
+    if (result.potionsUsedP2.medium > 0) {
+      opponent.potionsMedium = Math.max(0, (opponent.potionsMedium || 0) - result.potionsUsedP2.medium);
     }
 
     // Identificar ganador y perdedor
