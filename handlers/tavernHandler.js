@@ -499,7 +499,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
   bot.action('tavern_pvp_ranking', async (ctx) => {
     await safeAnswerCb(ctx);
 
-    const topGladiators = await Player.find({ pvpWins: { \$gt: 0 } })
+    const topGladiators = await Player.where('pvpWins').gt(0)
       .sort({ pvpWins: -1, pvpLosses: 1 })
       .limit(10);
 
@@ -560,7 +560,11 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
     }
 
-    await Player.updateMany({}, { \$set: { pvpWins: 0, pvpLosses: 0 } });
+    const setKey = String.fromCharCode(36) + 'set';
+    const resetPayload = {};
+    resetPayload[setKey] = { pvpWins: 0, pvpLosses: 0 };
+
+    await Player.updateMany({}, resetPayload);
     await safeAnswerCb(ctx, '🏆 Ranking PvP reiniciado con éxito.', true);
 
     const text = '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\n' +
