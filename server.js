@@ -390,14 +390,30 @@ function startServer(bot) {
         txHash: boc ? boc.slice(0, 32) + '...' : null
       });
 
-      // Notificación directa y concisa al aventurero
+      // Notificación directa y concisa al aventurero con enlace a Tonviewer
       try {
-        const depositReceipt = '💎 *¡RECARGA EXITOSA!* 💎\n\n' +
-                               'Se han acreditado *+' + numAmount.toFixed(2) + ' GRAM* a tu saldo interno.\n' +
-                               'Balance disponible: *' + player.gram.toFixed(3) + ' GRAM*.\n\n' +
-                               '¡Ya puedes utilizarlo en la Arena de Duelos o gestionarlo en tu Hogar!';
-        await bot.telegram.sendMessage(uid, depositReceipt, { parse_mode: 'Markdown' });
-      } catch (e) {}
+        const walletTarget = player.tonWalletAddress || walletAddress;
+        let depositReceipt = '💎 *¡RECARGA EXITOSA!* 💎\n\n' +
+                             'Se han acreditado *+' + numAmount.toFixed(2) + ' GRAM* a tu saldo interno.\n' +
+                             'Balance disponible: *' + player.gram.toFixed(3) + ' GRAM*.\n\n';
+
+        let extraButtons = [];
+        if (walletTarget) {
+          depositReceipt += '🔍 [Ver en Tonviewer](https://tonviewer.com/' + walletTarget + ')\n\n';
+          extraButtons.push([Markup.button.url('🔍 Ver en Tonviewer', 'https://tonviewer.com/' + walletTarget)]);
+        }
+
+        depositReceipt += '¡Ya puedes utilizarlo en la Arena de Duelos o gestionarlo en tu Hogar!';
+
+        const extraOpts = { parse_mode: 'Markdown' };
+        if (extraButtons.length > 0) {
+          Object.assign(extraOpts, Markup.inlineKeyboard(extraButtons));
+        }
+
+        await bot.telegram.sendMessage(uid, depositReceipt, extraOpts);
+      } catch (e) {
+        console.error('Error enviando notificación de recarga al aventurero:', e.message);
+      }
 
       return res.json({ success: true, msg: '¡Éxito! Se añadieron +' + numAmount + ' GRAM a tu cuenta.' });
     } catch (err) {
@@ -707,7 +723,7 @@ function startServer(bot) {
       const userText = isUserWithdrawal ? (playerName || 'Aventurero') : 'Administrador';
       const feeNote = fee ? ('\n💡 *Comisión creador (apoyo):* ' + fee + ' GRAM') : '';
 
-      // 1. Mensaje detallado para el Grupo de Logs / Canal Administrativo (Concatenación limpia)
+      // 1. Mensaje detallado para el Grupo de Logs
       try {
         const logMsg = headerText + '\n\n' +
                        '👤 *Destinatario:* ' + userText + '\n' +
@@ -731,16 +747,26 @@ function startServer(bot) {
         console.error('Error enviando log de payout:', logErr.message);
       }
 
-      // 2. Mensaje directo al Aventurero (Privado, conciso)
+      // 2. Mensaje directo al Aventurero con enlace y botón a Tonviewer
       if (userId) {
         try {
           const userReceipt = '📤 *¡RETIRO COMPLETADO!* 📤\n\n' +
                               'Hemos enviado *' + payoutAmount + ' TON* directamente a tu billetera:\n' +
                               '`' + toAddress + '`\n\n' +
                               (fee ? '💡 _Comisión aplicada: ' + fee + ' GRAM_\n\n' : '') +
+                              '🔍 [Ver en Tonviewer](https://tonviewer.com/' + toAddress + ')\n\n' +
                               '✨ _¡Gracias por jugar y respaldar Abyss RPG!_';
 
-          await bot.telegram.sendMessage(userId, userReceipt, { parse_mode: 'Markdown' });
+          await bot.telegram.sendMessage(
+            userId,
+            userReceipt,
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.url('🔍 Ver en Tonviewer', 'https://tonviewer.com/' + toAddress)]
+              ])
+            }
+          );
         } catch (uErr) {
           console.error('Error enviando recibo privado al usuario:', uErr.message);
         }
@@ -1071,7 +1097,7 @@ function startServer(bot) {
           }, 35000);
 
           const onReturnFocus = () => {
-            if (!adActive) return;
+            if (!stepAdActive) return;
             const elapsed = (Date.now() - adStartTime) / 1000;
             if (elapsed >= 10) {
               adActive = false;
