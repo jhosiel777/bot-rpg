@@ -3,6 +3,7 @@ const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 const { Duel } = require('../duelModel');
 const { simulatePvPDuel, shortenName } = require('../pvpEngine');
 const { syncPlayerTitles } = require('./homeHandler');
+const { creditReferralBonus } = require('../playerModel');
 
 const ADMIN_ID = 835648800;
 const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
@@ -430,6 +431,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       winner.gold = (winner.gold || 0) + prize;
       rewardWinnerNote = `💰 *Pozo:* ${pot} Oro | 🔥 *Quemado (5%):* ${burned}g\n🏆 *Premio:* Ganaste +${prize} de Oro acreditados a tu bolsa.`;
       rewardLoserNote = `💸 Has caído en combate y perdido tu apuesta de ${duel.betAmount} de Oro.`;
+      await creditReferralBonus(winner.userId, prize, 'pvp');
     } else if (duel.mode === 'gram') {
       const pot = Number((duel.betAmount * 2).toFixed(4));
       const rawFee = pot * 0.08;
@@ -517,7 +519,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
         const cleanName = shortenName(g.name);
 
         text += `${medal} *#${index + 1} [«${title}»] ${cleanName}*\n` +
-                `   Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
+                `    Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
       });
     }
 
