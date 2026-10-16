@@ -32,25 +32,29 @@ async function syncPlayerTitles(player, bot = null) {
   // 2. Compras con dinero real / Gema Ancestral
   helperCheck('Mecenas de Abyss', player.hasAncestralGem === true);
 
-  // 3. Racha Diaria Continua (Bono Diario: 5, 10, 20 y 30 días)
+  // 3. Racha Diaria Continua
   const streak = player.dailyStreak || 0;
   helperCheck('Explorador Constante', streak >= 5);
   helperCheck('Centinela Fiel', streak >= 10);
   helperCheck('Veterano de la Guardia', streak >= 20);
   helperCheck('Leyenda del Alba', streak >= 30);
 
-  // 4. Incursiones de Caza Diaria completadas (5, 10, 25 y 40 cazas)
+  // 4. Incursiones de Caza Diaria
   const hunts = player.bountiesCompletedCount || 0;
   helperCheck('Rastreador de Huellas', hunts >= 5);
   helperCheck('Cazador de Frontera', hunts >= 10);
   helperCheck('Azote de Bestias', hunts >= 25);
   helperCheck('Maestro de la Cacería', hunts >= 40);
 
-  // Asignar título activo válido si está vacío o no pertenece a los desbloqueados
+  // 5. Victorias en la Arena PvP
+  const wins = player.pvpWins || 0;
+  helperCheck('Pequeño Gladiador', wins >= 1);
+  helperCheck('Duelista Implacable', wins >= 20);
+  helperCheck('Campeón de la Arena', wins >= 50);
+
+  // Asignar título activo válido si está vacío
   if (!player.activeTitle || !player.unlockedTitles.includes(player.activeTitle)) {
-    player.activeTitle = player.unlockedTitles.includes('Caminante de Senderos')
-      ? 'Caminante de Senderos'
-      : player.unlockedTitles[0];
+    player.activeTitle = player.unlockedTitles[0];
     changed = true;
   }
 
@@ -66,7 +70,7 @@ async function syncPlayerTitles(player, bot = null) {
         await bot.telegram.sendMessage(
           player.userId,
           `🎖️🎉 *¡NUEVO TÍTULO HONORÍFICO DESBLOQUEADO!*\n\n` +
-          `Has obtenido la distinción: «*${title}*».\n\n` +
+          `Has obtenido la distinción: «*\${title}*».\n\n` +
           `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
           { parse_mode: 'Markdown' }
         );
@@ -89,24 +93,34 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     await syncPlayerTitles(player, bot);
 
     const title = player.activeTitle || 'Aventurero Novato';
-    const walletDisplay = player.tonWalletAddress ? '✅ Sí' : '❌ No';
+    const walletDisplay = player.tonWalletAddress 
+      ? `\`${player.tonWalletAddress.slice(0, 4)}...${player.tonWalletAddress.slice(-4)}\`` 
+      : '❌ No vinculada';
+    const gramBalance = Number(player.gram || 0).toFixed(3);
 
     const text = '🏡 *HOGAR DEL AVENTURERO* 🏡\n\n' +
-                 'Tu refugio personal en la capital de Abyss. Aquí puedes organizar tus credenciales y prepararte para la gloria.\n\n' +
+                 'Tu refugio personal en la capital de Abyss. Gestiona tu identidad, tus títulos y tus riquezas Web3.\n\n' +
                  `👤 *Aventurero:* ${player.name}\n` +
                  `🎖️ *Título activo:* «*${title}*»\n` +
-                 `💳 *Billetera conectada:* ${walletDisplay}\n\n` +
+                 `💰 *Oro del Reino:* ${player.gold || 0}\n` +
+                 `💎 *Saldo GRAM:* *${gramBalance} GRAM*\n` +
+                 `💳 *Billetera TON:* ${walletDisplay}\n\n` +
                  '¿Qué deseas gestionar?';
 
     const ADMIN_ID = 835648800;
     const isOwner = (ctx.from.id === ADMIN_ID);
 
+    const depositUrl = 'https://bot-rpg-wu42.onrender.com/deposit-gram?userId=' + player.userId;
+
     const buttons = [
+      [
+        Markup.button.webApp('📥 Añadir Fondos (GRAM)', depositUrl),
+        Markup.button.callback('📤 Retirar GRAM', 'home_withdraw_menu')
+      ],
       [Markup.button.callback('💳 Vincular / Cambiar Billetera TON', 'home_wallet_info')],
       [Markup.button.callback('🎖️ Títulos Honoríficos', 'home_titles')]
     ];
 
-    // Botones exclusivos para ti (Owner)
     if (isOwner) {
       const testBuyUrl = 'https://bot-rpg-wu42.onrender.com/test-pay?userId=' + player.userId;
       buttons.push([Markup.button.webApp('🧪 Test Compra (0.011 TON)', testBuyUrl)]);
@@ -121,7 +135,127 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     });
   });
 
-  // Listener para ejecutar el pago de prueba desde la wallet del bot
+  // Menú de Retiro de GRAM
+  bot.action('home_withdraw_menu', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.tonWalletAddress) {
+      return await safeAnswerCb(ctx, '⚠️ Primero debes vincular tu billetera TON para retirar.', true);
+    }
+
+    const gramBal = Number(player.gram || 0);
+
+    const text = '📤 *RETIRO DE GRAM A TU BILLETERA* 📤\n\n' +
+                 `💎 *Tu saldo disponible:* *${gramBal.toFixed(3)} GRAM*\n` +
+                 `💳 *Destino:* \`\${player.tonWalletAddress}\`\n\n` +
+                 '⚙️ *Condiciones de Retiro:*\n' +
+                 '• *Mínimo a retirar:* 0.10 GRAM.\n' +
+                 '• *Comisión:* 5% (mínimo 0.02 GRAM) destinada a apoyar al creador y mantener activo el desarrollo del reino.\n\n' +
+                 '_Selecciona el monto que deseas transferir a tu billetera personal:_';
+
+    const buttons = [];
+
+    // Opciones rápidas de retiro según saldo
+    if (gramBal >= 0.10) {
+      buttons.push([
+        Markup.button.callback('0.10 GRAM', 'withdraw_amount_0.10'),
+        Markup.button.callback('0.25 GRAM', 'withdraw_amount_0.25')
+      ]);
+      buttons.push([
+        Markup.button.callback('0.50 GRAM', 'withdraw_amount_0.50'),
+        Markup.button.callback('Todo mi saldo', 'withdraw_amount_all')
+      ]);
+    } else {
+      buttons.push([Markup.button.callback('⚠️ Saldo insuficiente (Mín. 0.10 GRAM)', 'no_balance_alert')]);
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]);
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
+  });
+
+  bot.action('no_balance_alert', async (ctx) => {
+    return await safeAnswerCb(ctx, 'Necesitas al menos 0.10 GRAM para solicitar un retiro.', true);
+  });
+
+  // Procesamiento de retiro
+  bot.action(/withdraw_amount_(0\.10|0\.25|0\.50|all)/, async (ctx) => {
+    const rawChoice = ctx.match[1];
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.tonWalletAddress) {
+      return await safeAnswerCb(ctx, 'No tienes una billetera vinculada.', true);
+    }
+
+    let amount = 0;
+    if (rawChoice === 'all') {
+      amount = Number(player.gram || 0);
+    } else {
+      amount = parseFloat(rawChoice);
+    }
+
+    // Redondear a 4 decimales
+    amount = Math.floor(amount * 10000) / 10000;
+
+    if (amount < 0.10) {
+      return await safeAnswerCb(ctx, 'El retiro mínimo es de 0.10 GRAM.', true);
+    }
+
+    if ((player.gram || 0) < amount) {
+      return await safeAnswerCb(ctx, 'No posees suficiente saldo de GRAM.', true);
+    }
+
+    // Cálculo matemático de comisión (5%, mínimo 0.02)
+    const rawFee = amount * 0.05;
+    const fee = Math.max(0.02, Math.floor(rawFee * 10000) / 10000);
+    const netPayout = Math.floor((amount - fee) * 10000) / 10000;
+
+    if (netPayout <= 0) {
+      return await safeAnswerCb(ctx, 'El monto tras la comisión no es viable para transferir.', true);
+    }
+
+    await safeAnswerCb(ctx, 'Procesando retiro...');
+    await ctx.reply(`⏳ *Enviando ${netPayout} TON hacia tu billetera personal...*\n_(Monto retirado: ${amount} GRAM | Comisión creador: ${fee} GRAM)_`, { parse_mode: 'Markdown' });
+
+    // Descontar saldo preventivamente en base de datos
+    player.gram = Math.max(0, player.gram - amount);
+    await player.save();
+
+    try {
+      const res = await fetch('https://bot-rpg-wu42.onrender.com/send-ton-payout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: ctx.from.id,
+          toAddress: player.tonWalletAddress,
+          amountTon: netPayout,
+          isUserWithdrawal: true,
+          fee: fee,
+          playerName: player.name
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        await ctx.reply(`✅ *¡Retiro completado exitosamente!*\n\nSe han enviado *${netPayout} TON* a tu billetera personal:\n\`\${player.tonWalletAddress}\`\n\n_¡Gracias por respaldar el crecimiento de Abyss RPG!_`, { parse_mode: 'Markdown' });
+      } else {
+        // En caso de fallo técnico, reembolsar el balance al jugador
+        player.gram = (player.gram || 0) + amount;
+        await player.save();
+        await ctx.reply(`❌ *Error al procesar el retiro:* ${data.msg || 'Fallo de red'}\n_Tus fondos han sido reintegrados a tu saldo de GRAM._`);
+      }
+    } catch (err) {
+      player.gram = (player.gram || 0) + amount;
+      await player.save();
+      await ctx.reply(`❌ Error de comunicación con el servidor. Tus fondos han sido reintegrados.`);
+    }
+  });
+
+  // Listener para ejecutar el pago de prueba desde la wallet del bot (Solo Admin)
   bot.action('admin_test_payout', async (ctx) => {
     const ADMIN_ID = 835648800;
     if (ctx.from.id !== ADMIN_ID) {
@@ -159,10 +293,10 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = '💳 *BILLETERA TON DE LA RED* 💳\n\n' +
-               'Conectar tu billetera te permitirá comerciar en el futuro mercado P2P y adquirir artefactos ancestrales.\n\n';
+               'Conectar tu billetera te permite recargar GRAM, retirar tus ganancias y participar en la Arena de Duelos PvP.\n\n';
 
     if (player.tonWalletAddress) {
-      text += '🔗 *Billetera conectada:* ✅ Sí\n\n' +
+      text += `🔗 *Billetera conectada:* ✅ Sí\n\`\${player.tonWalletAddress}\`\n\n` +
               'Si deseas cambiarla por otra cuenta, pulsa el botón de abajo:';
     } else {
       text += '🔗 *Billetera conectada:* ❌ No\n\n' +
@@ -190,7 +324,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const unlocked = player.unlockedTitles || ['Aventurero Novato'];
 
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
-               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Estado**, en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               'Los títulos condecoran tus hazañas. Se muestran en tu **Estado**, en el **Ranking de la Taberna** y en la **Arena de Duelos**.\n\n' +
                `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
                'Toca un título para equipártelo:\n\n';
 
@@ -233,7 +367,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
 
     const currentTitle = player.activeTitle;
     let text = '🎖️ *TÍTULOS HONORÍFICOS* 🎖️\n\n' +
-               'Los títulos condecoran tus hazañas. Se mostrarán junto a tu nombre en el **Estado**, en el **Salón de la Fama** y en la futura **Arena de Duelos (PvP)**.\n\n' +
+               'Los títulos condecoran tus hazañas. Se muestran en tu **Estado**, en el **Ranking de la Taberna** y en la **Arena de Duelos**.\n\n' +
                `🎖️ *Equipado actualmente:* «*${currentTitle}*»\n\n` +
                'Toca un título para equipártelo:\n\n';
 
