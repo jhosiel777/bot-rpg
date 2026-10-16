@@ -135,10 +135,24 @@ function simulatePvPDuel(p1, p2) {
         log.push(`${icon} ${attName} golpeó a ${defName} por *${finalDamage}* de daño.`);
       }
 
-      // Aplicar daño
+      // Aplicar daño y gestionar pociones (salvavidas y curación automática)
       if (isP1Attacking) {
-        hp2 = Math.max(0, hp2 - finalDamage);
-        // Si el defensor sobrevive pero cae bajo el 40%, bebe poción de inmediato
+        hp2 -= finalDamage;
+
+        // 1. Caso Salvavidas: el golpe fue letal
+        if (hp2 <= 0 && (p2SmallUsed + p2MedUsed) < MAX_POTIONS) {
+          if (p2MedAvailable > 0) {
+            p2MedAvailable--; p2MedUsed++;
+            hp2 += 35;
+            log.push(`🧪 ${defName} bebió una *Poción Mayor de Salud* (+35 HP) al borde de la muerte.`);
+          } else if (p2SmallAvailable > 0) {
+            p2SmallAvailable--; p2SmallUsed++;
+            hp2 += 10;
+            log.push(`🧪 ${defName} bebió una *Poción Menor de Salud* (+10 HP) al borde de la muerte.`);
+          }
+        }
+
+        // 2. Caso Regular: sobrevive pero cae bajo el 40% de vida
         if (hp2 > 0 && hp2 <= maxHp2 * 0.4 && (p2SmallUsed + p2MedUsed) < MAX_POTIONS) {
           if (p2MedAvailable > 0) {
             p2MedAvailable--; p2MedUsed++;
@@ -150,8 +164,25 @@ function simulatePvPDuel(p1, p2) {
             log.push(`🧪 ${defName} bebió una *Poción Menor de Salud* (+10 HP).`);
           }
         }
+
+        hp2 = Math.max(0, hp2);
       } else {
-        hp1 = Math.max(0, hp1 - finalDamage);
+        hp1 -= finalDamage;
+
+        // 1. Caso Salvavidas: el golpe fue letal
+        if (hp1 <= 0 && (p1SmallUsed + p1MedUsed) < MAX_POTIONS) {
+          if (p1MedAvailable > 0) {
+            p1MedAvailable--; p1MedUsed++;
+            hp1 += 35;
+            log.push(`🧪 ${defName} bebió una *Poción Mayor de Salud* (+35 HP) al borde de la muerte.`);
+          } else if (p1SmallAvailable > 0) {
+            p1SmallAvailable--; p1SmallUsed++;
+            hp1 += 10;
+            log.push(`🧪 ${defName} bebió una *Poción Menor de Salud* (+10 HP) al borde de la muerte.`);
+          }
+        }
+
+        // 2. Caso Regular: sobrevive pero cae bajo el 40% de vida
         if (hp1 > 0 && hp1 <= maxHp1 * 0.4 && (p1SmallUsed + p1MedUsed) < MAX_POTIONS) {
           if (p1MedAvailable > 0) {
             p1MedAvailable--; p1MedUsed++;
@@ -163,6 +194,8 @@ function simulatePvPDuel(p1, p2) {
             log.push(`🧪 ${defName} bebió una *Poción Menor de Salud* (+10 HP).`);
           }
         }
+
+        hp1 = Math.max(0, hp1);
       }
     }
 
