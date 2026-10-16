@@ -42,7 +42,7 @@ function registerBossHandlers(bot, deps) {
   }
 
   async function getBossCensus() {
-    const aptPlayers = await Player.find({ level: { \$gte: 5 }, isVerified: true });
+    const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
     const totalAptos = aptPlayers.length;
     const activeCount = Math.max(totalAptos, 3);
 
