@@ -341,7 +341,7 @@ function getStatsView(player) {
   const agi = player.agility || 0;
   const luk = player.luck || 0;
 
-  const dmgMitigation = ((str / (str + 60)) * 40).toFixed(1);
+  const dmgMitigation = Math.min(25, (str / MAX_STAT) * 25).toFixed(1);
   const baseAtk = Math.round(20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3));
   const minSpread = Math.round(baseAtk * 0.80);
   const maxSpread = Math.round(baseAtk * 1.20);
