@@ -68,12 +68,29 @@ const playerSchema = new mongoose.Schema({
   // Cazas Diarias Totales
   bountiesCompletedCount: { type: Number, default: 0 },
 
-  // Inventario
+  // Inventario: Consumibles
   potionsSmall: { type: Number, default: 0 },
   potionsMedium: { type: Number, default: 0 },
   potionsEnergy: { type: Number, default: 0 },
   potionsEnergyDrink: { type: Number, default: 0 },
   potionsDragonBlood: { type: Number, default: 0 },
+
+  // Inventario: Materiales de Minería
+  ironOre: { type: Number, default: 0 },
+  ancestralIronOre: { type: Number, default: 0 },
+
+  // Expansión Fronteras y Herrería
+  hasBorderPermit: { type: Boolean, default: false },
+  hasKhazurPickaxe: { type: Boolean, default: false },
+
+  // Ranuras de Equipamiento
+  equipment: {
+    head: { type: String, default: null },
+    chest: { type: String, default: null },
+    legs: { type: String, default: null },
+    weapon: { type: String, default: null },
+    accessory: { type: String, default: null }
+  },
 
   // Botín Diario
   dailyStreak: { type: Number, default: 0 },
@@ -223,7 +240,7 @@ playerSchema.methods.claimReferralGold = function() {
   return totalToClaim;
 };
 
-// Validación y auto-reparación de gemas y títulos comprados
+// Validación y auto-reparación de gemas, títulos y estructuras de equipamiento
 playerSchema.methods.checkAndRepairPurchases = function() {
   let modified = false;
 
@@ -243,6 +260,17 @@ playerSchema.methods.checkAndRepairPurchases = function() {
       this.unlockedTitles.push('Mecenas de Abyss');
       modified = true;
     }
+  }
+
+  if (!this.equipment) {
+    this.equipment = {
+      head: null,
+      chest: null,
+      legs: null,
+      weapon: null,
+      accessory: null
+    };
+    modified = true;
   }
 
   return modified;
@@ -350,7 +378,14 @@ async function getPlayer(userId, name = 'Aventurero') {
       name,
       referralCode: uniqueCode,
       isVerified: userId === ADMIN_ID,
-      lastEnergyRegenTime: Date.now()
+      lastEnergyRegenTime: Date.now(),
+      equipment: {
+        head: null,
+        chest: null,
+        legs: null,
+        weapon: null,
+        accessory: null
+      }
     });
   } else {
     let needsSave = false;
