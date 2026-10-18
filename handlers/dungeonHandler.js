@@ -327,8 +327,10 @@ function registerDungeonHandlers(bot, deps) {
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     let text = '🗺️ *FRONTERAS DEL REINO DE ABYSS* 🗺️\n\n' +
-               'Más allá de las empalizadas de la ciudadela se extienden territorios peligrosos y olvidados, custodiados por la guardia real.\n\n' +
-               '• *Permiso Fronterizo:* ' + (player.hasBorderPermit ? '✅ Autorizado' : '❌ Requerido (Herrería Real)') + '\n\n' +
+               'Más allá de las empalizadas de la ciudadela se extienden territorios peligrosos y olvidados, custodiados por la guardia real:\n\n' +
+               '• ⛏️ *Yacimiento Olvidado de Khazur (Muy Difícil)* — Coste: 5 ⚡ | Viaje: 2m (Golems colosales + Minería + Trampas)\n\n' +
+               '• *Permiso Fronterizo:* ' + (player.hasBorderPermit ? '✅ Autorizado' : '❌ Requerido (Herrería Real)') + '\n' +
+               '⚠️ _Si tu vida cae a 0, quedarás inconsciente durante 2 horas._\n\n' +
                'Selecciona un territorio a explorar:';
 
     const keyboard = Markup.inlineKeyboard([
