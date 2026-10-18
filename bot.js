@@ -627,6 +627,7 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // --- CAMBIO DE NIVEL DESDE PANEL ADMIN CON RECALCULO DE ATRIBUTOS ---
   if (userId === ADMIN_ID && adminFlags.targetLevelChangeId !== null) {
     const targetUserId = adminFlags.targetLevelChangeId;
     adminFlags.targetLevelChangeId = null;
@@ -637,10 +638,61 @@ bot.on('text', async (ctx, next) => {
 
     const u = await Player.findOne({ userId: targetUserId });
     if (!u) return await ctx.reply('⚠️ No encontrado.');
+
+    const oldLevel = u.level;
+    const levelDiff = newLevel - oldLevel;
+    const pointsDelta = levelDiff * 3;
+
+    if (pointsDelta > 0) {
+      // Subió de nivel: se suman puntos libres para distribuir
+      u.statPoints = (u.statPoints || 0) + pointsDelta;
+    } else if (pointsDelta < 0) {
+      // Bajó de nivel: se descuentan puntos
+      let pointsToRemove = Math.abs(pointsDelta);
+
+      // 1. Descontar primero de los puntos libres sin asignar
+      const fromUnspent = Math.min(u.statPoints || 0, pointsToRemove);
+      u.statPoints = (u.statPoints || 0) - fromUnspent;
+      pointsToRemove -= fromUnspent;
+
+      // 2. Si faltan puntos por quitar, retirar al azar de los ya aplicados
+      while (pointsToRemove > 0) {
+        const hpPoints = Math.max(0, Math.floor(((u.maxHp || 50) - 50) / 5));
+        const availableStats = [];
+
+        if ((u.strength || 0) > 0) availableStats.push('strength');
+        if (hpPoints > 0) availableStats.push('hp');
+        if ((u.agility || 0) > 0) availableStats.push('agility');
+        if ((u.luck || 0) > 0) availableStats.push('luck');
+
+        // Si ya no le quedan atributos invertidos por encima de base
+        if (availableStats.length === 0) break;
+
+        // Selección aleatoria entre los que tienen puntos
+        const chosen = availableStats[Math.floor(Math.random() * availableStats.length)];
+
+        if (chosen === 'strength') {
+          u.strength -= 1;
+        } else if (chosen === 'hp') {
+          u.maxHp -= 5;
+          if (u.hp > u.maxHp) u.hp = u.maxHp;
+        } else if (chosen === 'agility') {
+          u.agility -= 1;
+        } else if (chosen === 'luck') {
+          u.luck -= 1;
+        }
+
+        pointsToRemove--;
+      }
+    }
+
     u.level = newLevel;
     u.exp = 1;
+    if (u.hp > u.maxHp) u.hp = u.maxHp;
+    if (u.hp <= 0 && !u.knockedOutUntil) u.hp = 1;
+
     await u.save();
-    return await ctx.reply(`✅ Nivel de ${u.name} cambiado a ${u.level}.`);
+    return await ctx.reply(`✅ Nivel de ${u.name} cambiado de Lv.${oldLevel} a Lv.${u.level}. Puntos y atributos ajustados.`);
   }
 
   if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
