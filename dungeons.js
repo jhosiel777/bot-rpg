@@ -53,7 +53,7 @@ const DUNGEONS = {
   yacimiento_khazur: {
     id: 'yacimiento_khazur',
     name: '⛏️ Yacimiento Olvidado de Khazur',
-    cost: 4,
+    cost: 5,
     travelSec: 120,
     hasTraps: true,
     isBorder: true,
