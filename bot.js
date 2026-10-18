@@ -64,6 +64,7 @@ const { registerAdminHandlers } = require('./handlers/adminHandler');
 const { registerBossHandlers } = require('./handlers/bossHandler');
 const { registerTavernHandlers } = require('./handlers/tavernHandler');
 const { registerHomeHandlers } = require('./handlers/homeHandler');
+const { registerBlacksmithHandlers } = require('./handlers/blacksmithHandler');
 const { startBackgroundSchedulers } = require('./utils/schedulers');
 
 const ADMIN_ID = 835648800;
@@ -234,6 +235,11 @@ registerTavernHandlers(bot, {
 });
 
 registerHomeHandlers(bot, {
+  Player,
+  getPlayer
+});
+
+registerBlacksmithHandlers(bot, {
   Player,
   getPlayer
 });
@@ -479,6 +485,76 @@ function getDailyBonusView(player) {
 }
 
 // ==========================================
+// RENDERIZADO DINÁMICO DEL INVENTARIO (SIN CEROS)
+// ==========================================
+function buildInventoryView(player) {
+  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+
+  let text = `🎒 *Mochila de Aventurero*\n\n` +
+             `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
+             `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n`;
+
+  // 1. Sección de Consumibles (> 0)
+  const consumibles = [];
+  const buttons = [];
+
+  if (player.potionsSmall > 0) {
+    consumibles.push(`• Poción Menor (+10 HP): *${player.potionsSmall}*`);
+    buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
+  }
+  if (player.potionsMedium > 0) {
+    consumibles.push(`• Poción Mayor (+35 HP): *${player.potionsMedium}*`);
+    buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
+  }
+  if (player.potionsEnergy > 0) {
+    consumibles.push(`• Elixir de Energía (+1 ⚡): *${player.potionsEnergy}*`);
+    buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
+  }
+  if (player.potionsEnergyDrink > 0) {
+    consumibles.push(`• 🥤 Bebida Energética (+2 ⚡): *${player.potionsEnergyDrink}/5*`);
+    buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
+  }
+  if (player.potionsDragonBlood > 0) {
+    consumibles.push(`• 🩸 Elixir Sangre Dragón: *${player.potionsDragonBlood}*`);
+    buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón', 'use_dragon_blood')]);
+  }
+
+  if (consumibles.length > 0) {
+    text += `🧪 *Consumibles:*\n` + consumibles.join('\n') + `\n\n`;
+  } else {
+    text += `🧪 *Consumibles:*\n_No tienes pociones ni elixires en tu mochila._\n\n`;
+  }
+
+  // 2. Sección de Materiales de Minería (> 0, solo texto plano sin botones)
+  const materiales = [];
+  if (player.ironOre > 0) {
+    materiales.push(`• 🪨 Mena de Hierro: *${player.ironOre}*`);
+  }
+  if (player.ancestralIronOre > 0) {
+    materiales.push(`• ✨ Mena de Hierro Ancestral: *${player.ancestralIronOre}*`);
+  }
+
+  if (materiales.length > 0) {
+    text += `⛏️ *Materiales:*\n` + materiales.join('\n') + `\n\n`;
+  }
+
+  // 3. Posesión del Pico de Khazur (Recordatorio ambiental)
+  if (player.hasKhazurPickaxe) {
+    const isEquipped = player.equipment?.weapon === 'pickaxe_khazur';
+    text += `⛏️ *Pico de Khazur:* ${isEquipped ? '✅ _Equipado_' : '🎒 _En tus posesiones_'}\n` +
+            `_"Sientes que los monstruos son más agresivos cuando llevas el pico."_\n\n`;
+  }
+
+  if (consumibles.length > 0) {
+    text += `Toca un botón para consumir un objeto:`;
+  }
+
+  buttons.push([Markup.button.callback('⬅️ Volver al Campamento', 'status')]);
+
+  return { text, keyboard: Markup.inlineKeyboard(buttons) };
+}
+
+// ==========================================
 // ENTRADA DE TEXTO
 // ==========================================
 bot.on('text', async (ctx, next) => {
@@ -648,29 +724,8 @@ bot.hears('📈 Atributos', async (ctx) => {
 bot.hears('🎒 Inventario', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
   if (!player.isVerified && ctx.from.id !== ADMIN_ID) return ctx.reply(getGatekeeperMessage(), { parse_mode: 'Markdown' });
-
-  const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
-  let text = `🎒 *Mochila de Aventurero*\n\n` +
-             `❤️ Salud: ${player.hp}/${player.maxHp}\n` +
-             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n\n`;
-
-  text += `*Objetos:*\n` +
-          `• Poción Menor de Vida (+10 HP): ${player.potionsSmall || 0}\n` +
-          `• Poción Mayor de Vida (+35 HP): ${player.potionsMedium || 0}\n` +
-          `• Elixir de Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-          `• 🥤 Bebida Energética (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
-          `• 🩸 Elixir de Sangre de Dragón: ${player.potionsDragonBlood || 0}\n\n` +
-          `Toca un botón para consumir un objeto:`;
-
-  const buttons = [];
-  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
-  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
-  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón', 'use_dragon_blood')]);
-  buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-  await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  const view = buildInventoryView(player);
+  await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
 bot.hears('🏪 Mercado P2P', async (ctx) => {
@@ -745,6 +800,9 @@ bot.action('status', async (ctx) => {
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
+// ==========================================
+// MENÚ EXPLORAR (CUADRÍCULA 2 COLUMNAS)
+// ==========================================
 bot.action('menu_explore', async (ctx) => {
   await safeAnswerCb(ctx);
   const clock = getUniversalTimeData();
@@ -752,21 +810,30 @@ bot.action('menu_explore', async (ctx) => {
                '🕰️ *Reloj Universal:* `' + clock.timeStr + '`\n' +
                '⏳ *Reinicio del Reino:* en `' + clock.countdownStr + '`\n' +
                '──────────────────────────\n\n' +
-               '• 🌲 *Expediciones y Mazmorras:* Exploración rápida.\n' +
-               '• 📜 *Tablón de Caza Diaria:* Contrato diario.\n' +
-               '• 🐲 *Jefe Mundial (Coloso):* Asalto a los colosos.\n' +
-               '• 🍻 *Taberna del Jabalí Ebrio:* Ocio, misterios, duelos y descanso.\n' +
-               '• 🏡 *Hogar del Aventurero:* Tus aposentos, billetera y títulos.\n' +
-               '• 🚩 *Reclutar Aventureros:* Tu código de reclutamiento.';
+               '• 🌲 *Expediciones y Rutas:* Sal a las cercanías y fronteras.\n' +
+               '• 📜 *Tablón de Caza:* Misiones y contratos diarios.\n' +
+               '• 🐲 *Jefe Mundial:* Asalto al coloso ancestral.\n' +
+               '• 🍺 *Taberna del Jabalí:* Ocio, apuestas y duelos PvP.\n' +
+               '• 🏡 *Hogar Aventurero:* Tus aposentos y equipamiento.\n' +
+               '• ⚒️ *Herrería Real:* Permisos de frontera y herramientas.';
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons')],
-    [Markup.button.callback('📜 Tablón de Caza Diaria', 'menu_bounty')],
-    [Markup.button.callback('🐲 Jefe Mundial (Coloso)', 'menu_boss')],
-    [Markup.button.callback('🍻 Taberna del Jabalí Ebrio', 'menu_tavern')],
-    [Markup.button.callback('🏡 Hogar del Aventurero', 'menu_home')],
-    [Markup.button.callback('🚩 Reclutar Aventureros', 'menu_referrals')],
-    [Markup.button.callback('⬅️ Volver al Campamento', 'status')]
+    [
+      Markup.button.callback('🌲 Mazmorras y Rutas', 'menu_dungeons'),
+      Markup.button.callback('📜 Tablón de Caza', 'menu_bounty')
+    ],
+    [
+      Markup.button.callback('🐲 Jefe Mundial', 'menu_boss'),
+      Markup.button.callback('🍺 Taberna Jabalí', 'menu_tavern')
+    ],
+    [
+      Markup.button.callback('🏡 Hogar Aventurero', 'menu_home'),
+      Markup.button.callback('🚩 Reclutar', 'menu_referrals')
+    ],
+    [
+      Markup.button.callback('⚒️ Herrería Real', 'menu_blacksmith'),
+      Markup.button.callback('⬅️ Volver al Campamento', 'status')
+    ]
   ]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
@@ -851,21 +918,38 @@ bot.action('bounty_inv', async (ctx) => {
 
   let text = `🎒 *Mochila en Pleno Combate*\n\n` +
              `❤️ Salud: ${player.hp}/${player.maxHp} HP\n` +
-             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n\n` +
-             `*Objetos:*\n` +
-             `• Poción Menor (+10 HP): ${player.potionsSmall || 0}\n` +
-             `• Poción Mayor (+35 HP): ${player.potionsMedium || 0}\n` +
-             `• Elixir Energía (+1 ⚡): ${player.potionsEnergy || 0}\n` +
-             `• 🥤 Bebida (+2 ⚡): ${player.potionsEnergyDrink || 0}/5\n` +
-             `• 🩸 Elixir Sangre Dragón: ${player.potionsDragonBlood || 0}\n\n` +
-             `Toca una poción para consumirla:`;
+             `⚡ Energía: ${player.energy}/${playerMaxEnergy}\n\n`;
 
   const buttons = [];
-  if (player.potionsSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
-  if (player.potionsMedium > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
-  if (player.potionsEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
-  if (player.potionsEnergyDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
-  if (player.potionsDragonBlood > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'bounty_use_dragon_blood')]);
+  const itemsInCombat = [];
+
+  if (player.potionsSmall > 0) {
+    itemsInCombat.push(`• Poción Menor (+10 HP): *${player.potionsSmall}*`);
+    buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'bounty_use_pot_small')]);
+  }
+  if (player.potionsMedium > 0) {
+    itemsInCombat.push(`• Poción Mayor (+35 HP): *${player.potionsMedium}*`);
+    buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'bounty_use_pot_medium')]);
+  }
+  if (player.potionsEnergy > 0) {
+    itemsInCombat.push(`• Elixir Energía (+1 ⚡): *${player.potionsEnergy}*`);
+    buttons.push([Markup.button.callback('⚡ Usar Elixir Energía', 'bounty_use_pot_energy')]);
+  }
+  if (player.potionsEnergyDrink > 0) {
+    itemsInCombat.push(`• 🥤 Bebida (+2 ⚡): *${player.potionsEnergyDrink}/5*`);
+    buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'bounty_use_energy_drink')]);
+  }
+  if (player.potionsDragonBlood > 0) {
+    itemsInCombat.push(`• 🩸 Elixir Sangre Dragón: *${player.potionsDragonBlood}*`);
+    buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'bounty_use_dragon_blood')]);
+  }
+
+  if (itemsInCombat.length > 0) {
+    text += `*Consumibles disponibles:*\n` + itemsInCombat.join('\n') + `\n\n`;
+  } else {
+    text += `_No tienes pociones en tu mochila._\n\n`;
+  }
+
   buttons.push([Markup.button.callback('⬅️ Volver al Combate', 'bounty_back_to_fight')]);
 
   return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -954,7 +1038,7 @@ bot.action('bounty_dragon_blood_confirm', async (ctx) => {
 });
 
 // ==========================================
-// DESCANSO Y ASIGNACIÓN DE STATS (CON VERIFICACIÓN INMEDIATA)
+// DESCANSO Y ASIGNACIÓN DE STATS
 // ==========================================
 bot.action('rest', async (ctx) => {
   const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -1036,34 +1120,8 @@ bot.action('menu_inv', async (ctx) => {
       return await ctx.reply('⚠️ No se encontró la información de tu personaje.');
     }
 
-    const pSmall = player.potionsSmall || 0;
-    const pMed = player.potionsMedium || 0;
-    const pEnergy = player.potionsEnergy || 0;
-    const pDrink = player.potionsEnergyDrink || 0;
-    const pDragon = player.potionsDragonBlood || 0;
-    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
-
-    let text = `🎒 *Mochila de Aventurero*\n\n` +
-               `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
-               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor (+10 HP): *${pSmall}*\n` +
-               `• Poción Mayor (+35 HP): *${pMed}*\n` +
-               `• Elixir Energía (+1 ⚡): *${pEnergy}*\n` +
-               `• 🥤 Bebida (+2 ⚡): *${pDrink}/5*\n` +
-               `• 🩸 Elixir Sangre Dragón: *${pDragon}*\n\n` +
-               `Toca un botón para consumir un objeto:`;
-
-    const buttons = [];
-    if (pSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'use_potion_small')]);
-    if (pMed > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'use_potion_medium')]);
-    if (pEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'use_potion_energy')]);
-    if (pDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'use_energy_drink')]);
-    if (pDragon > 0) buttons.push([Markup.button.callback('🩸 Beber Sangre de Dragón', 'use_dragon_blood')]);
-    
-    buttons.push([Markup.button.callback('⬅️ Volver', 'status')]);
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    const view = buildInventoryView(player);
+    return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   } catch (err) {
     console.error('Error en menu_inv:', err);
     try {
@@ -1080,7 +1138,7 @@ bot.action('use_potion_small', async (ctx) => {
   player.hp = Math.min(player.maxHp, player.hp + 10);
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +10 HP');
-  const view = await getStatusView(player);
+  const view = buildInventoryView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
@@ -1092,7 +1150,7 @@ bot.action('use_potion_medium', async (ctx) => {
   player.hp = Math.min(player.maxHp, player.hp + 35);
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +35 HP');
-  const view = await getStatusView(player);
+  const view = buildInventoryView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
@@ -1105,7 +1163,7 @@ bot.action('use_potion_energy', async (ctx) => {
   player.energy = Math.min(playerMaxEnergy, player.energy + 1);
   await player.save();
   await safeAnswerCb(ctx, 'Recuperaste +1⚡ Energía');
-  const view = await getStatusView(player);
+  const view = buildInventoryView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
@@ -1118,7 +1176,7 @@ bot.action('use_energy_drink', async (ctx) => {
   player.energy = Math.min(playerMaxEnergy, player.energy + 2);
   await player.save();
   await safeAnswerCb(ctx, '🥤 +2⚡ Energía');
-  const view = await getStatusView(player);
+  const view = buildInventoryView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
@@ -1135,7 +1193,7 @@ bot.action('use_dragon_blood', async (ctx) => {
     player.hp = player.maxHp;
     await player.save();
     await safeAnswerCb(ctx, '🩸 ¡Bebiste el Elixir! Ya no estás inconsciente y tienes 100% HP.', true);
-    const view = await getStatusView(player);
+    const view = buildInventoryView(player);
     return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   }
 
@@ -1155,7 +1213,7 @@ bot.action('use_dragon_blood_confirm', async (ctx) => {
   player.hp = player.maxHp;
   await player.save();
   await safeAnswerCb(ctx, '🩸 Salud restaurada.', true);
-  const view = await getStatusView(player);
+  const view = buildInventoryView(player);
   return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
 });
 
@@ -1179,21 +1237,37 @@ bot.action('boss_inv', async (ctx) => {
 
     let text = `🎒 *Mochila frente al Coloso*\n\n` +
                `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
-               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
-               `*Objetos:*\n` +
-               `• Poción Menor (+10 HP): *${pSmall}*\n` +
-               `• Poción Mayor (+35 HP): *${pMed}*\n` +
-               `• Elixir Energía (+1 ⚡): *${pEnergy}*\n` +
-               `• 🥤 Bebida (+2 ⚡): *${pDrink}/5*\n` +
-               `• 🩸 Elixir Sangre Dragón: *${pDragon}*\n\n` +
-               `Toca una poción para consumirla:`;
+               `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n`;
 
     const buttons = [];
-    if (pSmall > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'boss_use_pot_small')]);
-    if (pMed > 0) buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'boss_use_pot_medium')]);
-    if (pEnergy > 0) buttons.push([Markup.button.callback('⚡ Usar Elixir', 'boss_use_pot_energy')]);
-    if (pDrink > 0) buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'boss_use_energy_drink')]);
-    if (pDragon > 0) buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'boss_use_dragon_blood')]);
+    const available = [];
+
+    if (pSmall > 0) {
+      available.push(`• Poción Menor (+10 HP): *${pSmall}*`);
+      buttons.push([Markup.button.callback('🧪 Usar Poción Menor', 'boss_use_pot_small')]);
+    }
+    if (pMed > 0) {
+      available.push(`• Poción Mayor (+35 HP): *${pMed}*`);
+      buttons.push([Markup.button.callback('🧪 Usar Poción Mayor', 'boss_use_pot_medium')]);
+    }
+    if (pEnergy > 0) {
+      available.push(`• Elixir Energía (+1 ⚡): *${pEnergy}*`);
+      buttons.push([Markup.button.callback('⚡ Usar Elixir', 'boss_use_pot_energy')]);
+    }
+    if (pDrink > 0) {
+      available.push(`• 🥤 Bebida (+2 ⚡): *${pDrink}/5*`);
+      buttons.push([Markup.button.callback('🥤 Beber Energética (+2 ⚡)', 'boss_use_energy_drink')]);
+    }
+    if (pDragon > 0) {
+      available.push(`• 🩸 Elixir Sangre Dragón: *${pDragon}*`);
+      buttons.push([Markup.button.callback('🩸 Usar Sangre de Dragón', 'boss_use_dragon_blood')]);
+    }
+
+    if (available.length > 0) {
+      text += `*Consumibles disponibles:*\n` + available.join('\n') + `\n\n`;
+    } else {
+      text += `_No tienes pociones en tu mochila._\n\n`;
+    }
 
     buttons.push([Markup.button.callback('⬅️ Volver al Coloso', 'menu_boss')]);
 
