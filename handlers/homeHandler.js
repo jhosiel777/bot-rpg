@@ -1,3 +1,4 @@
+// handlers/homeHandler.js
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 
@@ -63,7 +64,7 @@ async function syncPlayerTitles(player, bot = null) {
     await player.save();
   }
 
-  // Notificar al jugador si desbloqueó nuevos títulos (sin caracteres de escape rotos)
+  // Notificar al jugador si desbloqueó nuevos títulos
   if (bot && newlyUnlocked.length > 0) {
     for (const title of newlyUnlocked) {
       try {
@@ -97,7 +98,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const gramBalance = Number(player.gram || 0).toFixed(3);
 
     const text = '🏡 *HOGAR DEL AVENTURERO* 🏡\n\n' +
-                 'Tu refugio personal en la capital de Abyss. Gestiona tu identidad, tus títulos y tus riquezas Web3.\n\n' +
+                 'Tu refugio personal en la capital de Abyss. Gestiona tu identidad, tus títulos, tus riquezas Web3 y tu equipamiento de combate.\n\n' +
                  '👤 *Aventurero:* ' + player.name + '\n' +
                  '🎖️ *Título activo:* «*' + title + '*»\n' +
                  '💰 *Oro del Reino:* ' + (player.gold || 0) + '\n' +
@@ -111,6 +112,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const depositUrl = 'https://bot-rpg-wu42.onrender.com/deposit-gram?userId=' + player.userId;
 
     const buttons = [
+      [Markup.button.callback('🛡️ Equipamiento', 'menu_equipment')],
       [
         Markup.button.webApp('📥 Añadir Fondos (GRAM)', depositUrl),
         Markup.button.callback('📤 Retirar GRAM', 'home_withdraw_menu')
@@ -130,6 +132,140 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
+    });
+  });
+
+  // ==========================================
+  // MENÚ DE EQUIPAMIENTO
+  // ==========================================
+  bot.action('menu_equipment', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.equipment) {
+      player.equipment = { head: null, chest: null, legs: null, weapon: null, accessory: null };
+      await player.save();
+    }
+
+    const eq = player.equipment;
+    const headText = eq.head || 'Vacío';
+    const chestText = eq.chest || 'Vacío';
+    const legsText = eq.legs || 'Vacío';
+    const accText = eq.accessory || 'Vacío';
+
+    let weaponText = 'Vacío';
+    if (eq.weapon === 'pickaxe_khazur') {
+      weaponText = '⛏️ Pico de Khazur';
+    } else if (eq.weapon) {
+      weaponText = eq.weapon;
+    }
+
+    const text = '🛡️ *EQUIPAMIENTO DE COMBATE Y TRABAJO* 🛡️\n\n' +
+                 'Gestiona el equipo activo que llevas a tus expediciones y batallas.\n\n' +
+                 '• 🪖 *Cabeza:* ' + headText + '\n' +
+                 '• 🥋 *Pecho:* ' + chestText + '\n' +
+                 '• 👖 *Piernas:* ' + legsText + '\n' +
+                 '• ⛏️ *Arma / Herramienta:* ' + weaponText + '\n' +
+                 '• 💍 *Accesorio:* ' + accText + '\n\n' +
+                 '_Toca una ranura para inspeccionar, equipar o retirar un objeto:_';
+
+    const buttons = [
+      [Markup.button.callback('🪖 Cabeza: ' + headText, 'eq_slot_head')],
+      [Markup.button.callback('🥋 Pecho: ' + chestText, 'eq_slot_chest')],
+      [Markup.button.callback('👖 Piernas: ' + legsText, 'eq_slot_legs')],
+      [Markup.button.callback('⛏️ Arma/Herramienta: ' + weaponText, 'eq_slot_weapon')],
+      [Markup.button.callback('💍 Accesorio: ' + accText, 'eq_slot_accessory')],
+      [Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]
+    ];
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
+  });
+
+  // Ranuras vacías (próximamente)
+  ['head', 'chest', 'legs', 'accessory'].forEach((slot) => {
+    bot.action('eq_slot_' + slot, async (ctx) => {
+      return await safeAnswerCb(ctx, 'Esta ranura está vacía. No posees piezas compatibles por ahora.', true);
+    });
+  });
+
+  // Ranura de Arma / Herramienta
+  bot.action('eq_slot_weapon', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    const currentWeapon = player.equipment?.weapon;
+    const isPickEquipped = currentWeapon === 'pickaxe_khazur';
+
+    let text = '⛏️ *RANURA: ARMA / HERRAMIENTA* ⛏️\n\n' +
+               'Solo puedes portar un arma o herramienta principal a la vez.\n\n' +
+               '• *Pico de Khazur:* Permite picar menas de Hierro y Hierro Ancestral en el yacimiento, pero enfurece a los autómatas rocosos provocando un 4.º asalto extra.\n\n';
+
+    const buttons = [];
+
+    if (player.hasKhazurPickaxe) {
+      if (isPickEquipped) {
+        text += 'Estado actual: ✅ *Equipado*';
+        buttons.push([Markup.button.callback('❌ Desequipar Pico de Khazur', 'eq_unequip_weapon')]);
+      } else {
+        text += 'Estado actual: 🎒 *En tu inventario (sin equipar)*';
+        buttons.push([Markup.button.callback('⛏️ Equipar Pico de Khazur', 'eq_equip_pickaxe')]);
+      }
+    } else {
+      text += '_No tienes armas ni herramientas en tus posesiones. Visita al Maestro Herrero en la Herrería Real._';
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Volver a Equipamiento', 'menu_equipment')]);
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
+  });
+
+  bot.action('eq_equip_pickaxe', async (ctx) => {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (!player.hasKhazurPickaxe) {
+      return await safeAnswerCb(ctx, 'No posees el Pico de Khazur.', true);
+    }
+
+    if (!player.equipment) {
+      player.equipment = { head: null, chest: null, legs: null, weapon: null, accessory: null };
+    }
+
+    player.equipment.weapon = 'pickaxe_khazur';
+    if (typeof player.markModified === 'function') {
+      player.markModified('equipment');
+    }
+    await player.save();
+
+    await safeAnswerCb(ctx, '⛏️ Has equipado el Pico de Khazur.');
+
+    return bot.handleUpdate({
+      ...ctx.update,
+      callback_query: { ...ctx.callbackQuery, data: 'menu_equipment' }
+    });
+  });
+
+  bot.action('eq_unequip_weapon', async (ctx) => {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    if (player.equipment) {
+      player.equipment.weapon = null;
+      if (typeof player.markModified === 'function') {
+        player.markModified('equipment');
+      }
+      await player.save();
+    }
+
+    await safeAnswerCb(ctx, 'Ranura de arma/herramienta desequipada.');
+
+    return bot.handleUpdate({
+      ...ctx.update,
+      callback_query: { ...ctx.callbackQuery, data: 'menu_equipment' }
     });
   });
 
