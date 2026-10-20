@@ -15,7 +15,9 @@ const worldBossSchema = new mongoose.Schema({
     enum: ['idle', 'scheduled', 'active', 'defeated', 'escaped'],
     default: 'idle'
   },
-  name: { type: String, default: 'Bahamut, el Destructor Carmesí' },
+  // Identificador de jefe: 'coloso' | 'malakor' | 'vaelgathar'
+  bossType: { type: String, default: 'coloso' },
+  name: { type: String, default: 'Coloso Protector Ancestral' },
   level: { type: Number, default: 10 },
   maxHp: { type: Number, default: 1000 },
   currentHp: { type: Number, default: 1000 },
@@ -23,6 +25,11 @@ const worldBossSchema = new mongoose.Schema({
   maxDmg: { type: Number, default: 75 },
   attacksPerTurn: { type: Number, default: 1 },
   damageType: { type: String, default: 'Físico' },
+
+  // Resistencias y propiedades especiales
+  resistanceType: { type: String, default: 'none' }, // 'none' | 'magical' | 'physical'
+  critChance: { type: Number, default: 0 },          // Para Malakor: 0.22
+  critMultiplier: { type: Number, default: 1.0 },    // Para Malakor: 1.40 (+40%)
 
   // Censo de jugadores aptos (nivel >= 5)
   activeCount: { type: Number, default: 3 },
