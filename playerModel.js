@@ -285,7 +285,16 @@ playerSchema.methods.checkAndRepairPurchases = function() {
 
 const Player = mongoose.model('Player', playerSchema);
 
-// --- FUNCIONES DEL BONO DIARIO (UTC) ---
+// --- FUNCIONES DEL BONO DIARIO (UTC) NORMALIZADAS ---
+function getUtcDayTimestamp(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const parts = dateStr.slice(0, 10).split('-');
+  if (parts.length !== 3) return null;
+  const [year, month, day] = parts.map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  return Date.UTC(year, month - 1, day);
+}
+
 function getTodayUtc() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -465,6 +474,7 @@ module.exports = {
   creditReferralBonus,
   getTodayUtc,
   getYesterdayUtc,
+  getUtcDayTimestamp,
   getTimeUntilMidnightUtc,
   getDailyReward,
   MAX_LEVEL,
