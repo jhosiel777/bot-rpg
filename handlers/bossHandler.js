@@ -1,3 +1,4 @@
+// handlers/bossHandler.js
 const { Markup } = require('telegraf');
 const { WorldBoss, getWorldBoss } = require('../bossModel');
 const {
@@ -11,6 +12,42 @@ function formatPlayerName(name, maxLength = 20) {
   if (!name) return 'Aventurero';
   return name.length > maxLength ? name.slice(0, maxLength) + '…' : name;
 }
+
+const BOSS_CATALOG = {
+  coloso: {
+    id: 'coloso',
+    name: 'Coloso Protector Ancestral',
+    title: '🗿 Coloso Protector Ancestral',
+    damageType: 'Físico',
+    resistanceType: 'none',
+    minDmg: 50,
+    maxDmg: 75,
+    desc: 'Titán de roca rúnica con asaltos pesados estándar.'
+  },
+  malakor: {
+    id: 'malakor',
+    name: 'Malakor, el Hereje de las Sombras',
+    title: '🧙‍♂️ Malakor, el Hereje de las Sombras',
+    damageType: 'Mágico',
+    resistanceType: 'magical',
+    minDmg: 35,
+    maxDmg: 55, // 2 golpes fijos -> hasta 110 base + críticos (+40%)
+    attacksPerTurn: 2,
+    critChance: 0.22,
+    critMultiplier: 1.40,
+    desc: 'Mago oscuro (2 asaltos fijos, máx 110 daño base, 22% crítico +40%, resistencia mágica).'
+  },
+  vaelgathar: {
+    id: 'vaelgathar',
+    name: 'Vaelgathar, Señor de las Cenizas',
+    title: '🐲 Vaelgathar, Señor de las Cenizas',
+    damageType: 'Físico',
+    resistanceType: 'physical',
+    minDmg: 35,
+    maxDmg: 55, // 2 a 4 asaltos -> hasta 220 conectando los 4
+    desc: 'Dragón volcánico colosal (2 a 4 asaltos brutales, máx 220 daño acumulado, resistencia física).'
+  }
+};
 
 function registerBossHandlers(bot, deps) {
   const {
@@ -26,23 +63,33 @@ function registerBossHandlers(bot, deps) {
 
   const confirmedBossWarning = new Map();
 
+  let selectedBossType = 'coloso';
   let bossWaitMinutesConfig = 30;
   let bossDurationMinutesConfig = 90;
   let bossHpConfig = null;
   let bossCustomEpicMessage = null;
 
-  function getDefaultEpicMessage(bossName, waitMinutes, hp, durationMin) {
+  function getDefaultEpicMessage(bossType, bossName, waitMinutes, hp, durationMin) {
+    let narrative = '';
+    if (bossType === 'malakor') {
+      narrative = 'Un manto espectral bloquea el sol y las almas del abismo susurran perdición. El gran hechicero oscuro *' + bossName + '* ha emergido de las sombras empuñando magia prohibida.\n\n';
+    } else if (bossType === 'vaelgathar') {
+      narrative = 'Ríos de lava viva brotan de las fallas terrestres y un rugido ensordecedor resquebraja las montañas. El dragón milenario *' + bossName + '* desciende envuelto en llamas eternas.\n\n';
+    } else {
+      narrative = 'El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo nuestros pies. Las antiguas leyendas no mentían: *' + bossName + '* está abriendo los ojos tras milenios de letargo.\n\n';
+    }
+
     return '⚡🌋 *¡UNA CATÁSTROFE ANCESTRAL SE AVECINA!*\n\n' +
-           'El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo nuestros pies. Las antiguas leyendas no mentían: *' + bossName + '* está abriendo los ojos tras milenios de letargo.\n\n' +
+           narrative +
            '⏳ *Tiempo para su despertar:* ' + waitMinutes + ' minutos\n' +
            '⏱️ *Duración del asalto:* ' + durationMin + ' minutos de combate\n' +
-           '❤️ *Vitalidad del Coloso:* ' + hp.toLocaleString() + ' HP\n' +
+           '❤️ *Vitalidad del Jefe:* ' + hp.toLocaleString() + ' HP\n' +
            '⚔️ *Requisito de entrada:* Nivel 5 o superior\n\n' +
            '_¡Reúnan sus armas, forjen sus estrategias y preparen sus pociones! La supervivencia del reino depende de todos._';
   }
 
   async function getBossCensus() {
-    const aptPlayers = await Player.find({ level: { $gte: 5 }, isVerified: true });
+    const aptPlayers = await Player.find({ level: { \$gte: 5 }, isVerified: true });
     const totalAptos = aptPlayers.length;
     const activeCount = Math.max(totalAptos, 3);
 
@@ -63,27 +110,20 @@ function registerBossHandlers(bot, deps) {
     const avgDmg = 20 + (avgStr * 1.2) + Math.floor(Math.sqrt(avgStr) * 3);
     const recommendedHp = Math.round(activeCount * avgDmg * 15);
 
-    const minDmg = Math.max(50, Math.round(avgMaxHp * 0.25));
-    const maxDmg = Math.max(75, Math.round(avgMaxHp * 0.35));
-    const attacksPerTurn = avgMaxHp >= 200 ? 2 : 1;
-
     return {
       totalAptos,
       activeCount,
       avgMaxHp,
       avgStr,
       avgLvl,
-      recommendedHp,
-      minDmg,
-      maxDmg,
-      attacksPerTurn
+      recommendedHp
     };
   }
 
   async function renderAdminBossPanel(ctx) {
     const boss = await getWorldBoss();
     const census = await getBossCensus();
-
+    const currentBossData = BOSS_CATALOG[selectedBossType] || BOSS_CATALOG.coloso;
     const selectedHp = bossHpConfig || census.recommendedHp;
 
     let text = `🐲 *Panel de Convocatoria del Jefe Mundial*\n\n` +
@@ -92,28 +132,37 @@ function registerBossHandlers(bot, deps) {
     if (boss.status === 'scheduled') {
       const minsLeft = Math.max(0, Math.ceil((new Date(boss.battleStartsAt).getTime() - Date.now()) / 60000));
       text += `⏳ Batalla programada: inicia en *${minsLeft} min*\n` +
+              `👾 Jefe: *${boss.name}*\n` +
               `⏱️ Duración de batalla: *${boss.battleDurationMinutes || 90} min*\n` +
               `❤️ Salud programada: *${boss.maxHp.toLocaleString()} HP*\n\n`;
     } else if (boss.status === 'active') {
       text += `⚔️ *¡Batalla en curso!*\n` +
+              `👾 Jefe: *${boss.name}*\n` +
               `❤️ Salud restante: *${boss.currentHp}/${boss.maxHp} HP*\n` +
               `👥 Participantes: *${boss.participants.length}*\n\n`;
     } else {
-      text += `\n📊 *Censo de Jugadores Aptos (Nivel 5+):*\n` +
-              `• Jugadores censados: *${census.totalAptos}* (Mínimo: ${census.activeCount})\n` +
-              `• Promedio Salud: *${census.avgMaxHp} HP* | Promedio Fuerza: *${census.avgStr}*\n` +
+      text += `\n👾 *Jefe Seleccionado:* *${currentBossData.title}*\n` +
+              `ℹ️ _${currentBossData.desc}_\n\n` +
+              `📊 *Censo de Jugadores Aptos (Nivel 5+):*\n` +
+              `• Jugadores: *${census.totalAptos}* | Salud Media: *${census.avgMaxHp} HP* | Fuerza Media: *${census.avgStr}*\n` +
               `• 💡 *Salud Recomendada:* *${census.recommendedHp.toLocaleString()} HP*\n\n` +
               `⚙️ *Parámetros Seleccionados:*\n` +
               `• ❤️ Salud: *${selectedHp.toLocaleString()} HP*` + (bossHpConfig === null ? ' _(Recomendada)_' : '') + `\n` +
               `• ⏳ Tiempo de espera: *${bossWaitMinutesConfig} minutos*\n` +
               `• ⏱️ Duración de combate: *${bossDurationMinutesConfig} minutos*\n` +
               `• 📜 Mensaje épico: ` + (bossCustomEpicMessage ? `*Personalizado*` : `_Por defecto_`) + `\n\n` +
-              `Ajusta los valores y pulsa *"🚀 Revisar y Comenzar Evento"*:`;
+              `Elige el Jefe, ajusta los valores y pulsa *"🚀 Revisar y Comenzar"*:`;
     }
 
     const buttons = [];
 
     if (boss.status === 'idle' || boss.status === 'defeated' || boss.status === 'escaped') {
+      buttons.push([
+        Markup.button.callback((selectedBossType === 'coloso' ? '✅ ' : '') + '🗿 Coloso', 'adm_boss_type_coloso'),
+        Markup.button.callback((selectedBossType === 'malakor' ? '✅ ' : '') + '🧙‍♂️ Malakor', 'adm_boss_type_malakor'),
+        Markup.button.callback((selectedBossType === 'vaelgathar' ? '✅ ' : '') + '🐲 Vaelgathar', 'adm_boss_type_vaelgathar')
+      ]);
+
       buttons.push([Markup.button.callback('🚀 Revisar y Comenzar Evento', 'adm_boss_review')]);
       buttons.push([
         Markup.button.callback(`💡 Usar Recomendada (${census.recommendedHp} HP)`, `adm_boss_sel_hp_${census.recommendedHp}`),
@@ -128,8 +177,7 @@ function registerBossHandlers(bot, deps) {
         Markup.button.callback('⏳ Espera: 1m', 'adm_boss_set_wait_1'),
         Markup.button.callback('⏳ 10m', 'adm_boss_set_wait_10'),
         Markup.button.callback('⏳ 30m', 'adm_boss_set_wait_30'),
-        Markup.button.callback('⏳ 60m', 'adm_boss_set_wait_60'),
-        Markup.button.callback('⏳ 120m', 'adm_boss_set_wait_120')
+        Markup.button.callback('⏳ 60m', 'adm_boss_set_wait_60')
       ]);
       buttons.push([
         Markup.button.callback('⏱️ Combate: 60m', 'adm_boss_set_dur_60'),
@@ -137,7 +185,7 @@ function registerBossHandlers(bot, deps) {
         Markup.button.callback('⏱️ Combate: 120m', 'adm_boss_set_dur_120')
       ]);
     } else {
-      buttons.push([Markup.button.callback('🛑 Cancelar / Forzar Retirada del Coloso', 'adm_boss_force_end')]);
+      buttons.push([Markup.button.callback('🛑 Cancelar / Forzar Retirada del Jefe', 'adm_boss_force_end')]);
     }
 
     buttons.push([Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]);
@@ -153,18 +201,24 @@ function registerBossHandlers(bot, deps) {
     }
 
     const census = await getBossCensus();
+    const bossData = BOSS_CATALOG[selectedBossType] || BOSS_CATALOG.coloso;
     const now = Date.now();
     const startsAt = new Date(now + waitMinutes * 60 * 1000);
 
     boss.status = 'scheduled';
-    boss.name = 'Bahamut, el Destructor Carmesí';
+    boss.bossType = bossData.id;
+    boss.name = bossData.name;
     boss.level = census.avgLvl;
     boss.maxHp = hp;
     boss.currentHp = hp;
-    boss.minDmg = census.minDmg;
-    boss.maxDmg = census.maxDmg;
-    boss.attacksPerTurn = census.attacksPerTurn;
-    boss.damageType = 'Físico';
+    boss.minDmg = bossData.minDmg;
+    boss.maxDmg = bossData.maxDmg;
+    boss.attacksPerTurn = bossData.attacksPerTurn || 1;
+    boss.damageType = bossData.damageType;
+    boss.resistanceType = bossData.resistanceType;
+    boss.critChance = bossData.critChance || 0;
+    boss.critMultiplier = bossData.critMultiplier || 1.0;
+
     boss.activeCount = census.activeCount;
     boss.avgMaxHp = census.avgMaxHp;
     boss.avgStr = census.avgStr;
@@ -176,9 +230,9 @@ function registerBossHandlers(bot, deps) {
     boss.participants = [];
 
     await boss.save();
-    await safeAnswerCb(ctx, '¡Jefe Mundial programado exitosamente!');
+    await safeAnswerCb(ctx, `¡${boss.name} programado exitosamente!`);
 
-    const announceMsg = bossCustomEpicMessage || getDefaultEpicMessage(boss.name, waitMinutes, hp, durationMinutes);
+    const announceMsg = bossCustomEpicMessage || getDefaultEpicMessage(boss.bossType, boss.name, waitMinutes, hp, durationMinutes);
     await broadcastToAll(bot, Player, announceMsg);
 
     bossCustomEpicMessage = null;
@@ -187,10 +241,11 @@ function registerBossHandlers(bot, deps) {
     return await safeEditMessage(
       ctx,
       `✅ *Jefe Mundial convocado exitosamente.*\n\n` +
+      `• Jefe: *${boss.name}*\n` +
       `• Salud: *${hp.toLocaleString()} HP*\n` +
       `• Espera: *${waitMinutes} min*\n` +
       `• Duración de Combate: *${durationMinutes} min*\n` +
-      `• Se envió el anuncio épico global a todo el reino.`,
+      `• Se transmitió el anuncio épico global al reino.`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
@@ -218,13 +273,11 @@ function registerBossHandlers(bot, deps) {
       const lastHitter = parts.find(p => p.lastHit) || top1;
       const firstHitter = parts.find(p => p.firstHit);
 
-      const elixirWinners = new Set();
+      const top3Ids = new Set([top1.userId, top2?.userId, top3?.userId].filter(Boolean));
       const dropsSummary = [];
 
+      // Distinción honorífica de MVP
       if (top1) {
-        elixirWinners.add(top1.userId);
-        dropsSummary.push(`• 🩸 *${formatPlayerName(top1.name)}* (Top 1 Daño) obtuvo 1x Elixir de Sangre de Dragón.`);
-
         const top1Player = await Player.findOne({ userId: top1.userId });
         if (top1Player) {
           if (!top1Player.unlockedTitles) top1Player.unlockedTitles = ['Aventurero Novato'];
@@ -239,36 +292,11 @@ function registerBossHandlers(bot, deps) {
               await bot.telegram.sendMessage(
                 top1.userId,
                 `🎖️🎉 *¡DISTINCIÓN LEGENDARIA DESBLOQUEADA!*\n\n` +
-                `Por tu hazaña como máximo atacante (MVP) frente al Coloso, has obtenido: «*Verdugo de Titanes*».\n\n` +
-                `_Puedes equipártelo en cualquier momento desde tu Hogar del Aventurero._`,
+                `Por tu hazaña como máximo atacante (MVP) frente al Jefe Mundial, has obtenido: «*Verdugo de Titanes*».\n\n` +
+                `_Puedes equipártelo en tu Hogar del Aventurero._`,
                 { parse_mode: 'Markdown' }
               );
             } catch (e) {}
-          }
-        }
-      }
-
-      let secondRecipient = lastHitter;
-      if (elixirWinners.has(secondRecipient.userId)) {
-        secondRecipient = parts.find(p => !elixirWinners.has(p.userId));
-      }
-
-      if (secondRecipient && !elixirWinners.has(secondRecipient.userId)) {
-        elixirWinners.add(secondRecipient.userId);
-        const reason = (secondRecipient.userId === lastHitter.userId) ? 'Remate Final' : 'Top Participación';
-        dropsSummary.push(`• 🩸 *${formatPlayerName(secondRecipient.name)}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
-      }
-
-      if (parts.length >= 3 && elixirWinners.size < 3) {
-        const candidates = parts.filter(p => !elixirWinners.has(p.userId));
-        for (const cand of candidates) {
-          if (elixirWinners.size >= 3) break;
-          const isFirst = (firstHitter && firstHitter.userId === cand.userId);
-          const chance = isFirst ? 0.40 : 0.20;
-          if (Math.random() < chance) {
-            elixirWinners.add(cand.userId);
-            const reason = isFirst ? 'Primer Golpe' : 'Sorteo de Participación';
-            dropsSummary.push(`• 🩸 *${formatPlayerName(cand.name)}* (${reason}) obtuvo 1x Elixir de Sangre de Dragón.`);
           }
         }
       }
@@ -277,6 +305,7 @@ function registerBossHandlers(bot, deps) {
         const playerDoc = await Player.findOne({ userId: p.userId });
         if (!playerDoc) continue;
 
+        const isTop3 = top3Ids.has(p.userId);
         const dmgRatio = p.totalDamage / totalDmgAll;
 
         let earnedGold = 80 + Math.round(baseGoldPool * dmgRatio);
@@ -309,25 +338,65 @@ function registerBossHandlers(bot, deps) {
             maxAllowedExp += getRequiredExp(tempLvl + i);
           }
         }
-
         const earnedExp = Math.min(rawExp, maxAllowedExp);
 
-        playerDoc.gold += earnedGold;
+        playerDoc.gold = (playerDoc.gold || 0) + earnedGold;
         const leveledUp = playerDoc.addExp(earnedExp);
 
-        if (elixirWinners.has(p.userId)) {
-          playerDoc.potionsDragonBlood = (playerDoc.potionsDragonBlood || 0) + 1;
+        // ==========================================
+        // TABLAS DE BOTÍN SEGÚN EL TIPO DE JEFE
+        // ==========================================
+        const extraDrops = [];
+
+        if (boss.bossType === 'malakor') {
+          // Tela: 50% base | 70% Top 3
+          const clothChance = isTop3 ? 0.70 : 0.50;
+          if (Math.random() < clothChance) {
+            playerDoc.cloth = (playerDoc.cloth || 0) + 1;
+            extraDrops.push('🧵 1x Tela');
+          }
+
+          // Hilo Mágico: 20% base | 30% Top 3
+          const threadChance = isTop3 ? 0.30 : 0.20;
+          if (Math.random() < threadChance) {
+            playerDoc.magicThread = (playerDoc.magicThread || 0) + 1;
+            extraDrops.push('✨ 1x Hilo Mágico');
+          }
+        } else if (boss.bossType === 'vaelgathar') {
+          // Escama de Dragón de Obsidiana: 25% base | 40% Top 3
+          const scaleChance = isTop3 ? 0.40 : 0.25;
+          if (Math.random() < scaleChance) {
+            playerDoc.obsidianScale = (playerDoc.obsidianScale || 0) + 1;
+            extraDrops.push('🖤 1x Escama de Dragón de Obsidiana');
+          }
+
+          // Esencia de Dragón: 5% base | 10% Top 3
+          const essenceChance = isTop3 ? 0.10 : 0.05;
+          if (Math.random() < essenceChance) {
+            playerDoc.dragonEssence = (playerDoc.dragonEssence || 0) + 1;
+            extraDrops.push('🔮 1x Esencia de Dragón');
+          }
+        } else {
+          // Coloso Clásico: Elixir de Sangre de Dragón al Top 1 y Golpe de Gracia
+          if (p.userId === top1.userId || p.userId === lastHitter.userId) {
+            playerDoc.potionsDragonBlood = (playerDoc.potionsDragonBlood || 0) + 1;
+            extraDrops.push('🩸 1x Elixir de Sangre de Dragón');
+          }
+        }
+
+        if (extraDrops.length > 0) {
+          dropsSummary.push(`• *${formatPlayerName(p.name)}:* ${extraDrops.join(', ')}`);
         }
 
         await playerDoc.save();
         await creditReferralBonus(p.userId, earnedGold);
 
-        const individualMsg = `🏆 *¡Recompensas del Coloso: ${boss.name}!* \n\n` +
+        const individualMsg = `🏆 *¡Recompensas por vencer a: ${boss.name}!* \n\n` +
                               `• Tu daño aportado: *${p.totalDamage.toLocaleString()}*\n` +
-                              `• Bolsa Global (Pool): *${baseGoldPool.toLocaleString()}g* | *${baseExpPool.toLocaleString()} EXP*\n` +
+                              `• Bolsa Global: *${baseGoldPool.toLocaleString()}g* | *${baseExpPool.toLocaleString()} EXP*\n` +
                               `💰 Oro ganado: *+${earnedGold.toLocaleString()}g*\n` +
                               `🔮 EXP ganada: *+${earnedExp.toLocaleString()}*\n` +
-                              (elixirWinners.has(p.userId) ? `🩸 *¡Obtuviste 1x Elixir de Sangre de Dragón!*\n` : '') +
+                              (extraDrops.length > 0 ? `🎁 *Materiales obtenidos:*\n${extraDrops.map(d => '  ' + d).join('\n')}\n` : '') +
                               (leveledUp ? `🎉 ¡Subiste a Nivel ${playerDoc.level}!` : '');
 
         try {
@@ -335,15 +404,15 @@ function registerBossHandlers(bot, deps) {
         } catch (e) {}
       }
 
-      const publicMsg = `🎉 *¡${boss.name} HA SIDO ANIQUILADO!*\n\n` +
+      const publicMsg = `🎉 *¡${boss.name} HA SIDO ANIQUILADO!* 🏆\n\n` +
                         `📊 *Bolsa Total (Pool):* 💰 ${baseGoldPool.toLocaleString()}g | 🔮 ${baseExpPool.toLocaleString()} EXP\n\n` +
-                        `🥇 *Top 1 en Daño:* ${formatPlayerName(top1.name)} (${top1.totalDamage.toLocaleString()} daño)\n` +
+                        `🥇 *Top 1 en Daño (MVP):* ${formatPlayerName(top1.name)} (${top1.totalDamage.toLocaleString()} daño)\n` +
                         (top2 ? `🥈 *Top 2 en Daño:* ${formatPlayerName(top2.name)} (${top2.totalDamage.toLocaleString()} daño)\n` : '') +
                         (top3 ? `🥉 *Top 3 en Daño:* ${formatPlayerName(top3.name)} (${top3.totalDamage.toLocaleString()} daño)\n` : '') +
                         `⚡ *Primer Golpe:* ${firstHitter ? formatPlayerName(firstHitter.name) : 'N/A'}\n` +
                         `🗡️ *Golpe de Gracia:* ${formatPlayerName(lastHitter.name)}\n\n` +
-                        `🎁 *Elixires de Sangre de Dragón repartidos:*\n` +
-                        dropsSummary.join('\n');
+                        `🎁 *Botín especial extraído:*\n` +
+                        (dropsSummary.length > 0 ? dropsSummary.slice(0, 10).join('\n') : '_Nadie logró desprender materiales raros esta vez._');
 
       await broadcastToAll(bot, Player, publicMsg);
     } catch (err) {
@@ -373,17 +442,17 @@ function registerBossHandlers(bot, deps) {
     }
 
     if (player.energy < 2) {
-      return await safeAnswerCb(ctx, 'Necesitas al menos 2 puntos de Energía para atacar al Coloso.', true);
+      return await safeAnswerCb(ctx, 'Necesitas al menos 2 puntos de Energía para asaltar al Jefe.', true);
     }
 
     const sessionConfirmed = (confirmedBossWarning.get(userId) === String(boss._id));
-    const isVulnerable = (player.hp <= boss.maxDmg);
+    const isVulnerable = (player.hp <= (boss.bossType === 'vaelgathar' ? 120 : boss.maxDmg));
 
     if (isVulnerable && !confirmedWarning && !sessionConfirmed) {
       await safeAnswerCb(ctx);
       const warnText = `⚠️ *¡ADVERTENCIA DE COMBATE CRÍTICO!*\n\n` +
-                       `Tu salud actual (*${player.hp} HP*) es inferior o igual al ataque máximo del Coloso (*${boss.maxDmg}* daño).\n\n` +
-                       `Podrías caer inconsciente de un solo impacto. Se recomienda curarte con pociones antes de asaltar.\n\n` +
+                       `Tu salud actual (*${player.hp} HP*) es baja frente al potencial destructivo de *${boss.name}*.\n\n` +
+                       `Podrías caer inconsciente si encadena sus impactos más fuertes. Se recomienda curarte con pociones antes de continuar.\n\n` +
                        `¿Deseas arriesgarte y atacar de todos modos?`;
 
       const warnBtns = Markup.inlineKeyboard([
@@ -404,9 +473,15 @@ function registerBossHandlers(bot, deps) {
     const luk = player.luck || 0;
     const agi = player.agility || 0;
 
+    // Daño del jugador
     const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
     const variation = (Math.random() * 0.40) - 0.20;
     let playerDmg = Math.round(dañoBase * (1 + variation));
+
+    // Resistencia física del dragón Vaelgathar (-15% daño físico recibido)
+    if (boss.resistanceType === 'physical') {
+      playerDmg = Math.round(playerDmg * 0.85);
+    }
 
     const critChance = Math.min(0.30, (luk * 0.0025));
     let isCrit = false;
@@ -441,17 +516,41 @@ function registerBossHandlers(bot, deps) {
       boss.status = 'defeated';
     }
 
-    let bossDmg1 = Math.floor(Math.random() * (boss.maxDmg - boss.minDmg + 1)) + boss.minDmg;
+    // ==========================================
+    // CÁLCULO DEL ATAQUE DEL JEFE AL JUGADOR
+    // ==========================================
     let attacksTaken = 1;
-    let extraDmg = 0;
+    let rawBossTotal = 0;
+    let bossCritsLanded = 0;
 
-    if (boss.avgMaxHp >= 200 && Math.random() < 0.28) {
+    if (boss.bossType === 'malakor') {
+      // 2 ataques fijos por turno
       attacksTaken = 2;
-      extraDmg = Math.round(bossDmg1 * (Math.random() * 0.10 + 0.40));
+      for (let i = 0; i < 2; i++) {
+        let hit = Math.floor(Math.random() * (55 - 35 + 1)) + 35; // Base máx 55 por golpe = 110 máx base
+        if (Math.random() < 0.22) { // 22% de crítico
+          bossCritsLanded++;
+          hit = Math.round(hit * 1.40); // +40% daño crítico
+        }
+        rawBossTotal += hit;
+      }
+    } else if (boss.bossType === 'vaelgathar') {
+      // De 2 a 4 ataques aleatorios
+      attacksTaken = Math.floor(Math.random() * 3) + 2; // 2, 3 o 4
+      for (let i = 0; i < attacksTaken; i++) {
+        const hit = Math.floor(Math.random() * (55 - 35 + 1)) + 35; // 4 hits * 55 = 220 máx absoluto
+        rawBossTotal += hit;
+      }
+    } else {
+      // Coloso Clásico
+      rawBossTotal = Math.floor(Math.random() * (boss.maxDmg - boss.minDmg + 1)) + boss.minDmg;
+      if (boss.avgMaxHp >= 200 && Math.random() < 0.28) {
+        attacksTaken = 2;
+        rawBossTotal += Math.round(rawBossTotal * (Math.random() * 0.10 + 0.40));
+      }
     }
 
-    const rawBossTotal = bossDmg1 + extraDmg;
-
+    // Mitigación por Fuerza del jugador (hasta 40%)
     const strMitigationRatio = (str / (str + 60)) * 0.40;
     let mitigatedDmg = Math.round(rawBossTotal * (1 - strMitigationRatio));
 
@@ -472,7 +571,7 @@ function registerBossHandlers(bot, deps) {
       const lostExp = player.applyDeathPenalty();
       player.knockedOutUntil = Date.now() + 2 * 60 * 60 * 1000;
       knockOutMsg = `\n💀 *¡Has caído inconsciente!*\n` +
-                    `El impacto del coloso fue descomunal. Espera 2h o usa un *Elixir de Sangre de Dragón*.\n` +
+                    `La acometida fue abrumadora. Espera 2h o usa un *Elixir de Sangre de Dragón*.\n` +
                     `⚠️ Perdiste ${lostExp} de EXP.`;
     }
 
@@ -484,18 +583,20 @@ function registerBossHandlers(bot, deps) {
 
     let combatReport = `⚔️ *Asalto contra ${boss.name}*\n\n` +
                        (isCrit ? `✨ *¡Golpe Crítico Devastador!* (1.4x)\n` : '') +
+                       (boss.resistanceType === 'physical' ? `🛡️ _Las escamas de obsidiana del dragón absorbieron parte de tu daño._\n` : '') +
                        `💥 Daño infligido: *${playerDmg.toLocaleString()} puntos*\n\n` +
-                       `🛡️ *Ataque recibido (${attacksTaken} golpe/s):*\n` +
+                       `🛡️ *Ataque recibido (${attacksTaken} asalto/s):*\n` +
+                       (bossCritsLanded > 0 ? `⚡ _¡Malakor canalizó ${bossCritsLanded} impacto(s) crítico(s) arcano(s)! (+40%)_\n` : '') +
                        `• Daño original: ${rawBossTotal}\n` +
                        (grazed ? `🤸 ¡Impacto rozante de Agilidad! (-50%)\n` : '') +
                        `• Daño final recibido: *${finalDamageTaken} HP*\n` +
-                       `❤️ Tu salud restante: *${player.hp}/${player.maxHp} HP*\n` +
+                       `❤️ Tu salud: *${player.hp}/${player.maxHp} HP*\n` +
                        `⚡ Tu energía: *${player.energy}/${playerMaxEnergy}*\n` +
-                       `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP*` +
+                       `❤️ Salud del Jefe: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP*` +
                        knockOutMsg;
 
     if (isBossDefeated) {
-      combatReport += `\n\n🎉 *¡EL COLOSO HA SIDO DERROTADO!* ¡Repartiendo botín del reino...!`;
+      combatReport += `\n\n🎉 *¡${boss.name} HA SIDO DERROTADO!* ¡Repartiendo botín del reino...!`;
       await ctx.reply(combatReport, { parse_mode: 'Markdown' });
       return await distributeBossRewards(boss);
     }
@@ -509,11 +610,19 @@ function registerBossHandlers(bot, deps) {
     return await safeEditMessage(ctx, combatReport, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(nextBtns) });
   }
 
-  // --- BOT ACTIONS DEL JEFE MUNDIAL ---
+  // --- BOT ACTIONS DEL PANEL ADMIN ---
 
   bot.action('adm_boss_panel', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
     await safeAnswerCb(ctx);
+    return await renderAdminBossPanel(ctx);
+  });
+
+  // Selector de Tipo de Jefe
+  bot.action(/adm_boss_type_(coloso|malakor|vaelgathar)/, async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+    selectedBossType = ctx.match[1];
+    await safeAnswerCb(ctx, `Jefe seleccionado: ${BOSS_CATALOG[selectedBossType].name}`);
     return await renderAdminBossPanel(ctx);
   });
 
@@ -527,7 +636,7 @@ function registerBossHandlers(bot, deps) {
   bot.action(/adm_boss_set_dur_(\d+)/, async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
     bossDurationMinutesConfig = parseInt(ctx.match[1], 10);
-    await safeAnswerCb(ctx, `Duración de combate fijada en ${bossDurationMinutesConfig} min.`);
+    await safeAnswerCb(ctx, `Duración fijada en ${bossDurationMinutesConfig} min.`);
     return await renderAdminBossPanel(ctx);
   });
 
@@ -544,7 +653,7 @@ function registerBossHandlers(bot, deps) {
     adminFlags.bossCustomHpWaiting = true;
 
     const text = `✏️ *Salud Personalizada para el Jefe Mundial*\n\n` +
-                 `Escribe en el chat el valor numérico de la salud que deseas asignarle (por ejemplo: 750, 3000 o 15000).\n\n` +
+                 `Escribe en el chat el valor numérico de salud (ej: 750, 3000 o 15000).\n\n` +
                  `_Se guardará en la configuración previa sin iniciar el evento de inmediato._`;
 
     return await safeEditMessage(ctx, text, {
@@ -559,22 +668,23 @@ function registerBossHandlers(bot, deps) {
 
     const census = await getBossCensus();
     const hpToUse = bossHpConfig || census.recommendedHp;
-    const bossName = 'Bahamut, el Destructor Carmesí';
-    const previewMsg = bossCustomEpicMessage || getDefaultEpicMessage(bossName, bossWaitMinutesConfig, hpToUse, bossDurationMinutesConfig);
+    const currentBoss = BOSS_CATALOG[selectedBossType] || BOSS_CATALOG.coloso;
+    const previewMsg = bossCustomEpicMessage || getDefaultEpicMessage(currentBoss.id, currentBoss.name, bossWaitMinutesConfig, hpToUse, bossDurationMinutesConfig);
 
     let text = `📋 *Resumen de Convocatoria del Jefe Mundial*\n\n` +
-               `• *Coloso:* ${bossName}\n` +
+               `• *Jefe a Despertar:* ${currentBoss.title}\n` +
+               `• *Propiedad:* ${currentBoss.desc}\n` +
                `• *Salud Configurada:* ${hpToUse.toLocaleString()} HP\n` +
                `• *Tiempo de Espera:* ${bossWaitMinutesConfig} minutos\n` +
-               `• *Duración de la Batalla:* ${bossDurationMinutesConfig} minutos\n\n` +
-               `📜 *Mensaje de Anuncio que se Enviará:*\n` +
+               `• *Duración del Combate:* ${bossDurationMinutesConfig} minutos\n\n` +
+               `📜 *Mensaje de Anuncio que se transmitirá:*\n` +
                `──────────────────────\n` +
                `${previewMsg}\n` +
                `──────────────────────\n\n` +
-               `¿Todo listo para convocar al Coloso?`;
+               `¿Todo listo para convocar al Jefe?`;
 
     const buttons = [
-      [Markup.button.callback('✅ Confirmar y Despertar al Coloso', 'adm_boss_launch_confirmed')],
+      [Markup.button.callback('✅ Confirmar y Despertar al Jefe', 'adm_boss_launch_confirmed')],
       [Markup.button.callback('✏️ Editar Mensaje Épico', 'adm_boss_edit_msg')]
     ];
 
@@ -593,7 +703,7 @@ function registerBossHandlers(bot, deps) {
     adminFlags.bossCustomMsgWaiting = true;
 
     const text = `✏️ *Editar Mensaje de Convocatoria*\n\n` +
-                 `Escribe a continuación en el chat el texto con el que deseas proclamar la llegada del Jefe a todos los aventureros.`;
+                 `Escribe a continuación en el chat el texto con el que proclamarás la llegada del Jefe a todos los aventureros.`;
 
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
@@ -604,25 +714,25 @@ function registerBossHandlers(bot, deps) {
   bot.action('adm_boss_reset_msg', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
     bossCustomEpicMessage = null;
-    await safeAnswerCb(ctx, 'Mensaje restablecido al épico predeterminado.');
+    await safeAnswerCb(ctx, 'Mensaje restablecido al predeterminado.');
     const census = await getBossCensus();
     const hpToUse = bossHpConfig || census.recommendedHp;
-    const bossName = 'Bahamut, el Destructor Carmesí';
-    const previewMsg = getDefaultEpicMessage(bossName, bossWaitMinutesConfig, hpToUse, bossDurationMinutesConfig);
+    const currentBoss = BOSS_CATALOG[selectedBossType] || BOSS_CATALOG.coloso;
+    const previewMsg = getDefaultEpicMessage(currentBoss.id, currentBoss.name, bossWaitMinutesConfig, hpToUse, bossDurationMinutesConfig);
 
     let text = `📋 *Resumen de Convocatoria del Jefe Mundial*\n\n` +
-               `• *Coloso:* ${bossName}\n` +
+               `• *Jefe a Despertar:* ${currentBoss.title}\n` +
                `• *Salud Configurada:* ${hpToUse.toLocaleString()} HP\n` +
                `• *Tiempo de Espera:* ${bossWaitMinutesConfig} minutos\n` +
-               `• *Duración de la Batalla:* ${bossDurationMinutesConfig} minutos\n\n` +
+               `• *Duración del Combate:* ${bossDurationMinutesConfig} minutos\n\n` +
                `📜 *Mensaje de Anuncio que se Enviará:*\n` +
                `──────────────────────\n` +
                `${previewMsg}\n` +
                `──────────────────────\n\n` +
-               `¿Todo listo para convocar al Coloso?`;
+               `¿Todo listo para convocar al Jefe?`;
 
     const buttons = [
-      [Markup.button.callback('✅ Confirmar y Despertar al Coloso', 'adm_boss_launch_confirmed')],
+      [Markup.button.callback('✅ Confirmar y Despertar al Jefe', 'adm_boss_launch_confirmed')],
       [Markup.button.callback('✏️ Editar Mensaje Épico', 'adm_boss_edit_msg')],
       [Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]
     ];
@@ -651,8 +761,8 @@ function registerBossHandlers(bot, deps) {
     await safeAnswerCb(ctx, 'Evento del jefe cancelado.');
 
     if (wasActiveOrScheduled) {
-      const retreatMsg = `💨 *La tierra deja de temblar...*\n\n` +
-                         `El coloso ancestral ha decidido descender a su guarida subterránea. Están a salvo... por ahora.`;
+      const retreatMsg = `💨 *La calma regresa a las tierras de Abyss...*\n\n` +
+                         `La presencia de *${boss.name}* se ha disipado en los confines del reino. Están a salvo... por ahora.`;
       await broadcastToAll(bot, Player, retreatMsg);
     }
 
@@ -683,9 +793,9 @@ function registerBossHandlers(bot, deps) {
 
     if (boss.status === 'scheduled') {
       const minsLeft = Math.max(0, Math.ceil((new Date(boss.battleStartsAt).getTime() - Date.now()) / 60000));
-      text += `⏳ El coloso está despertando. La batalla inicia en aproximadamente *${minsLeft} minutos*.\n\n` +
+      text += `⏳ El jefe está despertando. La batalla inicia en aproximadamente *${minsLeft} minutos*.\n\n` +
               `❤️ Salud prevista: *${boss.maxHp.toLocaleString()} HP*\n` +
-              `⚔️ Daño estimado: *${boss.minDmg} - ${boss.maxDmg}*\n` +
+              `⚔️ Daño estimado: *${boss.minDmg} - ${boss.maxDmg}* (${boss.damageType})\n` +
               `⏱️ Duración del combate: *${boss.battleDurationMinutes || 90} minutos*\n\n` +
               `Asegúrate de preparar tu inventario y descansar antes del inicio.`;
 
@@ -706,16 +816,16 @@ function registerBossHandlers(bot, deps) {
       const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
       text += `🔥 *¡EL JEFE ESTÁ EN COMBATE!*\n\n` +
-              `❤️ Salud del Coloso: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP* (${hpPct}%)\n` +
+              `❤️ Salud de ${boss.name}: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP* (${hpPct}%)\n` +
               `⏳ Tiempo restante: *${formatHoursMinutes(secLeft)}*\n` +
-              `⚔️ Rango de ataque enemigo: *${boss.minDmg} - ${boss.maxDmg}* Físico\n` +
+              `⚔️ Ataque: *${boss.minDmg} - ${boss.maxDmg}* (${boss.damageType})\n` +
               `💥 Tu daño aportado: *${myDmg.toLocaleString()} puntos*\n\n` +
-              `❤️ Tu salud actual: *${player.hp}/${player.maxHp} HP*\n` +
+              `❤️ Tu salud: *${player.hp}/${player.maxHp} HP*\n` +
               `⚡ Tu energía: *${player.energy}/${playerMaxEnergy}*\n\n` +
               `¿Deseas asestar un asalto?`;
 
       const buttons = [
-        [Markup.button.callback('⚔️ Atacar al Coloso (2 ⚡)', 'boss_attack')],
+        [Markup.button.callback('⚔️ Atacar al Jefe (2 ⚡)', 'boss_attack')],
         [Markup.button.callback('🎒 Mochila / Pociones', 'boss_inv')],
         [Markup.button.callback('🔄 Actualizar', 'menu_boss')],
         [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
@@ -724,7 +834,7 @@ function registerBossHandlers(bot, deps) {
       return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
     }
 
-    text += `_Actualmente ningún coloso amenaza las tierras. El Creador anunciará la próxima convocatoria._`;
+    text += `_Actualmente ningún jefe amenaza las tierras. El Creador anunciará la próxima convocatoria._`;
     return await safeEditMessage(ctx, text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]])
@@ -764,21 +874,21 @@ function registerBossHandlers(bot, deps) {
 
         const census = await getBossCensus();
         const hpToUse = bossHpConfig || census.recommendedHp;
-        const bossName = 'Bahamut, el Destructor Carmesí';
+        const currentBoss = BOSS_CATALOG[selectedBossType] || BOSS_CATALOG.coloso;
 
         let text = `📋 *Resumen de Convocatoria del Jefe Mundial*\n\n` +
-                   `• *Coloso:* ${bossName}\n` +
+                   `• *Jefe:* ${currentBoss.title}\n` +
                    `• *Salud Configurada:* ${hpToUse.toLocaleString()} HP\n` +
                    `• *Tiempo de Espera:* ${bossWaitMinutesConfig} minutos\n` +
-                   `• *Duración de la Batalla:* ${bossDurationMinutesConfig} minutos\n\n` +
+                   `• *Duración del Combate:* ${bossDurationMinutesConfig} minutos\n\n` +
                    `📜 *Mensaje de Anuncio que se Enviará:*\n` +
                    `──────────────────────\n` +
                    `${bossCustomEpicMessage}\n` +
                    `──────────────────────\n\n` +
-                   `¿Todo listo para convocar al Coloso?`;
+                   `¿Todo listo para convocar al Jefe?`;
 
         const buttons = [
-          [Markup.button.callback('✅ Confirmar y Despertar al Coloso', 'adm_boss_launch_confirmed')],
+          [Markup.button.callback('✅ Confirmar y Despertar al Jefe', 'adm_boss_launch_confirmed')],
           [Markup.button.callback('✏️ Editar Mensaje Épico', 'adm_boss_edit_msg')],
           [Markup.button.callback('🔄 Restaurar Mensaje por Defecto', 'adm_boss_reset_msg')],
           [Markup.button.callback('⬅️ Volver a Ajustar Parámetros', 'adm_boss_panel')]
