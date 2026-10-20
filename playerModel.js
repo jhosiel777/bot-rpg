@@ -1,3 +1,4 @@
+// playerModel.js
 const mongoose = require('mongoose');
 
 const MAX_LEVEL = 101;
@@ -78,6 +79,12 @@ const playerSchema = new mongoose.Schema({
   // Inventario: Materiales de Minería
   ironOre: { type: Number, default: 0 },
   ancestralIronOre: { type: Number, default: 0 },
+
+  // Inventario: Materiales de Jefes Mundiales
+  cloth: { type: Number, default: 0 },
+  magicThread: { type: Number, default: 0 },
+  obsidianScale: { type: Number, default: 0 },
+  dragonEssence: { type: Number, default: 0 },
 
   // Expansión Fronteras y Herrería
   hasBorderPermit: { type: Boolean, default: false },
