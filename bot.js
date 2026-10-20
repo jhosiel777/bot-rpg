@@ -1,3 +1,4 @@
+// bot.js
 const { Telegraf, Markup } = require('telegraf');
 const mongoose = require('mongoose');
 
@@ -525,13 +526,25 @@ function buildInventoryView(player) {
     text += `🧪 *Consumibles:*\n_No tienes pociones ni elixires en tu mochila._\n\n`;
   }
 
-  // 2. Sección de Materiales de Minería (> 0, solo texto plano sin botones)
+  // 2. Sección de Materiales (Minería + Jefes Mundiales, solo texto plano sin botones)
   const materiales = [];
   if (player.ironOre > 0) {
     materiales.push(`• 🪨 Mena de Hierro: *${player.ironOre}*`);
   }
   if (player.ancestralIronOre > 0) {
     materiales.push(`• ✨ Mena de Hierro Ancestral: *${player.ancestralIronOre}*`);
+  }
+  if (player.cloth > 0) {
+    materiales.push(`• 🧵 Tela: *${player.cloth}*`);
+  }
+  if (player.magicThread > 0) {
+    materiales.push(`• ✨ Hilo Mágico: *${player.magicThread}*`);
+  }
+  if (player.obsidianScale > 0) {
+    materiales.push(`• 🖤 Escama de Dragón de Obsidiana: *${player.obsidianScale}*`);
+  }
+  if (player.dragonEssence > 0) {
+    materiales.push(`• 🔮 Esencia de Dragón: *${player.dragonEssence}*`);
   }
 
   if (materiales.length > 0) {
@@ -752,7 +765,7 @@ async function handleStartMenu(ctx) {
   }
 }
 
-bot.hears(/^\/(start|menu)$/i, handleStartMenu);
+bot.hears(/^\/(start|menu)\$/i, handleStartMenu);
 bot.start(handleStartMenu);
 
 bot.hears('⚔️ Estado', async (ctx) => {
@@ -864,7 +877,7 @@ bot.action('menu_explore', async (ctx) => {
                '──────────────────────────\n\n' +
                '• 🌲 *Expediciones y Rutas:* Sal a las cercanías y fronteras.\n' +
                '• 📜 *Tablón de Caza:* Misiones y contratos diarios.\n' +
-               '• 🐲 *Jefe Mundial:* Asalto al coloso ancestral.\n' +
+               '• 🐲 *Jefe Mundial:* Asalto a los colosos y bestias ancestrales.\n' +
                '• 🍺 *Taberna del Jabalí:* Ocio, apuestas y duelos PvP.\n' +
                '• 🏡 *Hogar Aventurero:* Tus aposentos y equipamiento.\n' +
                '• ⚒️ *Herrería Real:* Permisos de frontera y herramientas.';
@@ -1287,7 +1300,7 @@ bot.action('boss_inv', async (ctx) => {
     const pDragon = player.potionsDragonBlood || 0;
     const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
 
-    let text = `🎒 *Mochila frente al Coloso*\n\n` +
+    let text = `🎒 *Mochila frente al Jefe*\n\n` +
                `❤️ Salud: *${player.hp}/${player.maxHp}*\n` +
                `⚡ Energía: *${player.energy}/${playerMaxEnergy}*\n\n`;
 
@@ -1321,7 +1334,7 @@ bot.action('boss_inv', async (ctx) => {
       text += `_No tienes pociones en tu mochila._\n\n`;
     }
 
-    buttons.push([Markup.button.callback('⬅️ Volver al Coloso', 'menu_boss')]);
+    buttons.push([Markup.button.callback('⬅️ Volver al Jefe', 'menu_boss')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   } catch (err) {
