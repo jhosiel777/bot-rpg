@@ -526,13 +526,28 @@ function buildInventoryView(player) {
     text += `🧪 *Consumibles:*\n_No tienes pociones ni elixires en tu mochila._\n\n`;
   }
 
-  // 2. Sección de Materiales (Minería + Jefes Mundiales, solo texto plano sin botones)
+  // 2. Sección de Materiales (Minería + Fronteras + Jefes Mundiales, solo texto plano sin botones)
   const materiales = [];
   if (player.ironOre > 0) {
     materiales.push(`• 🪨 Mena de Hierro: *${player.ironOre}*`);
   }
   if (player.ancestralIronOre > 0) {
     materiales.push(`• ✨ Mena de Hierro Ancestral: *${player.ancestralIronOre}*`);
+  }
+  if (player.mysticWood > 0) {
+    materiales.push(`• 🪵 Madera Mística: *${player.mysticWood}*`);
+  }
+  if (player.spectralSilk > 0) {
+    materiales.push(`• 👻 Seda Espectral: *${player.spectralSilk}*`);
+  }
+  if (player.darkYewBranch > 0) {
+    materiales.push(`• 🌿 Rama de Tejo Oscuro: *${player.darkYewBranch}*`);
+  }
+  if (player.alphaFang > 0) {
+    materiales.push(`• 🐺 Colmillo Alfa: *${player.alphaFang}*`);
+  }
+  if (player.chimeraHide > 0) {
+    materiales.push(`• 🦁 Piel de Quimera: *${player.chimeraHide}*`);
   }
   if (player.cloth > 0) {
     materiales.push(`• 🧵 Tela: *${player.cloth}*`);
