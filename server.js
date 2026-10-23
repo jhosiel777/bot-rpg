@@ -123,6 +123,11 @@ function startServer(bot) {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
 
+  // ==========================================
+  // RUTAS Y API DE LA MINI APP PVP
+  // ==========================================
+  app.use('/api/pvp', require('./routes/pvpRoutes'));
+
   app.get('/', (req, res) => res.send('Servidor del bot RPG activo.'));
   app.get('/ping', (req, res) => res.status(200).send('pong'));
 
