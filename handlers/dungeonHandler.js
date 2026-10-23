@@ -35,9 +35,12 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
   p.currentDungeonKey = null;
   p.potionsUsedInMission = 0;
 
-  const luckVal = p.luck || 0;
-  const agiVal = p.agility || 0;
-  const strVal = p.strength || 0;
+  // Cargar estadísticas con bonos de equipamiento activo
+  const stats = typeof p.getCombatStats === 'function' ? p.getCombatStats() : { maxHp: p.maxHp, str: p.strength, agi: p.agility, luck: p.luck, damageBonus: 0, defBonus: 0, extraCritChance: 0 };
+  
+  const luckVal = stats.luck || 0;
+  const agiVal = stats.agi || 0;
+  const strVal = stats.str || 0;
 
   // ==========================================
   // RESOLUCIÓN DE FRONTERAS (KHAZUR, ARBOLEDA, COTO)
@@ -48,7 +51,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     const isCoto = dungeon.id === 'coto_bestias';
     const hasPickaxe = p.equipment && p.equipment.weapon === 'pickaxe_khazur';
 
-    // Selección aleatoria ponderada del enemigo (50% débil, 35% medio, 15% fuerte)
     const rollEnemy = Math.random();
     let enemy = dungeon.enemies[0];
     if (rollEnemy >= 0.50 && rollEnemy < 0.85) {
@@ -58,7 +60,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     }
 
     let trapMsg = '';
-    // Trampas activas en las fronteras (35% de probabilidad)
     if (Math.random() < 0.35) {
       const dodgeTrapChance = Math.min(0.50, 0.15 + (agiVal * 0.0035));
       if (Math.random() < dodgeTrapChance) {
@@ -80,11 +81,9 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
              `⚠️ Perdiste ${lostExp} de EXP acumulada.`;
     }
 
-    // Comportamiento reactivo de asaltos
     let hitsCount = enemy.hits || 3;
     let fourthHitActivated = false;
 
-    // Si tiene el pico equipado en Khazur, 40% de probabilidad de desatar un 4.º golpe adicional del Coloso
     if (isKhazur && hasPickaxe && Math.random() < 0.40) {
       hitsCount = 4;
       fourthHitActivated = true;
@@ -104,8 +103,11 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
 
     const strMitigationRatio = Math.min(0.25, (strVal / 100) * 0.25);
     let mitigatedCombatDmg = Math.round(rawCombatDmg * (1 - strMitigationRatio));
+    
+    // Aplicación de bonos de Armería (Defensa plana y reducción por daño rápido)
+    mitigatedCombatDmg = Math.max(0, mitigatedCombatDmg - stats.defBonus - (stats.damageBonus * 2));
 
-    const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002));
+    const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002)) + stats.extraCritChance;
     let isCrit = false;
     let critMsg = '';
 
@@ -115,7 +117,7 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
       critMsg = `✨ ¡Asestaste un *Golpe Crítico Afortunado*! Desestabilizaste al oponente (+20% EXP).\n`;
     }
 
-    const totalCombatDmg = Math.max(15, mitigatedCombatDmg);
+    const totalCombatDmg = Math.max(rawCombatDmg > 0 ? 1 : 0, mitigatedCombatDmg);
     p.hp = Math.max(0, p.hp - totalCombatDmg);
 
     if (p.hp === 0) {
@@ -144,9 +146,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     const leveledUp = p.addExp(expGained);
     const dropMsg = rollDungeonDrops(dungeon, p, recordDrop);
 
-    // ==========================================
-    // RECOLECCIÓN DE RECURSOS DE FRONTERA
-    // ==========================================
     let extraLootMsg = '';
     const lootedItems = [];
     const bonusLuck = Math.min(0.10, (luckVal / 100) * 0.10);
@@ -278,8 +277,11 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
 
       const strMitigationRatio = (strVal / (strVal + 60)) * 0.40;
       let mitigatedCombatDmg = Math.round(rawCombatDmg * (1 - strMitigationRatio));
+      
+      // Aplicación de bonos de Armería (Defensa plana y reducción por daño rápido)
+      mitigatedCombatDmg = Math.max(0, mitigatedCombatDmg - stats.defBonus - (stats.damageBonus * 2));
 
-      const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002));
+      const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002)) + stats.extraCritChance;
       let isCrit = false;
       let critMsg = '';
 
@@ -338,7 +340,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
 function registerDungeonHandlers(bot, deps) {
   const { Player, getPlayer, recordDrop, creditReferralBonus, lastUserMessages } = deps;
 
-  // Menú de Mazmorras: Cercanías del Reino
   bot.action('menu_dungeons', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '🌲 *CERCANÍAS DEL REINO: RUTAS Y MAZMORRAS*\n\n' +
@@ -359,7 +360,6 @@ function registerDungeonHandlers(bot, deps) {
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
   });
 
-  // Menú de Mazmorras: Fronteras del Reino
   bot.action('menu_borders', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
