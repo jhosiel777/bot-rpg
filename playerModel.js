@@ -96,6 +96,9 @@ const playerSchema = new mongoose.Schema({
   // Expansión Fronteras y Herrería
   hasBorderPermit: { type: Boolean, default: false },
   hasKhazurPickaxe: { type: Boolean, default: false },
+  hasKhazurPickaxe: { type: Boolean, default: false },
+  hasHuntingKnife: { type: Boolean, default: false },
+  unlockedGear: { type: [String], default: [] },
 
   // Ranuras de Equipamiento
   equipment: {
