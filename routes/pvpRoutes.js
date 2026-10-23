@@ -18,9 +18,13 @@ const ARMOR_STATS = {
   none: { reduction: 0, startShield: 0 }
 };
 
+// Blindaje: Valores por defecto (||) para evitar que Math.sqrt o Math.pow crasheen el servidor
 function calculatePvPStats(playerDoc) {
-  const stats = typeof playerDoc.getCombatStats === 'function' ? playerDoc.getCombatStats() : { maxHp: playerDoc.maxHp, str: playerDoc.strength || 0 };
-  const pvpHp = Math.round(200 + (Math.sqrt(stats.maxHp) * 3.5));
+  const stats = typeof playerDoc.getCombatStats === 'function' 
+    ? playerDoc.getCombatStats() 
+    : { maxHp: playerDoc.maxHp || 100, str: playerDoc.strength || 10 };
+    
+  const pvpHp = Math.round(200 + (Math.sqrt(stats.maxHp || 100) * 3.5));
   
   const eq = playerDoc.equipment || {};
   let weaponKey = eq.weapon || (eq.tool === 'tool_pickaxe' ? 'khazur_pickaxe' : 'dagger');
@@ -31,12 +35,12 @@ function calculatePvPStats(playerDoc) {
 
   const wStats = WEAPON_STATS[weaponKey];
   const aStats = ARMOR_STATS[armorKey];
-  const strBonus = Math.round(Math.pow(stats.str, 0.6) * 1.8);
+  const strBonus = Math.round(Math.pow(stats.str || 10, 0.6) * 1.8);
 
   return {
     id: playerDoc.userId,
     name: playerDoc.name,
-    level: playerDoc.level,
+    level: playerDoc.level || 1,
     hp: pvpHp,
     maxHp: pvpHp,
     shield: aStats.startShield,
@@ -55,11 +59,10 @@ function calculatePvPStats(playerDoc) {
 
 module.exports = (bot) => {
   
-  // RUTA 1: Solo lectura del estado
   router.get('/duel-data', async (req, res) => {
     try {
       const { duelId, userId } = req.query;
-      const uid = parseInt(userId);
+      const uid = parseInt(userId, 10);
       const duel = await Duel.findById(duelId);
       
       if (!duel) return res.status(404).json({ error: 'Duelo no encontrado' });
@@ -67,10 +70,10 @@ module.exports = (bot) => {
         return res.json({ status: duel.status, gameState: duel.gameState });
       }
 
-      // Verificación de cancelación por inactividad (30s)
+      // Tiempo de espera aumentado a 60 segundos (60000 ms) para evitar cancelaciones tempranas en pruebas
       if (duel.acceptedAt && duel.status === 'open') {
         const timeElapsed = Date.now() - new Date(duel.acceptedAt).getTime();
-        if (timeElapsed > 30000 && duel.readyPlayers.length < 2) {
+        if (timeElapsed > 60000 && duel.readyPlayers.length < 2) {
           duel.status = 'cancelled';
           await duel.save();
           
@@ -111,38 +114,46 @@ module.exports = (bot) => {
     }
   });
 
-  // RUTA 2: Botón de "ESTOY LISTO"
   router.post('/ready', async (req, res) => {
     try {
       const { duelId, userId } = req.body;
-      const uid = parseInt(userId);
+      const uid = parseInt(userId, 10);
       const duel = await Duel.findById(duelId);
       
-      if (!duel || duel.status !== 'open') return res.json({ success: false });
+      if (!duel) return res.json({ success: false, error: 'No duel' });
 
-      if (!duel.readyPlayers.includes(uid)) {
+      if (!duel.readyPlayers) duel.readyPlayers = [];
+
+      // Añadir de forma ultra segura previniendo duplicados
+      const yaEstaListo = duel.readyPlayers.some(p => p.toString() === uid.toString());
+      if (!yaEstaListo) {
         duel.readyPlayers.push(uid);
+        duel.markModified('readyPlayers');
+        await duel.save();
       }
 
+      // Si ambos están y sigue open, iniciamos la partida
       if (duel.readyPlayers.length >= 2 && duel.status === 'open') {
-        duel.status = 'active';
-        if (!duel.gameState) {
-          const creator = await Player.findOne({ userId: duel.creatorId });
-          const opponent = await Player.findOne({ userId: duel.opponentId });
+        const creator = await Player.findOne({ userId: Number(duel.creatorId) });
+        const opponent = await Player.findOne({ userId: Number(duel.opponentId) });
+
+        if (creator && opponent) {
+          duel.status = 'active';
           duel.gameState = {
             turn: duel.creatorId,
             p1: calculatePvPStats(creator),
             p2: calculatePvPStats(opponent),
             log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
           };
+          duel.markModified('gameState');
+          await duel.save();
         }
       }
       
-      duel.markModified('gameState');
-      await duel.save();
       res.json({ success: true, status: duel.status });
     } catch (err) {
-      res.status(500).json({ error: 'Error' });
+      console.error('Error en /ready:', err);
+      res.json({ success: false, error: 'Server error' });
     }
   });
 
