@@ -143,6 +143,94 @@ playerSchema.methods.getRestCooldownMs = function() {
   return finalMinutes * 60 * 1000;
 };
 
+playerSchema.methods.getCombatStats = function() {
+  const eq = this.equipment || {};
+  let totalHp = this.maxHp;
+  let totalStr = this.strength || 0;
+  let totalAgi = this.agility || 0;
+  let totalLuck = this.luck || 0;
+  
+  // Bonos de Armas
+  let damageBonus = 0;
+  if (eq.weapon) {
+    if (eq.weapon === 'sword_t1') damageBonus = 3;
+    else if (eq.weapon === 'sword_t2') damageBonus = 7;
+    else if (eq.weapon === 'sword_t3') damageBonus = 12;
+    else if (eq.weapon === 'staff_t1') damageBonus = 2; // Mago tiene menos daño base pero pega elemental
+    else if (eq.weapon === 'staff_t2') damageBonus = 6;
+    else if (eq.weapon === 'staff_t3') damageBonus = 10;
+    else if (eq.weapon === 'bow_t1') damageBonus = 2;
+    else if (eq.weapon === 'bow_t2') damageBonus = 5;
+    else if (eq.weapon === 'bow_t3') damageBonus = 9;
+    else if (eq.weapon === 'hunting_knife' || eq.weapon === 'pickaxe_khazur') damageBonus = 1;
+  }
+
+  // Bonos de Armadura
+  let defBonus = 0; // Armadura plana extra
+  
+  // Evaluar Set de Guerrero
+  let warriorCount = 0;
+  if (eq.head && eq.head.includes('head_heavy')) warriorCount++;
+  if (eq.chest && eq.chest.includes('chest_heavy')) warriorCount++;
+  if (eq.legs && eq.legs.includes('legs_heavy')) warriorCount++;
+  
+  if (warriorCount === 3) {
+    if (eq.chest.includes('t3')) totalHp += Math.round(totalHp * 0.08); // +8% Vida
+    else if (eq.chest.includes('t2')) totalHp += Math.round(totalHp * 0.05); // +5% Vida
+    else totalHp += Math.round(totalHp * 0.02); // +2% Vida
+  }
+
+  // Evaluar Set de Cazador
+  let hunterCount = 0;
+  if (eq.head && eq.head.includes('head_hunter')) hunterCount++;
+  if (eq.chest && eq.chest.includes('chest_hunter')) hunterCount++;
+  if (eq.legs && eq.legs.includes('legs_hunter')) hunterCount++;
+
+  if (hunterCount === 3) {
+    if (eq.chest.includes('t3')) { totalAgi += 7; totalLuck += 7; }
+    else if (eq.chest.includes('t2')) { totalAgi += 4; totalLuck += 4; }
+    else { totalAgi += 2; totalLuck += 2; }
+  }
+
+  // Evaluar Accesorios Pasivos (PvE)
+  let extraCritChance = 0;
+  if (eq.accessory === 'acc_shield') defBonus += 20; // +20 Defensa Plana extra
+  if (eq.accessory === 'acc_crit') extraCritChance = 0.15; // +15% Prob Crítico extra
+
+  // Evaluar Set de Mago (El bono de mago da probabilidad de crítico extra)
+  let mageCount = 0;
+  if (eq.head && eq.head.includes('head_mage')) mageCount++;
+  if (eq.chest && eq.chest.includes('chest_mage')) mageCount++;
+  if (eq.legs && eq.legs.includes('legs_mage')) mageCount++;
+
+  if (mageCount === 3) {
+    if (eq.chest.includes('t3')) extraCritChance += 0.10; // +10% Critico
+    else if (eq.chest.includes('t2')) extraCritChance += 0.06; // +6% Critico
+    else extraCritChance += 0.03; // +3% Critico
+  }
+
+  // Especialidad de daño según arma
+  let dmgType = 'physical';
+  if (eq.weapon && eq.weapon.includes('staff')) dmgType = 'elemental';
+  
+  // Especialidad de defensa según pechera
+  let defType = 'balanced'; // Sin armadura o cazador
+  if (eq.chest && eq.chest.includes('heavy')) defType = 'physical_resist';
+  else if (eq.chest && eq.chest.includes('mage')) defType = 'elemental_resist';
+
+  return {
+    maxHp: totalHp,
+    str: totalStr,
+    agi: totalAgi,
+    luck: totalLuck,
+    damageBonus,
+    defBonus,
+    extraCritChance,
+    dmgType,
+    defType
+  };
+};
+
 playerSchema.methods.applyDeathPenalty = function() {
   const reqExp = getRequiredExp(this.level);
   const penalty = Math.round(reqExp * 0.15);
