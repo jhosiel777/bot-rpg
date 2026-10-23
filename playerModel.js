@@ -80,6 +80,13 @@ const playerSchema = new mongoose.Schema({
   ironOre: { type: Number, default: 0 },
   ancestralIronOre: { type: Number, default: 0 },
 
+  // Inventario: Materiales de Frontera
+  mysticWood: { type: Number, default: 0 },
+  spectralSilk: { type: Number, default: 0 },
+  darkYewBranch: { type: Number, default: 0 },
+  alphaFang: { type: Number, default: 0 },
+  chimeraHide: { type: Number, default: 0 },
+
   // Inventario: Materiales de Jefes Mundiales
   cloth: { type: Number, default: 0 },
   magicThread: { type: Number, default: 0 },
