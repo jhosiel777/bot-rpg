@@ -54,6 +54,8 @@ function calculatePvPStats(playerDoc) {
 }
 
 module.exports = (bot) => {
+  
+  // RUTA 1: Solo lectura del estado
   router.get('/duel-data', async (req, res) => {
     try {
       const { duelId, userId } = req.query;
@@ -72,7 +74,6 @@ module.exports = (bot) => {
           duel.status = 'cancelled';
           await duel.save();
           
-          // Devolver apuestas
           const p1 = await Player.findOne({ userId: duel.creatorId });
           const p2 = await Player.findOne({ userId: duel.opponentId });
           if (duel.mode === 'gold') {
@@ -84,39 +85,16 @@ module.exports = (bot) => {
           }
           
           try {
-            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque el rival no entró a tiempo. Apuesta devuelta.`);
-            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no entrar a tiempo. Apuesta devuelta.`);
+            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque el rival no estuvo listo a tiempo. Apuesta devuelta.`);
+            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no estar listos a tiempo. Apuesta devuelta.`);
           } catch(e) {}
           
           return res.json({ status: 'cancelled' });
         }
       }
 
-      // Añadir jugador a la lista de listos (CORREGIDO PARA EVITAR BUGS DE TIPO DE DATO)
-      const isReady = duel.readyPlayers.some(p => p.toString() === uid.toString());
-      if (!isReady) {
-        duel.readyPlayers.push(uid);
-        if (duel.readyPlayers.length >= 2 && duel.status === 'open') {
-          duel.status = 'active';
-        }
-        await duel.save();
-      }
-
-      // Si aún falta uno, enviar estado de espera
-      if (duel.readyPlayers.length < 2) {
+      if (duel.status === 'open' || duel.status === 'waiting' || !duel.gameState) {
         return res.json({ status: 'waiting' });
-      }
-
-      if (!duel.gameState) {
-        const creator = await Player.findOne({ userId: duel.creatorId });
-        const opponent = await Player.findOne({ userId: duel.opponentId });
-        duel.gameState = {
-          turn: duel.creatorId,
-          p1: calculatePvPStats(creator),
-          p2: calculatePvPStats(opponent),
-          log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
-        };
-        await duel.save();
       }
 
       const isP1 = uid === duel.gameState.p1.id;
@@ -130,6 +108,41 @@ module.exports = (bot) => {
       });
     } catch (err) {
       res.status(500).json({ error: 'Error del servidor' });
+    }
+  });
+
+  // RUTA 2: Botón de "ESTOY LISTO"
+  router.post('/ready', async (req, res) => {
+    try {
+      const { duelId, userId } = req.body;
+      const uid = parseInt(userId);
+      const duel = await Duel.findById(duelId);
+      
+      if (!duel || duel.status !== 'open') return res.json({ success: false });
+
+      if (!duel.readyPlayers.includes(uid)) {
+        duel.readyPlayers.push(uid);
+      }
+
+      if (duel.readyPlayers.length >= 2 && duel.status === 'open') {
+        duel.status = 'active';
+        if (!duel.gameState) {
+          const creator = await Player.findOne({ userId: duel.creatorId });
+          const opponent = await Player.findOne({ userId: duel.opponentId });
+          duel.gameState = {
+            turn: duel.creatorId,
+            p1: calculatePvPStats(creator),
+            p2: calculatePvPStats(opponent),
+            log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
+          };
+        }
+      }
+      
+      duel.markModified('gameState');
+      await duel.save();
+      res.json({ success: true, status: duel.status });
+    } catch (err) {
+      res.status(500).json({ error: 'Error' });
     }
   });
 
@@ -198,7 +211,6 @@ module.exports = (bot) => {
         duel.winnerId = attacker.id;
         state.log.push(`🏆 ¡${attacker.name} ha ganado!`);
 
-        // Entrega de apuestas y Notificación Telegram
         const winnerDoc = await Player.findOne({ userId: attacker.id });
         let rewardText = "Victoria amistosa.";
         
