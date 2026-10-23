@@ -18,12 +18,15 @@ const duelSchema = new mongoose.Schema({
 
   status: { 
     type: String, 
-    enum: ['open', 'completed', 'cancelled'], 
+    enum: ['open', 'active', 'completed', 'cancelled'], 
     default: 'open' 
   },
 
   winnerId: { type: Number, default: null },
   combatLog: { type: [String], default: [] },
+
+  // Almacena el estado en vivo de la pelea (vida, maná, turnos, pociones)
+  gameState: { type: Object, default: null },
 
   createdAt: { type: Date, default: Date.now, expires: 86400 } // Se elimina tras 24h si queda abandonado
 });
