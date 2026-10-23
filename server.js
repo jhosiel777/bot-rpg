@@ -20,7 +20,7 @@ const LOGS_GROUP_ID = -1004496297432;
 let cachedBotWalletAddress = process.env.BOT_WALLET_ADDRESS || null;
 
 // Obtiene o deriva automáticamente la dirección pública v4R2 de la billetera del bot
-async function getBotWalletAddress() {
+async function getBotAddress() {
   if (cachedBotWalletAddress) return cachedBotWalletAddress;
   const mnemonic = process.env.BOT_WALLET_MNEMONIC;
   if (!mnemonic) return ADMIN_WALLET_ADDRESS;
@@ -130,6 +130,11 @@ function startServer(bot) {
 
   app.get('/', (req, res) => res.send('Servidor del bot RPG activo.'));
   app.get('/ping', (req, res) => res.status(200).send('pong'));
+
+  // Ruta directa para servir la Mini App de la Arena PvP
+  app.get('/pvp-arena', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'pvp-arena.html'));
+  });
 
   // ==========================================
   // CONECTAR WALLET (TON CONNECT)
