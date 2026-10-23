@@ -13,11 +13,13 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
 
     let text = '⚒️ *HERRERÍA REAL DE LA CIUDADELA* ⚒️\n\n' +
                'El calor de las forjas golpea tu rostro mientras el maestro herrero martilla una pieza de acero candente.\n\n' +
-               '— *"¿Vienes buscando equipo de calidad o los papeles para cruzar la empalizada?"*\n\n' +
+               '— *"¿Vienes buscando equipo de calidad, revisar mis planos o necesitas los papeles para cruzar la empalizada?"*\n\n' +
                '💰 *Tu Oro:* ' + (player.gold || 0) + 'g\n\n' +
-               '*Artículos disponibles:*\n';
+               '*Servicios y Artículos:*\n';
 
-    const buttons = [];
+    const buttons = [
+      [Markup.button.callback('📜 Catálogo de Forja y Recetas', 'bs_catalog')]
+    ];
 
     if (!player.hasBorderPermit) {
       text += '• 📜 *Permiso de Exploración Fronteriza*\n' +
@@ -43,6 +45,132 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     });
+  });
+
+  // ==========================================
+  // MENÚ DE CATÁLOGO DE RECETAS
+  // ==========================================
+  bot.action('bs_catalog', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const text = '📜 *CATÁLOGO DE FORJA Y RECETAS*\n\n' +
+                 '— *"Aquí tienes los planos. Reúne los materiales en tus expediciones o paga su equivalente en oro donde aplique. ¿Qué estilo de combate prefieres revisar?"*';
+
+    const buttons = [
+      [
+        Markup.button.callback('🗡️ Guerrero (Hierro)', 'bs_warrior'),
+        Markup.button.callback('🧙‍♂️ Mago (Tela)', 'bs_mage')
+      ],
+      [
+        Markup.button.callback('🦊 Cazador (Cuero)', 'bs_hunter'),
+        Markup.button.callback('💍 Accesorios', 'bs_accs')
+      ],
+      [Markup.button.callback('⬅️ Volver a la Herrería', 'menu_blacksmith')]
+    ];
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  // ==========================================
+  // RECETAS: GUERRERO
+  // ==========================================
+  bot.action('bs_warrior', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const text = '🗡️ *FORJA DE GUERRERO (HIERRO)* 🗡️\n\n' +
+                 '*⚔️ ESPADAS*\n' +
+                 '• *T1 (Espada de Hierro):* 5x Mena de Hierro *(O pago de 6,000g)*\n' +
+                 '• *T2 (Hoja Rúnica):* Espada T1 + 3x Mena Ancestral\n' +
+                 '• *T3 (Mandoble Obsidiana):* Espada T2 + 1x Mena Ancestral + 1x Esencia de Dragón\n\n' +
+                 '*🪖 ARMADURA PESADA (Física)*\n' +
+                 '• *T1:* Pechera (4x Hierro) | Casco (2x Hierro) | Grebas (3x Hierro)\n' +
+                 '• *T2:* Pieza T1 + Pechera (4x Hierro, 2x Ancestral) | Casco (2x Hierro, 1x Ancestral) | Grebas (3x Hierro, 1x Ancestral)\n' +
+                 '• *T3:* Pieza T2 + Pechera (4x Ancestral, 2x Escama Dragón) | Casco (2x Ancestral, 1x Escama) | Grebas (3x Ancestral, 1x Escama)\n';
+
+    const buttons = [
+      [Markup.button.callback('🛠️ (La forja se habilitará pronto)', 'noop')],
+      [Markup.button.callback('⬅️ Volver a Catálogos', 'bs_catalog')]
+    ];
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  // ==========================================
+  // RECETAS: MAGO
+  // ==========================================
+  bot.action('bs_mage', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const text = '🧙‍♂️ *FORJA DE MAGO (ARCANO)* 🧙‍♂️\n\n' +
+                 '*🦯 BASTONES*\n' +
+                 '• *T1 (Bastón Místico):* 5x Madera Mística *(O pago de 6,000g)*\n' +
+                 '• *T2 (Cetro Susurros):* Bastón T1 + 3x Seda Espectral\n' +
+                 '• *T3 (Báculo del Vacío):* Bastón T2 + 1x Seda Espectral + 1x Esencia de Dragón\n\n' +
+                 '*👘 TÚNICA MÁGICA (Mágica)*\n' +
+                 '• *T1:* Túnica (4x Tela) | Sombrero (2x Tela) | Botas (3x Tela)\n' +
+                 '• *T2:* Pieza T1 + Túnica (4x Tela, 2x Hilo Mágico) | Sombrero (2x Tela, 1x Hilo) | Botas (3x Tela, 1x Hilo)\n' +
+                 '• *T3:* Pieza T2 + Túnica (4x Hilo, 2x Seda Espectral) | Sombrero (2x Hilo, 1x Seda) | Botas (3x Hilo, 1x Seda)\n';
+
+    const buttons = [
+      [Markup.button.callback('🛠️ (La forja se habilitará pronto)', 'noop')],
+      [Markup.button.callback('⬅️ Volver a Catálogos', 'bs_catalog')]
+    ];
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  // ==========================================
+  // RECETAS: CAZADOR
+  // ==========================================
+  bot.action('bs_hunter', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const text = '🦊 *FORJA DE CAZADOR (CUERO)* 🦊\n\n' +
+                 '*🏹 ARCOS*\n' +
+                 '• *T1 (Arco de Tejo):* 5x Rama de Tejo Oscuro *(O pago de 6,000g)*\n' +
+                 '• *T2 (Arco Largo):* Arco T1 + 3x Colmillo Alfa\n' +
+                 '• *T3 (Perforador de Cenizas):* Arco T2 + 1x Colmillo Alfa + 1x Esencia de Dragón\n\n' +
+                 '*🦊 ARMADURA DE CUERO (Equilibrada)*\n' +
+                 '• *T1:* Pechera (4x Cuero) | Capucha (2x Cuero) | Botas (3x Cuero)\n' +
+                 '• *T2:* Pieza T1 + Pechera (4x Cuero, 2x Colmillo Alfa) | Capucha (2x Cuero, 1x Colmillo) | Botas (3x Cuero, 1x Colmillo)\n' +
+                 '• *T3:* Pieza T2 + Pechera (4x Colmillo, 2x Piel Quimera) | Capucha (2x Colmillo, 1x Piel) | Botas (3x Colmillo, 1x Piel)\n';
+
+    const buttons = [
+      [Markup.button.callback('🛠️ (La forja se habilitará pronto)', 'noop')],
+      [Markup.button.callback('⬅️ Volver a Catálogos', 'bs_catalog')]
+    ];
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  // ==========================================
+  // RECETAS: ACCESORIOS
+  // ==========================================
+  bot.action('bs_accs', async (ctx) => {
+    await safeAnswerCb(ctx);
+    const text = '💍 *FORJA DE ACCESORIOS* 💍\n\n' +
+                 '— *"Los objetos arcanos de bolsillo otorgan ventajas únicas en el combate PvP y se pueden adquirir con oro puro o mediante rituales complejos."*\n\n' +
+                 '*🔥 Sello de Poder (Fuego)*\n' +
+                 '• Efecto: Aumenta daño del próximo ataque.\n' +
+                 '• Precio: *5,000g*\n\n' +
+                 '*❄️ Talismán Glacial (Hielo)*\n' +
+                 '• Efecto: Reduce el daño del oponente.\n' +
+                 '• Precio: *5,000g*\n\n' +
+                 '*🛡️ Reliquia de Baluarte*\n' +
+                 '• Efecto: Otorga armadura/escudo temporal.\n' +
+                 '• Precio: *10,000g*\n\n' +
+                 '*🎯 Amuleto de Precisión*\n' +
+                 '• Efecto: Aumenta la probabilidad de crítico.\n' +
+                 '• Precio: *10,000g*\n\n' +
+                 '*🩸 Cáliz Vampírico*\n' +
+                 '• Efecto: Drena 30% del daño como salud.\n' +
+                 '• Precio: *10,000g*\n\n' +
+                 '*🌌 Orbe de Drenaje Abisal*\n' +
+                 '• Efecto: Roba 1 cristal de maná al rival.\n' +
+                 '• Requisitos: 2x Mena Ancestral + 2x Seda Espectral + 2x Piel de Quimera + 2x Hilo Mágico.\n';
+
+    const buttons = [
+      [Markup.button.callback('🛠️ (La compra/forja se habilitará pronto)', 'noop')],
+      [Markup.button.callback('⬅️ Volver a Catálogos', 'bs_catalog')]
+    ];
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  bot.action('noop', async (ctx) => {
+    return await safeAnswerCb(ctx, '🛠️ Estamos encendiendo las forjas. Las recetas se habilitarán pronto.', true);
   });
 
   // ==========================================
