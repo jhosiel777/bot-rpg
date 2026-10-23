@@ -1,3 +1,4 @@
+// dungeons.js
 const DUNGEONS = {
   bosque: {
     id: 'bosque',
@@ -59,44 +60,52 @@ const DUNGEONS = {
     isBorder: true,
     requiresPermit: true,
     drops: {
-      smallHpChance: 0.20,    // 20% Poción Menor
-      mediumHpChance: 0.14,   // 14% Poción Mayor
-      energyChance: 0.08      // 8% Elixir de Energía
+      smallHpChance: 0.20,
+      mediumHpChance: 0.14,
+      energyChance: 0.08
     },
     enemies: [
-      {
-        name: 'Autómata Rocoso de Khazur',
-        minDmg: 17,
-        maxDmg: 23,
-        hits: 3,
-        minGold: 100,
-        maxGold: 160,
-        minExp: 220,
-        maxExp: 270,
-        isColoso: false
-      },
-      {
-        name: 'Guardián Rúnico de Arcilla',
-        minDmg: 24,
-        maxDmg: 30,
-        hits: 3,
-        minGold: 150,
-        maxGold: 230,
-        minExp: 260,
-        maxExp: 310,
-        isColoso: false
-      },
-      {
-        name: 'Coloso Protector Ancestral',
-        minDmg: 30,
-        maxDmg: 37,
-        hits: 3,
-        minGold: 210,
-        maxGold: 300,
-        minExp: 300,
-        maxExp: 380,
-        isColoso: true
-      }
+      { name: 'Autómata Rocoso de Khazur', minDmg: 17, maxDmg: 23, hits: 3, minGold: 100, maxGold: 160, minExp: 220, maxExp: 270, isColoso: false },
+      { name: 'Guardián Rúnico de Arcilla', minDmg: 24, maxDmg: 30, hits: 3, minGold: 150, maxGold: 230, minExp: 260, maxExp: 310, isColoso: false },
+      { name: 'Coloso Protector Ancestral', minDmg: 30, maxDmg: 37, hits: 3, minGold: 210, maxGold: 300, minExp: 300, maxExp: 380, isColoso: true }
+    ]
+  },
+  arboleda_susurros: {
+    id: 'arboleda_susurros',
+    name: '🔮 Arboleda de los Susurros',
+    cost: 5,
+    travelSec: 120,
+    hasTraps: true,
+    isBorder: true,
+    requiresPermit: true,
+    drops: {
+      smallHpChance: 0.20,
+      mediumHpChance: 0.14,
+      energyChance: 0.08
+    },
+    enemies: [
+      { name: 'Aparición Menor', minDmg: 16, maxDmg: 22, hits: 3, minGold: 95, maxGold: 155, minExp: 215, maxExp: 265, isElite: false },
+      { name: 'Espectro Desgarrador', minDmg: 23, maxDmg: 29, hits: 3, minGold: 145, maxGold: 225, minExp: 255, maxExp: 305, isElite: true },
+      { name: 'Ent Corrompido', minDmg: 29, maxDmg: 36, hits: 3, minGold: 205, maxGold: 295, minExp: 295, maxExp: 375, isElite: true }
+    ]
+  },
+  coto_bestias: {
+    id: 'coto_bestias',
+    name: '🐾 Coto de las Bestias Sombrías',
+    cost: 5,
+    travelSec: 120,
+    hasTraps: true,
+    isBorder: true,
+    requiresPermit: true,
+    drops: {
+      smallHpChance: 0.20,
+      mediumHpChance: 0.14,
+      energyChance: 0.08
+    },
+    enemies: [
+      { name: 'Acechador Sombrío', minDmg: 18, maxDmg: 24, hits: 3, minGold: 105, maxGold: 165, minExp: 225, maxExp: 275, isElite: false },
+      { name: 'Lobo Abisal Alfa', minDmg: 25, maxDmg: 31, hits: 3, minGold: 155, maxGold: 235, minExp: 265, maxExp: 315, isElite: true },
+      { name: 'Quimera Salvaje', minDmg: 31, maxDmg: 38, hits: 3, minGold: 215, maxGold: 310, minExp: 305, maxExp: 390, isElite: true }
     ]
   }
 };
