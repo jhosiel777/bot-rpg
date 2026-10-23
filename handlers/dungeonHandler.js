@@ -210,26 +210,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
         extraLootMsg = `\n\n💡 _No llevabas el Cuchillo de Desuello. Arruinaste las pieles al intentar extraerlas a la fuerza._`;
       }
     }
-    } else if (isCoto) {
-      // Recolección de Ruta (Base 10%)
-      if (Math.random() < (0.10 + bonusLuck)) {
-        p.darkYewBranch = (p.darkYewBranch || 0) + 1;
-        lootedItems.push('🌿 +1 Rama de Tejo Oscuro');
-      }
-      // Drop de Élite
-      if (enemy.isElite) {
-        if (enemy.name.includes('Lobo') && Math.random() < (0.05 + bonusLuck)) {
-          p.alphaFang = (p.alphaFang || 0) + 1;
-          lootedItems.push('🐺 +1 Colmillo Alfa');
-        } else if (enemy.name.includes('Quimera') && Math.random() < (0.05 + bonusLuck)) {
-          p.chimeraHide = (p.chimeraHide || 0) + 1;
-          lootedItems.push('🦁 +1 Piel de Quimera');
-        }
-      }
-      extraLootMsg = lootedItems.length > 0 
-        ? `\n\n🐾 *Rastreo de Bestias:*\n${lootedItems.join('\n')}` 
-        : `\n\n🐾 _Rastreaste el coto pero los restos eran inservibles._`;
-    }
 
     return `${trapMsg}🗺️ *${dungeon.name}:*\n\n` +
            critMsg +
