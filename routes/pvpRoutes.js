@@ -92,10 +92,11 @@ module.exports = (bot) => {
         }
       }
 
-      // Añadir jugador a la lista de listos
-      if (!duel.readyPlayers.includes(uid)) {
+      // Añadir jugador a la lista de listos (CORREGIDO PARA EVITAR BUGS DE TIPO DE DATO)
+      const isReady = duel.readyPlayers.some(p => p.toString() === uid.toString());
+      if (!isReady) {
         duel.readyPlayers.push(uid);
-        if (duel.readyPlayers.length === 2 && duel.status === 'open') {
+        if (duel.readyPlayers.length >= 2 && duel.status === 'open') {
           duel.status = 'active';
         }
         await duel.save();
