@@ -34,7 +34,8 @@
       display: flex; align-items: center; justify-content: center; flex-direction: column;
       transition: opacity 0.5s;
     }
-    .countdown-text { font-size: 60px; color: #facc15; font-family: var(--pixel-font); text-shadow: 0 0 20px #b45309; text-align: center;}
+    /* Texto ajustado a 28px para que quepa bien en móviles */
+    .countdown-text { font-size: 28px; color: #facc15; font-family: var(--pixel-font); text-shadow: 0 0 20px #b45309; text-align: center; margin-bottom: 10px; line-height: 1.4;}
     .pulse-wait { animation: pulseWait 1.5s infinite; }
     @keyframes pulseWait { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
@@ -119,7 +120,7 @@
         </div>
       </div>
 
-      <!-- Enemigo 2.5D (Es el mismo sprite modular invertido para que ambos luzcan armaduras dinámicas) -->
+      <!-- Enemigo 2.5D -->
       <div class="platform-enemy">
         <svg viewBox="0 0 210 80" class="w-full h-full">
           <ellipse cx="105" cy="48" rx="98" ry="26" fill="rgba(0,0,0,0.7)" />
@@ -128,7 +129,6 @@
           <ellipse cx="105" cy="39" rx="70" ry="15" fill="none" stroke="#f43f5e" stroke-width="1.2" stroke-dasharray="8 4" opacity="0.5" />
         </svg>
       </div>
-      <!-- Variable --flip usada para mantenerlo invertido en las animaciones -->
       <div id="enemySpriteContainer" style="--flip: -1; transform: scaleX(-1);" class="absolute top-[9%] right-[6%] w-36 h-40 flex items-center justify-center z-10 sprite-idle">
         <svg viewBox="0 0 36 38" class="w-full h-full pixel-svg drop-shadow-[0_8px_10px_rgba(0,0,0,0.85)]">
           <ellipse cx="16" cy="35" rx="10" ry="2.5" fill="rgba(0,0,0,0.6)" />
@@ -138,7 +138,6 @@
           <g id="enemyHeadLayer">
             <rect x="11" y="6" width="10" height="8" fill="#334155" />
             <rect x="10" y="8" width="12" height="5" fill="#475569" />
-            <!-- Casco color rojizo para distinguir al enemigo -->
             <rect x="15" y="3" width="2" height="4" fill="#ef4444" />
           </g>
           <rect x="22" y="16" width="4" height="5" fill="#475569" />
@@ -332,8 +331,8 @@
     window.onload = () => {
       const tg = window.Telegram?.WebApp;
       if (tg) tg.expand();
-      loadDuelData(); // Primera llamada inmediata
-      pollInterval = setInterval(loadDuelData, 2000); // Polling cada 2 seg
+      loadDuelData(); 
+      pollInterval = setInterval(loadDuelData, 2000); 
     };
 
     function startCountdownVisual() {
@@ -361,7 +360,8 @@
 
     async function loadDuelData() {
       try {
-        const res = await fetch(`/api/pvp/duel-data?duelId=${duelId}&userId=${userId}`);
+        // Se añade un parámetro temporal (&t=Date.now()) para evitar que el navegador guarde la respuesta en caché
+        const res = await fetch(`/api/pvp/duel-data?duelId=${duelId}&userId=${userId}&t=${Date.now()}`);
         const data = await res.json();
         
         if (data.status === 'cancelled') {
@@ -374,7 +374,6 @@
         }
 
         if (data.status === 'waiting') {
-          // Si sigue en waiting, no hace nada, el overlay ya dice ESPERANDO
           return;
         }
 
@@ -427,12 +426,11 @@
       }
       document.getElementById('manaCountText').innerText = `${hero.mana}/${hero.maxMana}`;
 
-      // Inyectar Equipo Visual al Héroe
+      // Inyectar Equipo Visual
       const wData = WEAPONS[hero.weapon] || WEAPONS.dagger;
       document.getElementById('heroWeaponLayer').innerHTML = wData.svg;
       document.getElementById('heroArmorLayer').innerHTML = ARMORS[hero.armor] || ARMORS.none;
 
-      // Inyectar Equipo Visual al Enemigo (usamos la misma estructura pero el CSS lo invierte)
       const eWData = WEAPONS[enemy.weapon] || WEAPONS.dagger;
       document.getElementById('enemyWeaponLayer').innerHTML = eWData.svg;
       document.getElementById('enemyArmorLayer').innerHTML = ARMORS[enemy.armor] || ARMORS.none;
@@ -461,7 +459,6 @@
         document.getElementById('btnWeapon').disabled = hero.mana < 2;
         document.getElementById('btnSkill').disabled = hero.mana < 3;
         
-        // Bloquear accesorio si no tiene o falta mana
         const hasAcc = hero.accessory && hero.accessory !== 'none';
         document.getElementById('btnAccessory').disabled = hero.mana < 2 || !hasAcc;
         document.getElementById('btnPass').disabled = false;
