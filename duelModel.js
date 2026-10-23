@@ -14,7 +14,7 @@ const duelSchema = new mongoose.Schema({
     enum: ['friendly', 'gold', 'gram'], 
     required: true 
   },
-  betAmount: { type: Number, default: 0 }, // 0 para friendly, 50-500 para gold, 0.05-0.50 para gram
+  betAmount: { type: Number, default: 0 },
 
   status: { 
     type: String, 
@@ -22,13 +22,14 @@ const duelSchema = new mongoose.Schema({
     default: 'open' 
   },
 
+  readyPlayers: { type: [Number], default: [] },
+  acceptedAt: { type: Date, default: null },
+
   winnerId: { type: Number, default: null },
   combatLog: { type: [String], default: [] },
-
-  // Almacena el estado en vivo de la pelea (vida, maná, turnos, pociones)
   gameState: { type: Object, default: null },
 
-  createdAt: { type: Date, default: Date.now, expires: 86400 } // Se elimina tras 24h si queda abandonado
+  createdAt: { type: Date, default: Date.now, expires: 86400 }
 });
 
 const Duel = mongoose.model('Duel', duelSchema);
