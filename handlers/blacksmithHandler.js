@@ -114,7 +114,10 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
   bot.action('bs_catalog', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '📜 *CATÁLOGO DE FORJA Y RECETAS*\n\n' +
-                 '— *"Reúne los materiales en tus expediciones o paga su equivalente en oro donde aplique. ¿Qué estilo de combate prefieres?"*';
+                 '— *"Reúne los materiales en tus expediciones o paga su equivalente en oro donde aplique. Cada clase tiene un estilo de combate único:"*\n\n' +
+                 '🛡️ *Guerrero:* Gran daño y resistencia física, débil a la magia.\n' +
+                 '🔮 *Mago:* Fuerte daño y resistencia elemental, débil al daño físico.\n' +
+                 '🏹 *Cazador:* Resistencias equilibradas, daño moderado pero con críticos letales.\n';
 
     const buttons = [
       [
@@ -137,11 +140,13 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
   bot.action('bs_warrior', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '🗡️ *FORJA DE GUERRERO (HIERRO)* 🗡️\n\n' +
+                 '_Especialidad: Buen daño y resistencia física. Vulnerable a los ataques elementales._\n\n' +
                  '*⚔️ ESPADAS*\n' +
                  '• *T1:* 5x Mena de Hierro *(O 6,000g)*\n' +
                  '• *T2:* Espada T1 + 3x Mena Ancestral\n' +
                  '• *T3:* Espada T2 + 1x Mena Ancestral + 1x Esencia de Dragón\n\n' +
                  '*🪖 ARMADURA PESADA*\n' +
+                 '👑 _Bono Set Completo: T1 (+2% Vida) | T2 (+5% Vida) | T3 (+8% Vida)_\n' +
                  '• *T1:* Pechera (4x Hierro) | Casco (2x Hierro) | Grebas (3x Hierro)\n' +
                  '• *T2:* Pieza T1 + Pechera (4x Hierro, 2x Ancestral) | Casco (2x Hierro, 1x Ancestral) | Grebas (3x Hierro, 1x Ancestral)\n' +
                  '• *T3:* Pieza T2 + Pechera (4x Ancestral, 2x Escama) | Casco (2x Ancestral, 1x Escama) | Grebas (3x Ancestral, 1x Escama)\n';
@@ -163,11 +168,13 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
   bot.action('bs_mage', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '🧙‍♂️ *FORJA DE MAGO (ARCANO)* 🧙‍♂️\n\n' +
+                 '_Especialidad: Gran daño y resistencia elemental. Vulnerable a los ataques físicos._\n\n' +
                  '*🦯 BASTONES*\n' +
                  '• *T1:* 5x Madera Mística *(O 6,000g)*\n' +
                  '• *T2:* Bastón T1 + 3x Seda Espectral\n' +
                  '• *T3:* Bastón T2 + 1x Seda Espectral + 1x Esencia de Dragón\n\n' +
                  '*👘 TÚNICA MÁGICA*\n' +
+                 '👑 _Bono Set Completo: T1 (+3% Crítico) | T2 (+6% Crítico) | T3 (+10% Crítico)_\n' +
                  '• *T1:* Túnica (4x Tela) | Sombrero (2x Tela) | Botas (3x Tela)\n' +
                  '• *T2:* Pieza T1 + Túnica (4x Tela, 2x Hilo) | Sombrero (2x Tela, 1x Hilo) | Botas (3x Tela, 1x Hilo)\n' +
                  '• *T3:* Pieza T2 + Túnica (4x Hilo, 2x Seda) | Sombrero (2x Hilo, 1x Seda) | Botas (3x Hilo, 1x Seda)\n';
@@ -189,11 +196,13 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
   bot.action('bs_hunter', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '🦊 *FORJA DE CAZADOR (CUERO/TEJO)* 🦊\n\n' +
+                 '_Especialidad: Resistencias equilibradas (Físico y Elemental). Daño base inferior al guerrero, pero letal con los críticos._\n\n' +
                  '*🏹 ARCOS*\n' +
                  '• *T1:* 5x Rama de Tejo *(O 6,000g)*\n' +
                  '• *T2:* Arco T1 + 3x Colmillo Alfa\n' +
                  '• *T3:* Arco T2 + 1x Colmillo Alfa + 1x Esencia de Dragón\n\n' +
                  '*🦊 ARMADURA DE CAZA*\n' +
+                 '👑 _Bono Set Completo: T1 (+2 Agi/Suerte) | T2 (+4 Agi/Suerte) | T3 (+7 Agi/Suerte)_\n' +
                  '• *T1:* Pechera (4x Rama Tejo) | Capucha (2x Rama Tejo) | Botas (3x Rama Tejo)\n' +
                  '• *T2:* Pieza T1 + Pechera (4x Tejo, 2x Colmillo) | Capucha (2x Tejo, 1x Colmillo) | Botas (3x Tejo, 1x Colmillo)\n' +
                  '• *T3:* Pieza T2 + Pechera (4x Colmillo, 2x Quimera) | Capucha (2x Colmillo, 1x Quimera) | Botas (3x Colmillo, 1x Quimera)\n';
@@ -215,11 +224,14 @@ function registerBlacksmithHandlers(bot, { Player, getPlayer }) {
   bot.action('bs_accs', async (ctx) => {
     await safeAnswerCb(ctx);
     const text = '💍 *FORJA DE ACCESORIOS* 💍\n\n' +
-                 '— *"Los objetos arcanos de bolsillo otorgan ventajas únicas en el combate PvP."*\n\n' +
-                 '*🔥 Fuego (5k):* +Daño | *❄️ Hielo (5k):* -Daño enemigo\n' +
-                 '*🛡️ Escudo (10k):* Armadura | *🎯 Crítico (10k):* +Prob Crítico\n' +
-                 '*🩸 Vampírico (10k):* Drena vida (30%)\n' +
-                 '*🌌 Orbe Abisal:* Roba Maná (Pide 2x Mena Ancestral, 2x Seda, 2x Quimera, 2x Hilo).\n';
+                 '— *"Los objetos arcanos otorgan ventajas únicas. En la Arena PvP solo se puede usar máximo un (1) accesorio por turno."*\n\n' +
+                 '⚠️ *Reglas de PvE (Expediciones y Jefes):* Los efectos activos no se pueden castear. Solo el Escudo y el Crítico funcionarán, otorgando bonos porcentuales pasivos a tus stats de combate.\n\n' +
+                 '*🔥 Fuego (5k):* Daño + Quemadura por 3 turnos (Solo PvP).\n' +
+                 '*❄️ Hielo (5k):* Daño + Baja el ataque enemigo (Solo PvP).\n' +
+                 '*🛡️ Escudo (10k):* Absorbe 20 pts de daño en el turno actual (PvP) / +% Defensa (PvE).\n' +
+                 '*🎯 Crítico (10k):* Aumenta tu prob. de Crítico temporal (PvP) / +% Crítico pasivo (PvE).\n' +
+                 '*🩸 Vampírico (10k):* Drena el 30% del daño infligido como salud (Solo PvP).\n' +
+                 '*🌌 Orbe Abisal:* Roba 1 cristal de maná al rival (Solo PvP). Pide Mats.\n';
 
     const buttons = [
       [Markup.button.callback('🔥 Fuego (5k)', 'craft_acc_fire'), Markup.button.callback('❄️ Hielo (5k)', 'craft_acc_ice')],
