@@ -280,6 +280,9 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     const buttons = [];
 
     for (const d of openDuels) {
+      // Ignorar duelos que ya fueron aceptados por alguien y están contando sus 30s
+      if (d.acceptedAt) continue;
+
       const isCreator = (d.creatorId === player.userId);
       let modeIcon = '🤝';
       let stakeText = 'Amistoso';
@@ -301,6 +304,16 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
       const actionCb = isCreator ? `pvp_cancel_${d._id}` : `pvp_accept_${d._id}`;
       buttons.push([Markup.button.callback(label, actionCb)]);
+    }
+
+    if (buttons.length === 0) {
+      return await safeEditMessage(ctx, '📋 *TABLÓN DE DUELOS ABIERTOS*\n\nTodos los duelos actuales ya están en proceso. ¡Prueba actualizar en un momento!', { 
+        parse_mode: 'Markdown', 
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔄 Actualizar Lista', 'pvp_list_open')],
+          [Markup.button.callback('⬅️ Volver a la Arena', 'tavern_pvp')]
+        ]) 
+      });
     }
 
     buttons.push([Markup.button.callback('🔄 Actualizar Lista', 'pvp_list_open')]);
@@ -350,7 +363,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     const opponent = await getPlayer(ctx.from.id, ctx.from.first_name);
 
     const duel = await Duel.findById(duelId);
-    if (!duel || duel.status !== 'open') {
+    if (!duel || duel.status !== 'open' || duel.acceptedAt) {
       return await safeAnswerCb(ctx, 'El duelo ya no está abierto o fue tomado por otro aventurero.', true);
     }
 
@@ -381,11 +394,11 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     await safeAnswerCb(ctx, '⚔️ ¡Aceptaste el desafío! Preparando la Arena...');
 
-    // Cambiar estado a Activo y fijar al oponente
-    duel.status = 'active';
+    // Fijar al oponente e iniciar reloj de 30 segundos (Sin cambiar a active aún)
     duel.opponentId = opponent.userId;
     duel.opponentName = opponent.name;
     duel.opponentTitle = opponent.activeTitle || 'Aventurero Novato';
+    duel.acceptedAt = new Date(); // Inicia el reloj de 30 segundos
     await duel.save();
 
     const p1Label = `[«${creator.activeTitle || 'Aventurero Novato'}»] *${shortenName(creator.name)}*`;
@@ -395,7 +408,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
                       `🛡️ ${p1Label}\n` +
                       `⚡ *VS*\n` +
                       `🛡️ ${p2Label}\n\n` +
-                      `_Los fondos han sido asegurados. Ambos gladiadores deben entrar a la Arena Web para iniciar el combate._`;
+                      `⚠️ *ATENCIÓN:* Los fondos están asegurados. Ambos gladiadores tienen exactamente **30 segundos** para pulsar el botón de abajo y entrar a la Arena. Si alguno no entra a tiempo, el duelo se cancelará y los fondos serán devueltos.`;
 
     const creatorUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${creator.userId}`;
     const opponentUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${opponent.userId}`;
