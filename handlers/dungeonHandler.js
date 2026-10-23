@@ -150,6 +150,7 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     let extraLootMsg = '';
     const lootedItems = [];
     const bonusLuck = Math.min(0.10, (luckVal / 100) * 0.10);
+    const hasKnife = p.equipment && p.equipment.weapon === 'hunting_knife';
 
     if (isKhazur) {
       if (hasPickaxe) {
@@ -172,19 +173,43 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
         extraLootMsg = `\n\n💡 _No llevabas el Pico de Khazur equipado. No pudiste extraer minerales._`;
       }
     } else if (isArboleda) {
-      // Recolección de Ruta (Base 10%)
-      if (Math.random() < (0.10 + bonusLuck)) {
-        p.mysticWood = (p.mysticWood || 0) + 1;
-        lootedItems.push('🪵 +1 Madera Mística');
+      if (hasKnife) {
+        if (Math.random() < (0.10 + bonusLuck)) {
+          p.mysticWood = (p.mysticWood || 0) + 1;
+          lootedItems.push('🪵 +1 Madera Mística');
+        }
+        if (enemy.isElite && Math.random() < (0.05 + bonusLuck)) {
+          p.spectralSilk = (p.spectralSilk || 0) + 1;
+          lootedItems.push('👻 +1 Seda Espectral');
+        }
+        extraLootMsg = lootedItems.length > 0 
+          ? `\n\n🔮 *Recolección Arcana:*\n${lootedItems.join('\n')}` 
+          : `\n\n🔮 _Buscaste entre la maleza pero no hallaste nada de valor._`;
+      } else {
+        extraLootMsg = `\n\n💡 _No llevabas el Cuchillo de Desuello. La flora arcana se marchitó al arrancarla con las manos._`;
       }
-      // Drop de Élite
-      if (enemy.isElite && Math.random() < (0.05 + bonusLuck)) {
-        p.spectralSilk = (p.spectralSilk || 0) + 1;
-        lootedItems.push('👻 +1 Seda Espectral');
+    } else if (isCoto) {
+      if (hasKnife) {
+        if (Math.random() < (0.10 + bonusLuck)) {
+          p.darkYewBranch = (p.darkYewBranch || 0) + 1;
+          lootedItems.push('🌿 +1 Rama de Tejo Oscuro');
+        }
+        if (enemy.isElite) {
+          if (enemy.name.includes('Lobo') && Math.random() < (0.05 + bonusLuck)) {
+            p.alphaFang = (p.alphaFang || 0) + 1;
+            lootedItems.push('🐺 +1 Colmillo Alfa');
+          } else if (enemy.name.includes('Quimera') && Math.random() < (0.05 + bonusLuck)) {
+            p.chimeraHide = (p.chimeraHide || 0) + 1;
+            lootedItems.push('🦁 +1 Piel de Quimera');
+          }
+        }
+        extraLootMsg = lootedItems.length > 0 
+          ? `\n\n🐾 *Rastreo de Bestias:*\n${lootedItems.join('\n')}` 
+          : `\n\n🐾 _Rastreaste el coto pero los restos eran inservibles._`;
+      } else {
+        extraLootMsg = `\n\n💡 _No llevabas el Cuchillo de Desuello. Arruinaste las pieles al intentar extraerlas a la fuerza._`;
       }
-      extraLootMsg = lootedItems.length > 0 
-        ? `\n\n🔮 *Recolección Arcana:*\n${lootedItems.join('\n')}` 
-        : `\n\n🔮 _Buscaste entre la maleza pero no hallaste nada de valor._`;
+    }
     } else if (isCoto) {
       // Recolección de Ruta (Base 10%)
       if (Math.random() < (0.10 + bonusLuck)) {
