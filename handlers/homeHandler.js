@@ -82,6 +82,34 @@ async function syncPlayerTitles(player, bot = null) {
   return changed;
 }
 
+// Diccionario para mostrar nombres limpios en la interfaz
+const GEAR_NAMES = {
+  // GUERRERO
+  sword_t1: '🗡️ Espada de Hierro (T1)', sword_t2: '🗡️ Hoja Rúnica (T2)', sword_t3: '🗡️ Mandoble Obsidiana (T3)',
+  chest_heavy_t1: '🪖 Pechera de Hierro (T1)', chest_heavy_t2: '🪖 Pechera Rúnica (T2)', chest_heavy_t3: '🪖 Pechera Obsidiana (T3)',
+  head_heavy_t1: '🪖 Casco de Hierro (T1)', head_heavy_t2: '🪖 Casco Rúnico (T2)', head_heavy_t3: '🪖 Casco Obsidiana (T3)',
+  legs_heavy_t1: '🪖 Grebas de Hierro (T1)', legs_heavy_t2: '🪖 Grebas Rúnicas (T2)', legs_heavy_t3: '🪖 Grebas Obsidiana (T3)',
+  // MAGO
+  staff_t1: '🦯 Bastón Místico (T1)', staff_t2: '🦯 Cetro Susurros (T2)', staff_t3: '🦯 Báculo del Vacío (T3)',
+  chest_mage_t1: '👘 Túnica Mágica (T1)', chest_mage_t2: '👘 Túnica de Hilos (T2)', chest_mage_t3: '👘 Túnica Espectral (T3)',
+  head_mage_t1: '👘 Sombrero Mágico (T1)', head_mage_t2: '👘 Sombrero de Hilos (T2)', head_mage_t3: '👘 Sombrero Espectral (T3)',
+  legs_mage_t1: '👘 Botas Mágicas (T1)', legs_mage_t2: '👘 Botas de Hilos (T2)', legs_mage_t3: '👘 Botas Espectrales (T3)',
+  // CAZADOR
+  bow_t1: '🏹 Arco de Tejo (T1)', bow_t2: '🏹 Arco Largo (T2)', bow_t3: '🏹 Perforador Cenizas (T3)',
+  chest_hunter_t1: '🦊 Pechera de Caza (T1)', chest_hunter_t2: '🦊 Pechera Alfa (T2)', chest_hunter_t3: '🦊 Pechera Quimera (T3)',
+  head_hunter_t1: '🦊 Capucha de Caza (T1)', head_hunter_t2: '🦊 Capucha Alfa (T2)', head_hunter_t3: '🦊 Capucha Quimera (T3)',
+  legs_hunter_t1: '🦊 Botas de Caza (T1)', legs_hunter_t2: '🦊 Botas Alfa (T2)', legs_hunter_t3: '🦊 Botas Quimera (T3)',
+  // ACCESORIOS
+  acc_fire: '🔥 Sello de Poder', acc_ice: '❄️ Talismán Glacial', acc_shield: '🛡️ Reliquia de Baluarte',
+  acc_crit: '🎯 Amuleto de Precisión', acc_vamp: '🩸 Cáliz Vampírico', acc_void: '🌌 Orbe Abisal',
+  // HERRAMIENTAS
+  pickaxe_khazur: '⛏️ Pico de Khazur', hunting_knife: '🔪 Cuchillo de Desuello'
+};
+
+function getGearName(key) {
+  return GEAR_NAMES[key] || key;
+}
+
 function registerHomeHandlers(bot, { Player, getPlayer }) {
 
   // Menú Principal del Hogar
@@ -112,7 +140,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     const depositUrl = 'https://bot-rpg-wu42.onrender.com/deposit-gram?userId=' + player.userId;
 
     const buttons = [
-      [Markup.button.callback('🛡️ Equipamiento', 'menu_equipment')],
+      [Markup.button.callback('🛡️ Armería / Equipamiento', 'menu_equipment')],
       [
         Markup.button.webApp('📥 Añadir Fondos (GRAM)', depositUrl),
         Markup.button.callback('📤 Retirar GRAM', 'home_withdraw_menu')
@@ -136,7 +164,7 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
   });
 
   // ==========================================
-  // MENÚ DE EQUIPAMIENTO
+  // MENÚ DE EQUIPAMIENTO (ARMERÍA)
   // ==========================================
   bot.action('menu_equipment', async (ctx) => {
     await safeAnswerCb(ctx);
@@ -148,33 +176,25 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     }
 
     const eq = player.equipment;
-    const headText = eq.head || 'Vacío';
-    const chestText = eq.chest || 'Vacío';
-    const legsText = eq.legs || 'Vacío';
-    const accText = eq.accessory || 'Vacío';
+    const headText = eq.head ? getGearName(eq.head) : 'Vacío';
+    const chestText = eq.chest ? getGearName(eq.chest) : 'Vacío';
+    const legsText = eq.legs ? getGearName(eq.legs) : 'Vacío';
+    const weaponText = eq.weapon ? getGearName(eq.weapon) : 'Vacío';
+    const accText = eq.accessory ? getGearName(eq.accessory) : 'Vacío';
 
-    let weaponText = 'Vacío';
-    if (eq.weapon === 'pickaxe_khazur') {
-      weaponText = '⛏️ Pico de Khazur';
-    } else if (eq.weapon) {
-      weaponText = eq.weapon;
-    }
-
-    const text = '🛡️ *EQUIPAMIENTO DE COMBATE Y TRABAJO* 🛡️\n\n' +
+    const text = '🛡️ *ARMERÍA DE COMBATE Y TRABAJO* 🛡️\n\n' +
                  'Gestiona el equipo activo que llevas a tus expediciones y batallas.\n\n' +
                  '• 🪖 *Cabeza:* ' + headText + '\n' +
                  '• 🥋 *Pecho:* ' + chestText + '\n' +
                  '• 👖 *Piernas:* ' + legsText + '\n' +
-                 '• ⛏️ *Arma / Herramienta:* ' + weaponText + '\n' +
+                 '• ⚔️ *Arma / Herramienta:* ' + weaponText + '\n' +
                  '• 💍 *Accesorio:* ' + accText + '\n\n' +
-                 '_Toca una ranura para inspeccionar, equipar o retirar un objeto:_';
+                 '_Toca una ranura para inspeccionar tu baúl y equipar un objeto:_';
 
     const buttons = [
-      [Markup.button.callback('🪖 Cabeza: ' + headText, 'eq_slot_head')],
-      [Markup.button.callback('🥋 Pecho: ' + chestText, 'eq_slot_chest')],
-      [Markup.button.callback('👖 Piernas: ' + legsText, 'eq_slot_legs')],
-      [Markup.button.callback('⛏️ Arma/Herramienta: ' + weaponText, 'eq_slot_weapon')],
-      [Markup.button.callback('💍 Accesorio: ' + accText, 'eq_slot_accessory')],
+      [Markup.button.callback('🪖 Cabeza', 'eq_list_head'), Markup.button.callback('🥋 Pecho', 'eq_list_chest')],
+      [Markup.button.callback('👖 Piernas', 'eq_list_legs'), Markup.button.callback('💍 Accesorio', 'eq_list_accessory')],
+      [Markup.button.callback('⚔️ Arma / Herramienta', 'eq_list_weapon')],
       [Markup.button.callback('⬅️ Volver al Hogar', 'menu_home')]
     ];
 
@@ -184,88 +204,86 @@ function registerHomeHandlers(bot, { Player, getPlayer }) {
     });
   });
 
-  // Ranuras vacías (próximamente)
-  ['head', 'chest', 'legs', 'accessory'].forEach((slot) => {
-    bot.action('eq_slot_' + slot, async (ctx) => {
-      return await safeAnswerCb(ctx, 'Esta ranura está vacía. No posees piezas compatibles por ahora.', true);
+  // Generador dinámico de listas de equipamiento por ranura
+  const getAvailableGearForSlot = (player, slot) => {
+    const gearList = player.unlockedGear || [];
+    const available = [];
+
+    if (slot === 'weapon') {
+      if (player.hasKhazurPickaxe) available.push('pickaxe_khazur');
+      if (player.hasHuntingKnife) available.push('hunting_knife');
+    }
+
+    gearList.forEach(g => {
+      if (slot === 'head' && g.includes('head')) available.push(g);
+      else if (slot === 'chest' && g.includes('chest')) available.push(g);
+      else if (slot === 'legs' && g.includes('legs')) available.push(g);
+      else if (slot === 'accessory' && g.includes('acc_')) available.push(g);
+      else if (slot === 'weapon' && (g.includes('sword') || g.includes('staff') || g.includes('bow'))) available.push(g);
     });
-  });
 
-  // Ranura de Arma / Herramienta
-  bot.action('eq_slot_weapon', async (ctx) => {
-    await safeAnswerCb(ctx);
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+    return available;
+  };
 
-    const currentWeapon = player.equipment?.weapon;
-    const isPickEquipped = currentWeapon === 'pickaxe_khazur';
+  ['head', 'chest', 'legs', 'weapon', 'accessory'].forEach((slot) => {
+    bot.action('eq_list_' + slot, async (ctx) => {
+      await safeAnswerCb(ctx);
+      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+      const available = getAvailableGearForSlot(player, slot);
+      
+      const currentEquipped = player.equipment?.[slot];
+      const slotName = { head: 'CABEZA', chest: 'PECHO', legs: 'PIERNAS', weapon: 'ARMA/HERRAMIENTA', accessory: 'ACCESORIO' }[slot];
 
-    let text = '⛏️ *RANURA: ARMA / HERRAMIENTA* ⛏️\n\n' +
-               'Solo puedes portar un arma o herramienta principal a la vez.\n\n' +
-               '• *Pico de Khazur:* Permite picar menas de Hierro y Hierro Ancestral en el yacimiento, pero enfurece a los autómatas rocosos provocando un 4.º asalto extra.\n\n';
+      let text = `🛡️ *BAÚL: ${slotName}* 🛡️\n\n`;
+      text += `Equipado actualmente: *${currentEquipped ? getGearName(currentEquipped) : 'Vacío'}*\n\n`;
 
-    const buttons = [];
-
-    if (player.hasKhazurPickaxe) {
-      if (isPickEquipped) {
-        text += 'Estado actual: ✅ *Equipado*';
-        buttons.push([Markup.button.callback('❌ Desequipar Pico de Khazur', 'eq_unequip_weapon')]);
+      if (available.length === 0) {
+        text += '_No tienes objetos para esta ranura. Forja equipo en la Herrería Real._';
       } else {
-        text += 'Estado actual: 🎒 *En tu inventario (sin equipar)*';
-        buttons.push([Markup.button.callback('⛏️ Equipar Pico de Khazur', 'eq_equip_pickaxe')]);
+        text += 'Selecciona qué deseas equipar:';
       }
-    } else {
-      text += '_No tienes armas ni herramientas en tus posesiones. Visita al Maestro Herrero en la Herrería Real._';
-    }
 
-    buttons.push([Markup.button.callback('⬅️ Volver a Equipamiento', 'menu_equipment')]);
+      const buttons = [];
+      available.forEach(item => {
+        const isEq = currentEquipped === item;
+        buttons.push([Markup.button.callback(`${isEq ? '✅ ' : ''}${getGearName(item)}`, `eq_set_${slot}_${item}`)]);
+      });
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
-  });
-
-  bot.action('eq_equip_pickaxe', async (ctx) => {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-    if (!player.hasKhazurPickaxe) {
-      return await safeAnswerCb(ctx, 'No posees el Pico de Khazur.', true);
-    }
-
-    if (!player.equipment) {
-      player.equipment = { head: null, chest: null, legs: null, weapon: null, accessory: null };
-    }
-
-    player.equipment.weapon = 'pickaxe_khazur';
-    if (typeof player.markModified === 'function') {
-      player.markModified('equipment');
-    }
-    await player.save();
-
-    await safeAnswerCb(ctx, '⛏️ Has equipado el Pico de Khazur.');
-
-    return bot.handleUpdate({
-      ...ctx.update,
-      callback_query: { ...ctx.callbackQuery, data: 'menu_equipment' }
-    });
-  });
-
-  bot.action('eq_unequip_weapon', async (ctx) => {
-    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-    if (player.equipment) {
-      player.equipment.weapon = null;
-      if (typeof player.markModified === 'function') {
-        player.markModified('equipment');
+      if (currentEquipped) {
+        buttons.push([Markup.button.callback('❌ Desequipar Ranura', `eq_remove_${slot}`)]);
       }
+      buttons.push([Markup.button.callback('⬅️ Volver a la Armería', 'menu_equipment')]);
+
+      return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    });
+
+    // Acción para Equipar
+    bot.action(new RegExp(`^eq_set_${slot}_(.+)$`), async (ctx) => {
+      const itemKey = ctx.match[1];
+      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+      
+      if (!player.equipment) player.equipment = { head: null, chest: null, legs: null, weapon: null, accessory: null };
+      player.equipment[slot] = itemKey;
+      
+      if (typeof player.markModified === 'function') player.markModified('equipment');
       await player.save();
-    }
 
-    await safeAnswerCb(ctx, 'Ranura de arma/herramienta desequipada.');
+      await safeAnswerCb(ctx, `✅ Equipaste: ${getGearName(itemKey)}`, true);
+      return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `eq_list_${slot}` } });
+    });
 
-    return bot.handleUpdate({
-      ...ctx.update,
-      callback_query: { ...ctx.callbackQuery, data: 'menu_equipment' }
+    // Acción para Desequipar
+    bot.action(`eq_remove_${slot}`, async (ctx) => {
+      const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+      
+      if (player.equipment) {
+        player.equipment[slot] = null;
+        if (typeof player.markModified === 'function') player.markModified('equipment');
+        await player.save();
+      }
+
+      await safeAnswerCb(ctx, `❌ Ranura vaciada.`, true);
+      return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `eq_list_${slot}` } });
     });
   });
 
