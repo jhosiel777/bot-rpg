@@ -1,16 +1,14 @@
-// routes/pvpRoutes.js
 const express = require('express');
 const router = express.Router();
 const { Duel } = require('../duelModel');
 const { Player } = require('../playerModel');
 
-// Constantes de equipamiento para el balance
 const WEAPON_STATS = {
   iron_sword: { baseDmg: 45, crit: 0.15, type: 'weapon' },
   khazur_pickaxe: { baseDmg: 32, crit: 0.18, type: 'pickaxe', shieldMult: 1.2 },
   obsidian_blade: { baseDmg: 55, crit: 0.35, type: 'weapon' },
   malakor_scepter: { baseDmg: 52, crit: 0.22, type: 'weapon', lifesteal: 0.30 },
-  dagger: { baseDmg: 20, crit: 0.10, type: 'tool' }, // Arma por defecto
+  dagger: { baseDmg: 20, crit: 0.10, type: 'tool' }
 };
 
 const ARMOR_STATS = {
@@ -20,14 +18,10 @@ const ARMOR_STATS = {
   none: { reduction: 0, startShield: 0 }
 };
 
-// Fórmula de compresión PvP
 function calculatePvPStats(playerDoc) {
   const stats = typeof playerDoc.getCombatStats === 'function' ? playerDoc.getCombatStats() : { maxHp: playerDoc.maxHp, str: playerDoc.strength || 0 };
-  
-  // Compresión de Vida: Base 200 + (Raíz cuadrada del HP real * 3.5)
   const pvpHp = Math.round(200 + (Math.sqrt(stats.maxHp) * 3.5));
   
-  // Identificar arma y armadura (asumiendo que el modelo Player tiene equipment)
   const eq = playerDoc.equipment || {};
   let weaponKey = eq.weapon || (eq.tool === 'tool_pickaxe' ? 'khazur_pickaxe' : 'dagger');
   if (!WEAPON_STATS[weaponKey]) weaponKey = 'dagger';
@@ -37,10 +31,7 @@ function calculatePvPStats(playerDoc) {
 
   const wStats = WEAPON_STATS[weaponKey];
   const aStats = ARMOR_STATS[armorKey];
-
-  // Compresión de Daño: Daño Base del Arma + (Fuerza^0.6 * 1.8)
   const strBonus = Math.round(Math.pow(stats.str, 0.6) * 1.8);
-  const pvpDmg = wStats.baseDmg + strBonus;
 
   return {
     id: playerDoc.userId,
@@ -53,7 +44,7 @@ function calculatePvPStats(playerDoc) {
     maxMana: 5,
     weapon: weaponKey,
     armor: armorKey,
-    pvpDmg: pvpDmg,
+    pvpDmg: wStats.baseDmg + strBonus,
     critChance: wStats.crit,
     dmgReduction: aStats.reduction,
     shieldMult: wStats.shieldMult || 1,
@@ -62,172 +53,187 @@ function calculatePvPStats(playerDoc) {
   };
 }
 
-// ==========================================
-// OBTENER DATOS DEL DUELO E INICIALIZAR
-// ==========================================
-router.get('/duel-data', async (req, res) => {
-  try {
-    const { duelId, userId } = req.query;
-    if (!duelId || !userId) return res.status(400).json({ error: 'Faltan parámetros' });
-
-    const duel = await Duel.findById(duelId);
-    if (!duel) return res.status(404).json({ error: 'Duelo no encontrado' });
-
-    if (duel.status === 'open' || duel.status === 'cancelled') {
-      return res.status(400).json({ error: 'El duelo no está activo' });
-    }
-
-    // Inicializar el estado de combate si no existe
-    if (!duel.gameState) {
-      const creator = await Player.findOne({ userId: duel.creatorId });
-      const opponent = await Player.findOne({ userId: duel.opponentId });
-
-      if (!creator || !opponent) return res.status(404).json({ error: 'Jugador no encontrado' });
-
-      duel.gameState = {
-        turn: duel.creatorId, // El creador empieza
-        p1: calculatePvPStats(creator),
-        p2: calculatePvPStats(opponent),
-        log: ['⚔️ ¡El duelo ha comenzado!']
-      };
-      await duel.save();
-    }
-
-    // Determinar quién es el jugador local y quién el rival para el frontend
-    const isP1 = parseInt(userId) === duel.gameState.p1.id;
-    const hero = isP1 ? duel.gameState.p1 : duel.gameState.p2;
-    const enemy = isP1 ? duel.gameState.p2 : duel.gameState.p1;
-
-    res.json({
-      duelId: duel._id,
-      status: duel.status,
-      turn: duel.gameState.turn,
-      hero,
-      enemy,
-      log: duel.gameState.log
-    });
-  } catch (err) {
-    console.error('Error en /duel-data:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
-
-// ==========================================
-// PROCESAR TURNO Y ATAQUES
-// ==========================================
-router.post('/action', async (req, res) => {
-  try {
-    const { duelId, userId, actionType } = req.body;
-    const duel = await Duel.findById(duelId);
-    
-    if (!duel || duel.status !== 'active') {
-      return res.status(400).json({ error: 'Duelo no válido o ya finalizado' });
-    }
-
-    const state = duel.gameState;
-    if (state.turn !== parseInt(userId)) {
-      return res.status(403).json({ error: 'No es tu turno' });
-    }
-
-    const isP1 = parseInt(userId) === state.p1.id;
-    const attacker = isP1 ? state.p1 : state.p2;
-    const defender = isP1 ? state.p2 : state.p1;
-
-    let dmg = 0;
-    let logMsg = '';
-    let manaCost = 0;
-    let isCrit = false;
-
-    // Lógica de acciones
-    if (actionType === 'basic') {
-      manaCost = 1;
-      dmg = Math.round(attacker.pvpDmg * 0.5); // Básico hace la mitad del daño PvP
-      logMsg = `⚔️ ${attacker.name} usó Ataque Básico.`;
-    } else if (actionType === 'weapon') {
-      manaCost = 2;
-      dmg = attacker.pvpDmg;
-      logMsg = `🗡️ ${attacker.name} usó el ataque de su arma.`;
-    } else if (actionType === 'skill') {
-      manaCost = 3;
-      dmg = Math.round(attacker.pvpDmg * 1.5);
-      logMsg = `🔥 ${attacker.name} desató su Habilidad Especial.`;
-    } else if (actionType === 'accessory') {
-      manaCost = 2;
-      attacker.shield += 30;
-      attacker.hp = Math.min(attacker.maxHp, attacker.hp + 20);
-      logMsg = `💍 ${attacker.name} activó su accesorio (+30 Escudo, +20 HP).`;
-    } else if (actionType === 'pass') {
-      logMsg = `⏳ ${attacker.name} pasó su turno.`;
-    }
-
-    if (attacker.mana < manaCost) {
-      return res.status(400).json({ error: 'Maná insuficiente' });
-    }
-
-    // Aplicar costos e impactos
-    attacker.mana -= manaCost;
-
-    if (dmg > 0) {
-      // Críticos
-      if (Math.random() < attacker.critChance) {
-        dmg = Math.round(dmg * 1.4);
-        isCrit = true;
-        logMsg += ' ¡CRÍTICO!';
+module.exports = (bot) => {
+  router.get('/duel-data', async (req, res) => {
+    try {
+      const { duelId, userId } = req.query;
+      const uid = parseInt(userId);
+      const duel = await Duel.findById(duelId);
+      
+      if (!duel) return res.status(404).json({ error: 'Duelo no encontrado' });
+      if (duel.status === 'completed' || duel.status === 'cancelled') {
+        return res.json({ status: duel.status, gameState: duel.gameState });
       }
 
-      // Mitigación de armadura
-      let finalDmg = Math.round(dmg * (1 - defender.dmgReduction));
-
-      // Escudo con multiplicador de Quiebra-Escudos (Pico)
-      if (defender.shield > 0) {
-        const shieldDmg = Math.round(finalDmg * attacker.shieldMult);
-        if (defender.shield >= shieldDmg) {
-          defender.shield -= shieldDmg;
-          finalDmg = 0;
-        } else {
-          const absorbed = Math.ceil(defender.shield / attacker.shieldMult);
-          finalDmg = Math.max(0, finalDmg - absorbed);
-          defender.shield = 0;
+      // Verificación de cancelación por inactividad (30s)
+      if (duel.acceptedAt && duel.status === 'open') {
+        const timeElapsed = Date.now() - new Date(duel.acceptedAt).getTime();
+        if (timeElapsed > 30000 && duel.readyPlayers.length < 2) {
+          duel.status = 'cancelled';
+          await duel.save();
+          
+          // Devolver apuestas
+          const p1 = await Player.findOne({ userId: duel.creatorId });
+          const p2 = await Player.findOne({ userId: duel.opponentId });
+          if (duel.mode === 'gold') {
+            if (p1) { p1.gold = (p1.gold || 0) + duel.betAmount; await p1.save(); }
+            if (p2) { p2.gold = (p2.gold || 0) + duel.betAmount; await p2.save(); }
+          } else if (duel.mode === 'gram') {
+            if (p1) { p1.gram = (p1.gram || 0) + duel.betAmount; await p1.save(); }
+            if (p2) { p2.gram = (p2.gram || 0) + duel.betAmount; await p2.save(); }
+          }
+          
+          try {
+            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque el rival no entró a tiempo. Apuesta devuelta.`);
+            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no entrar a tiempo. Apuesta devuelta.`);
+          } catch(e) {}
+          
+          return res.json({ status: 'cancelled' });
         }
       }
 
-      // Daño final a HP
-      if (finalDmg > 0) {
-        defender.hp = Math.max(0, defender.hp - finalDmg);
+      // Añadir jugador a la lista de listos
+      if (!duel.readyPlayers.includes(uid)) {
+        duel.readyPlayers.push(uid);
+        if (duel.readyPlayers.length === 2 && duel.status === 'open') {
+          duel.status = 'active';
+        }
+        await duel.save();
       }
 
-      // Robo de vida (Cetro de Malakor)
-      if (attacker.lifesteal > 0 && finalDmg > 0) {
-        const heal = Math.round(finalDmg * attacker.lifesteal);
-        attacker.hp = Math.min(attacker.maxHp, attacker.hp + heal);
+      // Si aún falta uno, enviar estado de espera
+      if (duel.readyPlayers.length < 2) {
+        return res.json({ status: 'waiting' });
       }
+
+      if (!duel.gameState) {
+        const creator = await Player.findOne({ userId: duel.creatorId });
+        const opponent = await Player.findOne({ userId: duel.opponentId });
+        duel.gameState = {
+          turn: duel.creatorId,
+          p1: calculatePvPStats(creator),
+          p2: calculatePvPStats(opponent),
+          log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
+        };
+        await duel.save();
+      }
+
+      const isP1 = uid === duel.gameState.p1.id;
+      res.json({
+        duelId: duel._id,
+        status: duel.status,
+        turn: duel.gameState.turn,
+        hero: isP1 ? duel.gameState.p1 : duel.gameState.p2,
+        enemy: isP1 ? duel.gameState.p2 : duel.gameState.p1,
+        log: duel.gameState.log
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Error del servidor' });
     }
+  });
 
-    state.log.push(logMsg);
+  router.post('/action', async (req, res) => {
+    try {
+      const { duelId, userId, actionType } = req.body;
+      const duel = await Duel.findById(duelId);
+      
+      if (!duel || duel.status !== 'active') return res.status(400).json({ error: 'Duelo inactivo' });
+      
+      const state = duel.gameState;
+      if (state.turn !== parseInt(userId)) return res.status(403).json({ error: 'No es tu turno' });
 
-    // Revisar fin del combate
-    if (defender.hp <= 0) {
-      duel.status = 'completed';
-      duel.winnerId = attacker.id;
-      state.log.push(`🏆 ¡${attacker.name} ha ganado el duelo!`);
-      // Nota: La distribución de oro/GRAM se debe hacer aquí o mediante un webhook interno
-    } else {
-      // Cambio de turno si el jugador pasa, o si se queda en 0 mana
-      if (actionType === 'pass' || attacker.mana === 0) {
-        state.turn = defender.id;
-        defender.mana = defender.maxMana; // Recargar maná del defensor al iniciar su turno
+      const isP1 = parseInt(userId) === state.p1.id;
+      const attacker = isP1 ? state.p1 : state.p2;
+      const defender = isP1 ? state.p2 : state.p1;
+
+      let dmg = 0; let logMsg = ''; let manaCost = 0;
+
+      if (actionType === 'basic') {
+        manaCost = 1; dmg = Math.round(attacker.pvpDmg * 0.5);
+        logMsg = `⚔️ ${attacker.name} usó Golpe Rápido.`;
+      } else if (actionType === 'weapon') {
+        manaCost = 2; dmg = attacker.pvpDmg;
+        logMsg = `🗡️ ${attacker.name} atacó con su arma.`;
+      } else if (actionType === 'skill') {
+        manaCost = 3; dmg = Math.round(attacker.pvpDmg * 1.5);
+        logMsg = `💥 ${attacker.name} ejecutó Golpe Fuerte.`;
+      } else if (actionType === 'accessory') {
+        if (attacker.accessory === 'none') return res.status(400).json({ error: 'No tienes accesorio' });
+        manaCost = 2; attacker.shield += 30; attacker.hp = Math.min(attacker.maxHp, attacker.hp + 20);
+        logMsg = `💍 ${attacker.name} activó su accesorio (+30 Escudo, +20 HP).`;
+      } else if (actionType === 'pass') {
+        logMsg = `⏳ ${attacker.name} pasó su turno.`;
       }
+
+      if (attacker.mana < manaCost) return res.status(400).json({ error: 'Maná insuficiente' });
+      attacker.mana -= manaCost;
+
+      if (dmg > 0) {
+        let isCrit = Math.random() < attacker.critChance;
+        if (isCrit) { dmg = Math.round(dmg * 1.4); logMsg += ' ¡CRÍTICO!'; }
+        
+        let finalDmg = Math.round(dmg * (1 - defender.dmgReduction));
+
+        if (defender.shield > 0) {
+          const shieldDmg = Math.round(finalDmg * attacker.shieldMult);
+          if (defender.shield >= shieldDmg) { defender.shield -= shieldDmg; finalDmg = 0; }
+          else {
+            const absorbed = Math.ceil(defender.shield / attacker.shieldMult);
+            finalDmg = Math.max(0, finalDmg - absorbed); defender.shield = 0;
+          }
+        }
+
+        if (finalDmg > 0) defender.hp = Math.max(0, defender.hp - finalDmg);
+        
+        if (attacker.lifesteal > 0 && finalDmg > 0) {
+          attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(finalDmg * attacker.lifesteal));
+        }
+      }
+
+      state.log.push(logMsg);
+
+      if (defender.hp <= 0) {
+        duel.status = 'completed';
+        duel.winnerId = attacker.id;
+        state.log.push(`🏆 ¡${attacker.name} ha ganado!`);
+
+        // Entrega de apuestas y Notificación Telegram
+        const winnerDoc = await Player.findOne({ userId: attacker.id });
+        let rewardText = "Victoria amistosa.";
+        
+        if (duel.mode !== 'friendly' && winnerDoc) {
+          const totalPot = duel.betAmount * 2;
+          if (duel.mode === 'gold') {
+            const net = Math.floor(totalPot * 0.95);
+            winnerDoc.gold = (winnerDoc.gold || 0) + net;
+            rewardText = `Ganó ${net} de Oro (Pozo con 5% de quema).`;
+          } else if (duel.mode === 'gram') {
+            let fee = totalPot * 0.08;
+            if (fee < 0.02 && totalPot > 0) fee = 0.02;
+            const net = totalPot - fee;
+            winnerDoc.gram = (winnerDoc.gram || 0) + net;
+            rewardText = `Ganó ${net.toFixed(3)} GRAM (Comisión aplicada).`;
+          }
+          await winnerDoc.save();
+        }
+
+        try {
+          const msg = `🏆 *RESULTADO DE LA ARENA*\n\n👑 *Ganador:* ${attacker.name}\n💀 *Derrotado:* ${defender.name}\n💰 *Botín:* ${rewardText}`;
+          bot.telegram.sendMessage(attacker.id, msg, { parse_mode: 'Markdown' });
+          bot.telegram.sendMessage(defender.id, msg, { parse_mode: 'Markdown' });
+        } catch(e) {}
+
+      } else if (actionType === 'pass' || attacker.mana === 0) {
+        state.turn = defender.id; defender.mana = defender.maxMana;
+      }
+
+      duel.markModified('gameState');
+      await duel.save();
+      res.json({ success: true, gameState: duel.gameState, status: duel.status });
+    } catch (err) {
+      res.status(500).json({ error: 'Error procesando acción' });
     }
+  });
 
-    // Guardar cambios forzando a Mongoose a notar el cambio en el objeto
-    duel.markModified('gameState');
-    await duel.save();
-
-    res.json({ success: true, gameState: duel.gameState, status: duel.status });
-  } catch (err) {
-    console.error('Error en /action:', err);
-    res.status(500).json({ error: 'Error al procesar la acción' });
-  }
-});
-
-module.exports = router;
+  return router;
+};
