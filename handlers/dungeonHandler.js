@@ -40,49 +40,52 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
   const strVal = p.strength || 0;
 
   // ==========================================
-  // RESOLUCIÓN EXCLUSIVA: YACIMIENTO DE KHAZUR
+  // RESOLUCIÓN DE FRONTERAS (KHAZUR, ARBOLEDA, COTO)
   // ==========================================
-  if (dungeon.id === 'yacimiento_khazur') {
+  if (dungeon.isBorder) {
+    const isKhazur = dungeon.id === 'yacimiento_khazur';
+    const isArboleda = dungeon.id === 'arboleda_susurros';
+    const isCoto = dungeon.id === 'coto_bestias';
     const hasPickaxe = p.equipment && p.equipment.weapon === 'pickaxe_khazur';
 
-    // Selección aleatoria ponderada de golem
-    const rollGolem = Math.random();
-    let enemy = dungeon.enemies[0]; // Autómata Rocoso (50%)
-    if (rollGolem >= 0.50 && rollGolem < 0.85) {
-      enemy = dungeon.enemies[1]; // Guardián Rúnico (35%)
-    } else if (rollGolem >= 0.85) {
-      enemy = dungeon.enemies[2]; // Coloso Protector Ancestral (15%)
+    // Selección aleatoria ponderada del enemigo (50% débil, 35% medio, 15% fuerte)
+    const rollEnemy = Math.random();
+    let enemy = dungeon.enemies[0];
+    if (rollEnemy >= 0.50 && rollEnemy < 0.85) {
+      enemy = dungeon.enemies[1];
+    } else if (rollEnemy >= 0.85) {
+      enemy = dungeon.enemies[2];
     }
 
     let trapMsg = '';
-    // Trampas activas en el yacimiento (35% de probabilidad)
+    // Trampas activas en las fronteras (35% de probabilidad)
     if (Math.random() < 0.35) {
       const dodgeTrapChance = Math.min(0.50, 0.15 + (agiVal * 0.0035));
       if (Math.random() < dodgeTrapChance) {
-        trapMsg = `🤸 ¡Tus reflejos de Agilidad te permitieron esquivar una trampa rúnica en la cantera!\n\n`;
+        trapMsg = `🤸 ¡Tus reflejos de Agilidad te permitieron esquivar una trampa en la frontera!\n\n`;
       } else {
         const rawTrapDmg = Math.floor(Math.random() * 16) + 10;
         const strMitigationRatio = (strVal / (strVal + 60)) * 0.25;
         const finalTrapDmg = Math.max(5, Math.round(rawTrapDmg * (1 - strMitigationRatio)));
         p.hp = Math.max(0, p.hp - finalTrapDmg);
-        trapMsg = `⚠️ ¡Activaste una trampa ancestral de estacas y perdiste ${finalTrapDmg} HP!\n\n`;
+        trapMsg = `⚠️ ¡Activaste una trampa ancestral y perdiste ${finalTrapDmg} HP!\n\n`;
       }
     }
 
     if (p.hp <= 0) {
       const lostExp = p.applyDeathPenalty();
       p.knockedOutUntil = Date.now() + 2 * 60 * 60 * 1000;
-      return `${trapMsg}💀 Las trampas del yacimiento fueron demoledoras y caíste inconsciente antes de alcanzar las vetas.\n` +
+      return `${trapMsg}💀 Las trampas de la frontera fueron demoledoras y caíste inconsciente antes del combate.\n` +
              `⏳ Espera 2 horas para despertar o usa pociones para reponerte.\n` +
              `⚠️ Perdiste ${lostExp} de EXP acumulada.`;
     }
 
     // Comportamiento reactivo de asaltos
-    let hitsCount = 3;
+    let hitsCount = enemy.hits || 3;
     let fourthHitActivated = false;
 
-    // Si tiene el pico equipado, 40% de probabilidad de desatar un 4.º golpe adicional
-    if (hasPickaxe && Math.random() < 0.40) {
+    // Si tiene el pico equipado en Khazur, 40% de probabilidad de desatar un 4.º golpe adicional del Coloso
+    if (isKhazur && hasPickaxe && Math.random() < 0.40) {
       hitsCount = 4;
       fourthHitActivated = true;
     }
@@ -91,7 +94,6 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     let dodgedHits = 0;
 
     for (let i = 0; i < hitsCount; i++) {
-      // Esquiva parcial por golpe: nunca puede esquivar el 100% de la ráfaga
       const dodgeChance = Math.min(0.30, agiVal * 0.0025);
       if (Math.random() < dodgeChance && dodgedHits < (hitsCount - 1)) {
         dodgedHits++;
@@ -100,11 +102,9 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
       }
     }
 
-    // Mitigación por Fuerza (hasta un 25%)
     const strMitigationRatio = Math.min(0.25, (strVal / 100) * 0.25);
     let mitigatedCombatDmg = Math.round(rawCombatDmg * (1 - strMitigationRatio));
 
-    // Suerte: Golpe crítico afortunado
     const critChance = Math.min(0.25, 0.05 + (luckVal * 0.002));
     let isCrit = false;
     let critMsg = '';
@@ -112,7 +112,7 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     if (rawCombatDmg > 0 && Math.random() < critChance) {
       isCrit = true;
       mitigatedCombatDmg = Math.round(mitigatedCombatDmg * 0.70);
-      critMsg = `✨ ¡Asestaste un *Golpe Crítico Afortunado*! Desestabilizaste los núcleos rúnicos del golem (+20% EXP).\n`;
+      critMsg = `✨ ¡Asestaste un *Golpe Crítico Afortunado*! Desestabilizaste al oponente (+20% EXP).\n`;
     }
 
     const totalCombatDmg = Math.max(15, mitigatedCombatDmg);
@@ -122,17 +122,16 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
       const lostExp = p.applyDeathPenalty();
       p.knockedOutUntil = Date.now() + 2 * 60 * 60 * 1000;
 
-      return `${trapMsg}⛏️ *Yacimiento Olvidado de Khazur:*\n\n` +
+      return `${trapMsg}🗺️ *Expedición a la Frontera:*\n\n` +
              `Fuiste pulverizado por la embestida de un *${enemy.name}*.\n` +
              `💥 Daño total recibido: *${totalCombatDmg} HP* (${hitsCount} asaltos)` + (dodgedHits > 0 ? ` [Esquivaste ${dodgedHits}]` : '') + `\n` +
-             (fourthHitActivated ? `⚠️ _¡El Coloso detectó la vibración del Pico de Khazur y ejecutó un 4.º asalto extra!_\n` : '') +
+             (fourthHitActivated ? `⚠️ _¡El enemigo reaccionó a tu equipo y ejecutó un asalto extra!_\n` : '') +
              `💀 ¡Has quedado inconsciente!\n` +
              `⏳ No podrás explorar durante las próximas 2 horas.\n` +
              `⚠️ Perdiste ${lostExp} de EXP acumulada.\n` +
-             `No pudiste asegurar ningún mineral en tu huida.`;
+             `No pudiste asegurar ningún botín en tu huida.`;
     }
 
-    // Cálculo de recompensas por victoria
     const baseGold = Math.floor(Math.random() * (enemy.maxGold - enemy.minGold + 1)) + enemy.minGold;
     const maxStrBonus = Math.floor(enemy.maxGold * 0.5);
     const strBonus = Math.min(strVal, maxStrBonus);
@@ -145,44 +144,78 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
     const leveledUp = p.addExp(expGained);
     const dropMsg = rollDungeonDrops(dungeon, p, recordDrop);
 
-    // Sistema de Minería (Exclusivo con Pico de Khazur)
-    let miningMsg = '';
-    if (hasPickaxe) {
-      const colosoBonus = enemy.isColoso ? 0.05 : 0.0;
-      // Hierro: 15% base hasta 25% con suerte al máximo (+5% bono de coloso)
-      const ironChance = 0.15 + Math.min(0.10, (luckVal / 100) * 0.10) + colosoBonus;
-      // Hierro Ancestral: 5% base hasta 15% con suerte al máximo (+5% bono de coloso)
-      const ancestralChance = 0.05 + Math.min(0.10, (luckVal / 100) * 0.10) + colosoBonus;
+    // ==========================================
+    // RECOLECCIÓN DE RECURSOS DE FRONTERA
+    // ==========================================
+    let extraLootMsg = '';
+    const lootedItems = [];
+    const bonusLuck = Math.min(0.10, (luckVal / 100) * 0.10);
 
-      const minedItems = [];
-      if (Math.random() < ironChance) {
-        p.ironOre = (p.ironOre || 0) + 1;
-        minedItems.push('🪨 +1 Mena de Hierro');
-      }
-      if (Math.random() < ancestralChance) {
-        p.ancestralIronOre = (p.ancestralIronOre || 0) + 1;
-        minedItems.push('✨ +1 Mena de Hierro Ancestral');
-      }
+    if (isKhazur) {
+      if (hasPickaxe) {
+        const colosoBonus = enemy.isColoso ? 0.05 : 0.0;
+        const ironChance = 0.15 + bonusLuck + colosoBonus;
+        const ancestralChance = 0.05 + bonusLuck + colosoBonus;
 
-      if (minedItems.length > 0) {
-        miningMsg = `\n\n⛏️ *Extracción Minera con éxito:*\n${minedItems.join('\n')}`;
+        if (Math.random() < ironChance) {
+          p.ironOre = (p.ironOre || 0) + 1;
+          lootedItems.push('🪨 +1 Mena de Hierro');
+        }
+        if (Math.random() < ancestralChance) {
+          p.ancestralIronOre = (p.ancestralIronOre || 0) + 1;
+          lootedItems.push('✨ +1 Mena de Hierro Ancestral');
+        }
+        extraLootMsg = lootedItems.length > 0 
+          ? `\n\n⛏️ *Extracción Minera:*\n${lootedItems.join('\n')}` 
+          : `\n\n⛏️ _Picaste las rocas pero no lograste desprender mineral._`;
       } else {
-        miningMsg = `\n\n⛏️ _Picaste las rocas pero no lograste desprender ninguna mena valiosa esta vez._`;
+        extraLootMsg = `\n\n💡 _No llevabas el Pico de Khazur equipado. No pudiste extraer minerales._`;
       }
-    } else {
-      miningMsg = `\n\n💡 _No llevabas el Pico de Khazur equipado. No pudiste extraer minerales de las vetas._`;
+    } else if (isArboleda) {
+      // Recolección de Ruta (Base 10%)
+      if (Math.random() < (0.10 + bonusLuck)) {
+        p.mysticWood = (p.mysticWood || 0) + 1;
+        lootedItems.push('🪵 +1 Madera Mística');
+      }
+      // Drop de Élite
+      if (enemy.isElite && Math.random() < (0.05 + bonusLuck)) {
+        p.spectralSilk = (p.spectralSilk || 0) + 1;
+        lootedItems.push('👻 +1 Seda Espectral');
+      }
+      extraLootMsg = lootedItems.length > 0 
+        ? `\n\n🔮 *Recolección Arcana:*\n${lootedItems.join('\n')}` 
+        : `\n\n🔮 _Buscaste entre la maleza pero no hallaste nada de valor._`;
+    } else if (isCoto) {
+      // Recolección de Ruta (Base 10%)
+      if (Math.random() < (0.10 + bonusLuck)) {
+        p.darkYewBranch = (p.darkYewBranch || 0) + 1;
+        lootedItems.push('🌿 +1 Rama de Tejo Oscuro');
+      }
+      // Drop de Élite
+      if (enemy.isElite) {
+        if (enemy.name.includes('Lobo') && Math.random() < (0.05 + bonusLuck)) {
+          p.alphaFang = (p.alphaFang || 0) + 1;
+          lootedItems.push('🐺 +1 Colmillo Alfa');
+        } else if (enemy.name.includes('Quimera') && Math.random() < (0.05 + bonusLuck)) {
+          p.chimeraHide = (p.chimeraHide || 0) + 1;
+          lootedItems.push('🦁 +1 Piel de Quimera');
+        }
+      }
+      extraLootMsg = lootedItems.length > 0 
+        ? `\n\n🐾 *Rastreo de Bestias:*\n${lootedItems.join('\n')}` 
+        : `\n\n🐾 _Rastreaste el coto pero los restos eran inservibles._`;
     }
 
-    return `${trapMsg}⛏️ *Yacimiento Olvidado de Khazur:*\n\n` +
+    return `${trapMsg}🗺️ *${dungeon.name}:*\n\n` +
            critMsg +
-           `Destruiste al autómata: *${enemy.name}*.\n` +
+           `Derrotaste a la amenaza: *${enemy.name}*.\n` +
            `💥 Daño recibido: *${totalCombatDmg} HP* (${hitsCount} asaltos)` + (dodgedHits > 0 ? ` [Esquivaste ${dodgedHits}]` : '') + `\n` +
-           (fourthHitActivated ? `⚠️ _¡El Coloso reaccionó a tu pico y lanzó un 4.º asalto con furia!_\n` : '') +
+           (fourthHitActivated ? `⚠️ _¡El oponente se enfureció y lanzó un asalto extra!_\n` : '') +
            `❤️ Salud restante: ${p.hp}/${p.maxHp} HP\n` +
            `💰 Oro: +${goldGained} (Bono Fuerza: +${strBonus})\n` +
            `🔮 EXP: +${expGained}` +
            dropMsg +
-           miningMsg +
+           extraLootMsg +
            (leveledUp ? `\n\n🎉 *¡SUBISTE DE NIVEL!* Pasaste a Nivel ${p.level}. ¡Salud y Energía restauradas al 100%!` : '');
   }
 
@@ -220,7 +253,7 @@ function resolveExpeditionCombat(p, dungeon, recordDrop) {
       } else {
         const trapDmg = Math.floor(Math.random() * 8) + 5;
         p.hp = Math.max(0, p.hp - trapDmg);
-        trapMsg = `⚠️ ¡Pisaste una trampa de pinchos y perdiste ${trapDmg} HP antes del combate!\n\n`;
+        trapMsg = `⚠️ ¡Pisaste una trampa y perdiste ${trapDmg} HP antes del combate!\n\n`;
       }
     }
 
@@ -328,23 +361,21 @@ function registerDungeonHandlers(bot, deps) {
 
     let text = '🗺️ *FRONTERAS DEL REINO DE ABYSS* 🗺️\n\n' +
                'Más allá de las empalizadas de la ciudadela se extienden territorios peligrosos y olvidados, custodiados por la guardia real:\n\n' +
-               '• ⛏️ *Yacimiento Olvidado de Khazur (Muy Difícil)* — Coste: 5 ⚡ | Viaje: 2m (Golems colosales + Minería + Trampas)\n\n' +
+               '• ⛏️ *Yacimiento de Khazur* — Coste: 5 ⚡ (Minería Pesada)\n' +
+               '• 🔮 *Arboleda de los Susurros* — Coste: 5 ⚡ (Materiales Arcanos)\n' +
+               '• 🐾 *Coto de las Bestias* — Coste: 5 ⚡ (Caza y Cuero)\n\n' +
                '• *Permiso Fronterizo:* ' + (player.hasBorderPermit ? '✅ Autorizado' : '❌ Requerido (Herrería Real)') + '\n' +
                '⚠️ _Si tu vida cae a 0, quedarás inconsciente durante 2 horas._\n\n' +
                'Selecciona un territorio a explorar:';
 
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('⛏️ Yacimiento Olvidado de Khazur (2m)', 'go_khazur')],
-      [Markup.button.callback('🔒 ??? (Próximamente)', 'border_locked')],
-      [Markup.button.callback('🔒 ??? (Próximamente)', 'border_locked')],
-      [Markup.button.callback('⬅️ Volver a Cercanías del Reino', 'menu_dungeons')]
+      [Markup.button.callback('⛏️ Yacimiento de Khazur (2m)', 'go_khazur')],
+      [Markup.button.callback('🔮 Arboleda de los Susurros (2m)', 'go_arboleda')],
+      [Markup.button.callback('🐾 Coto de las Bestias Sombrías (2m)', 'go_coto')],
+      [Markup.button.callback('⬅️ Volver a Cercanías', 'menu_dungeons')]
     ]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
-  });
-
-  bot.action('border_locked', async (ctx) => {
-    return await safeAnswerCb(ctx, 'Territorio inexplorado. Se habilitará en próximas expansiones.', true);
   });
 
   async function startExpedition(ctx, dungeonKey) {
@@ -364,7 +395,6 @@ function registerDungeonHandlers(bot, deps) {
         return await safeAnswerCb(ctx, '⚠️ Destino no encontrado.', true);
       }
 
-      // Validación de Permiso para zonas de frontera
       if (dungeon.requiresPermit && !player.hasBorderPermit) {
         return await safeAnswerCb(ctx, '⛔ La guardia real bloquea el paso: requieres el Permiso de Exploración de la Herrería Real.', true);
       }
@@ -421,7 +451,7 @@ function registerDungeonHandlers(bot, deps) {
 
             const returnButtons = targetDungeon.isBorder
               ? [
-                  [Markup.button.callback('⛏️ Explorar Fronteras de Nuevo', 'menu_borders')],
+                  [Markup.button.callback('🗺️ Explorar Fronteras de Nuevo', 'menu_borders')],
                   [Markup.button.callback('🏕️ Ir al Campamento', 'status')]
                 ]
               : [
@@ -453,6 +483,8 @@ function registerDungeonHandlers(bot, deps) {
   bot.action('go_cripta', (ctx) => startExpedition(ctx, 'cripta'));
   bot.action('go_dragon', (ctx) => startExpedition(ctx, 'dragon'));
   bot.action('go_khazur', (ctx) => startExpedition(ctx, 'yacimiento_khazur'));
+  bot.action('go_arboleda', (ctx) => startExpedition(ctx, 'arboleda_susurros'));
+  bot.action('go_coto', (ctx) => startExpedition(ctx, 'coto_bestias'));
 }
 
 module.exports = {
