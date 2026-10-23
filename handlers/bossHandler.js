@@ -76,7 +76,7 @@ function registerBossHandlers(bot, deps) {
     } else if (bossType === 'vaelgathar') {
       narrative = 'Ríos de lava viva brotan de las fallas terrestres y un rugido ensordecedor resquebraja las montañas. El dragón milenario *' + bossName + '* desciende envuelto en llamas eternas.\n\n';
     } else {
-      narrative = 'El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo nuestros pies. Las antiguas leyendas no mentían: *' + bossName + '* está abriendo los ojos tras milenios de letargo.\n\n';
+      narrative = 'El firmamento se tiñe de carmesí y los cimientos de la tierra se quiebran bajo retro pies. Las antiguas leyendas no mentían: *' + bossName + '* está abriendo los ojos tras milenios de letargo.\n\n';
     }
 
     return '⚡🌋 *¡UNA CATÁSTROFE ANCESTRAL SE AVECINA!*\n\n' +
@@ -445,6 +445,12 @@ function registerBossHandlers(bot, deps) {
       return await safeAnswerCb(ctx, 'Necesitas al menos 2 puntos de Energía para asaltar al Jefe.', true);
     }
 
+    const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { maxHp: player.maxHp, str: player.strength, agi: player.agility, luck: player.luck, damageBonus: 0, defBonus: 0, extraCritChance: 0, dmgType: 'physical', defType: 'balanced' };
+    
+    const str = stats.str || 0;
+    const luk = stats.luck || 0;
+    const agi = stats.agi || 0;
+
     const sessionConfirmed = (confirmedBossWarning.get(userId) === String(boss._id));
     const isVulnerable = (player.hp <= (boss.bossType === 'vaelgathar' ? 120 : boss.maxDmg));
 
@@ -469,21 +475,24 @@ function registerBossHandlers(bot, deps) {
     }
 
     player.energy -= 2;
-    const str = player.strength || 0;
-    const luk = player.luck || 0;
-    const agi = player.agility || 0;
 
-    // Daño del jugador
-    const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
+    // Daño del jugador con bono de arma
+    const dañoBase = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3) + (stats.damageBonus * 3);
     const variation = (Math.random() * 0.40) - 0.20;
     let playerDmg = Math.round(dañoBase * (1 + variation));
 
-    // Resistencia física del dragón Vaelgathar (-15% daño físico recibido)
-    if (boss.resistanceType === 'physical') {
-      playerDmg = Math.round(playerDmg * 0.85);
+    // Resistencia del Jefe
+    if (boss.resistanceType === 'physical' && stats.dmgType !== 'elemental') {
+      playerDmg = Math.round(playerDmg * 0.85); // Resiste daño físico
+    } else if (boss.resistanceType === 'magical' && stats.dmgType === 'elemental') {
+      playerDmg = Math.round(playerDmg * 0.85); // Resiste daño mágico
+    } else if (boss.resistanceType === 'physical' && stats.dmgType === 'elemental') {
+      playerDmg = Math.round(playerDmg * 1.15); // Vulnerable a magia
+    } else if (boss.resistanceType === 'magical' && stats.dmgType !== 'elemental') {
+      playerDmg = Math.round(playerDmg * 1.15); // Vulnerable a físico
     }
 
-    const critChance = Math.min(0.30, (luk * 0.0025));
+    const critChance = Math.min(0.30, (luk * 0.0025)) + stats.extraCritChance;
     let isCrit = false;
     if (Math.random() < critChance) {
       isCrit = true;
@@ -553,6 +562,17 @@ function registerBossHandlers(bot, deps) {
     // Mitigación por Fuerza del jugador (hasta 40%)
     const strMitigationRatio = (str / (str + 60)) * 0.40;
     let mitigatedDmg = Math.round(rawBossTotal * (1 - strMitigationRatio));
+    
+    // Mitigación por tipo de armadura
+    if (boss.damageType === 'Mágico' && stats.defType === 'physical_resist') {
+      mitigatedDmg = Math.round(mitigatedDmg * 1.25); // Guerrero sufre contra magia
+    } else if (boss.damageType === 'Físico' && stats.defType === 'elemental_resist') {
+      mitigatedDmg = Math.round(mitigatedDmg * 1.25); // Mago sufre contra físico
+    } else if (boss.damageType === 'Mágico' && stats.defType === 'elemental_resist') {
+      mitigatedDmg = Math.round(mitigatedDmg * 0.85); // Mago resiste magia
+    } else if (boss.damageType === 'Físico' && stats.defType === 'physical_resist') {
+      mitigatedDmg = Math.round(mitigatedDmg * 0.85); // Guerrero resiste físico
+    }
 
     let grazed = false;
     const grazeChance = Math.min(0.40, agi * 0.004);
@@ -560,8 +580,11 @@ function registerBossHandlers(bot, deps) {
       grazed = true;
       mitigatedDmg = Math.round(mitigatedDmg * 0.50);
     }
+    
+    // Absorción plana de Escudo y pasivas
+    mitigatedDmg = Math.max(0, mitigatedDmg - stats.defBonus);
 
-    const minAllowed = Math.round(rawBossTotal * 0.30);
+    const minAllowed = Math.round(rawBossTotal * 0.20);
     const finalDamageTaken = Math.max(minAllowed, mitigatedDmg);
 
     player.hp = Math.max(0, player.hp - finalDamageTaken);
@@ -579,18 +602,17 @@ function registerBossHandlers(bot, deps) {
     await boss.save();
     await safeAnswerCb(ctx);
 
-    const playerMaxEnergy = player.maxEnergy || MAX_ENERGY;
+    const playerMaxEnergy = stats.maxEnergy || MAX_ENERGY;
 
     let combatReport = `⚔️ *Asalto contra ${boss.name}*\n\n` +
                        (isCrit ? `✨ *¡Golpe Crítico Devastador!* (1.4x)\n` : '') +
-                       (boss.resistanceType === 'physical' ? `🛡️ _Las escamas de obsidiana del dragón absorbieron parte de tu daño._\n` : '') +
                        `💥 Daño infligido: *${playerDmg.toLocaleString()} puntos*\n\n` +
                        `🛡️ *Ataque recibido (${attacksTaken} asalto/s):*\n` +
                        (bossCritsLanded > 0 ? `⚡ _¡Malakor canalizó ${bossCritsLanded} impacto(s) crítico(s) arcano(s)! (+40%)_\n` : '') +
                        `• Daño original: ${rawBossTotal}\n` +
                        (grazed ? `🤸 ¡Impacto rozante de Agilidad! (-50%)\n` : '') +
                        `• Daño final recibido: *${finalDamageTaken} HP*\n` +
-                       `❤️ Tu salud: *${player.hp}/${player.maxHp} HP*\n` +
+                       `❤️ Tu salud: *${player.hp}/${stats.maxHp} HP*\n` +
                        `⚡ Tu energía: *${player.energy}/${playerMaxEnergy}*\n` +
                        `❤️ Salud del Jefe: *${boss.currentHp.toLocaleString()}/${boss.maxHp.toLocaleString()} HP*` +
                        knockOutMsg;
