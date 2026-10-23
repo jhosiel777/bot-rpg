@@ -18,7 +18,6 @@ const ARMOR_STATS = {
   none: { reduction: 0, startShield: 0 }
 };
 
-// Blindaje: Valores por defecto (||) para evitar que Math.sqrt o Math.pow crasheen el servidor
 function calculatePvPStats(playerDoc) {
   const stats = typeof playerDoc.getCombatStats === 'function' 
     ? playerDoc.getCombatStats() 
@@ -59,6 +58,7 @@ function calculatePvPStats(playerDoc) {
 
 module.exports = (bot) => {
   
+  // 1. RUTA ESTRICTA DE SOLO LECTURA (Cero modificaciones a los jugadores aquí)
   router.get('/duel-data', async (req, res) => {
     try {
       const { duelId, userId } = req.query;
@@ -66,11 +66,11 @@ module.exports = (bot) => {
       const duel = await Duel.findById(duelId);
       
       if (!duel) return res.status(404).json({ error: 'Duelo no encontrado' });
+      
       if (duel.status === 'completed' || duel.status === 'cancelled') {
         return res.json({ status: duel.status, gameState: duel.gameState });
       }
 
-      // Tiempo de espera aumentado a 60 segundos (60000 ms) para evitar cancelaciones tempranas en pruebas
       if (duel.acceptedAt && duel.status === 'open') {
         const timeElapsed = Date.now() - new Date(duel.acceptedAt).getTime();
         if (timeElapsed > 60000 && duel.readyPlayers.length < 2) {
@@ -88,8 +88,8 @@ module.exports = (bot) => {
           }
           
           try {
-            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque el rival no estuvo listo a tiempo. Apuesta devuelta.`);
-            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no estar listos a tiempo. Apuesta devuelta.`);
+            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque no estuvieron listos a tiempo.`);
+            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no estar listos a tiempo.`);
           } catch(e) {}
           
           return res.json({ status: 'cancelled' });
@@ -114,49 +114,47 @@ module.exports = (bot) => {
     }
   });
 
+  // 2. RUTA QUE INICIA EL COMBATE (Solo se ejecuta al presionar "ESTOY LISTO")
   router.post('/ready', async (req, res) => {
     try {
       const { duelId, userId } = req.body;
       const uid = parseInt(userId, 10);
       const duel = await Duel.findById(duelId);
       
-      if (!duel) return res.json({ success: false, error: 'No duel' });
+      if (!duel) return res.json({ success: false });
 
       if (!duel.readyPlayers) duel.readyPlayers = [];
 
-      // Añadir de forma ultra segura previniendo duplicados
       const yaEstaListo = duel.readyPlayers.some(p => p.toString() === uid.toString());
       if (!yaEstaListo) {
         duel.readyPlayers.push(uid);
-        duel.markModified('readyPlayers');
-        await duel.save();
       }
 
-      // Si ambos están y sigue open, iniciamos la partida
       if (duel.readyPlayers.length >= 2 && duel.status === 'open') {
         const creator = await Player.findOne({ userId: Number(duel.creatorId) });
         const opponent = await Player.findOne({ userId: Number(duel.opponentId) });
 
-        if (creator && opponent) {
-          duel.status = 'active';
-          duel.gameState = {
-            turn: duel.creatorId,
-            p1: calculatePvPStats(creator),
-            p2: calculatePvPStats(opponent),
-            log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
-          };
-          duel.markModified('gameState');
-          await duel.save();
-        }
+        duel.status = 'active';
+        duel.gameState = {
+          turn: duel.creatorId,
+          p1: calculatePvPStats(creator || { userId: duel.creatorId, name: 'P1', maxHp: 100 }),
+          p2: calculatePvPStats(opponent || { userId: duel.opponentId, name: 'P2', maxHp: 100 }),
+          log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
+        };
       }
+      
+      duel.markModified('readyPlayers');
+      duel.markModified('gameState');
+      await duel.save();
       
       res.json({ success: true, status: duel.status });
     } catch (err) {
-      console.error('Error en /ready:', err);
-      res.json({ success: false, error: 'Server error' });
+      console.error(err);
+      res.json({ success: false });
     }
   });
 
+  // 3. RUTA DE ATAQUES
   router.post('/action', async (req, res) => {
     try {
       const { duelId, userId, actionType } = req.body;
