@@ -1,3 +1,4 @@
+// bountyService.js
 const { Markup } = require('telegraf');
 const { PlayerBounty, getTodayUtcString } = require('./bountyModel');
 const { BOUNTY_TIERS, TRAVEL_EVENTS, getTierKey, generateBounty } = require('./bountyData');
@@ -105,8 +106,11 @@ async function getOrCreateDailyBounty(userId, player) {
   let bounty = await PlayerBounty.findOne({ userId, bountyDateUtc: todayUtc });
 
   if (!bounty) {
-    const baseAtk = Math.round(20 + ((player.strength || 0) * 1.2) + Math.floor(Math.sqrt(player.strength || 0) * 3));
-    const generated = generateBounty(player.level, player.maxHp, baseAtk);
+    const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { maxHp: player.maxHp, str: player.strength, damageBonus: 0 };
+    const str = stats.str || 0;
+    const effectiveBaseAtk = Math.round(20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3) + (stats.damageBonus * 3));
+    
+    const generated = generateBounty(player.level, stats.maxHp, effectiveBaseAtk);
 
     bounty = await PlayerBounty.create({
       userId,
@@ -311,10 +315,12 @@ async function getCombatView(ctx) {
     return await renderBountyView(ctx, player, ctx.telegram ? { telegram: ctx.telegram } : null);
   }
 
-  const effectiveMaxEnergy = player.maxEnergy || MAX_ENERGY;
+  const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { maxHp: player.maxHp, maxEnergy: player.maxEnergy };
+  const effectiveMaxHp = stats.maxHp;
+  const effectiveMaxEnergy = stats.maxEnergy || MAX_ENERGY;
 
   const combatText = '⚔️ *Combate contra ' + bounty.enemyName + '*\n\n' +
-                     '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
+                     '❤️ Tu salud: *' + player.hp + '/' + effectiveMaxHp + ' HP*\n' +
                      '⚡ Tu energía: *' + player.energy + '/' + effectiveMaxEnergy + '*\n' +
                      '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
                      '¿Qué decides hacer?';
@@ -545,9 +551,10 @@ function armManualAfkTimer(bot, userId, bounty) {
 }
 
 async function processSingleTravelEvent(bot, player, bounty, tierCfg) {
-  const luckVal = player.luck || 0;
-  const agiVal = player.agility || 0;
-  const strVal = player.strength || 0;
+  const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { agi: player.agility, luck: player.luck, str: player.strength };
+  const luckVal = stats.luck || 0;
+  const agiVal = stats.agi || 0;
+  const strVal = stats.str || 0;
 
   const isHighTier = ['tier3', 'tier4', 'tier5'].includes(bounty.tierKey);
   const baseFortuneChance = isHighTier ? 0.30 : 0.45;
@@ -656,6 +663,9 @@ async function resolveAutoCombat(bot, userId, bounty) {
   const player = await Player.findOne({ userId });
   if (!player) return;
 
+  const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { maxHp: player.maxHp, str: player.strength, luck: player.luck, damageBonus: 0, defBonus: 0, extraCritChance: 0 };
+  const effectiveMaxHp = stats.maxHp;
+
   const tierCfg = BOUNTY_TIERS[bounty.tierKey];
   const maxCombatPotions = (bounty.adsClaimedForBounty || 0) >= 2 
     ? tierCfg.autoPotionsWithAds 
@@ -663,11 +673,11 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
   let pathPotionUsed = null;
 
-  if (player.hp < player.maxHp) {
-    const missingHp = player.maxHp - player.hp;
+  if (player.hp < effectiveMaxHp) {
+    const missingHp = effectiveMaxHp - player.hp;
     const consumedPath = pickBestPotion(player, missingHp);
     if (consumedPath) {
-      player.hp = Math.min(player.maxHp, player.hp + consumedPath.heal);
+      player.hp = Math.min(effectiveMaxHp, player.hp + consumedPath.heal);
       pathPotionUsed = consumedPath.name;
     }
   }
@@ -678,8 +688,8 @@ async function resolveAutoCombat(bot, userId, bounty) {
 
   let enemyHp = bounty.enemyMaxHp;
   let playerHp = player.hp;
-  const str = player.strength || 0;
-  const luk = player.luck || 0;
+  const str = stats.str || 0;
+  const luk = stats.luck || 0;
 
   let turns = 0;
   let totalDmgDealt = 0;
@@ -687,27 +697,30 @@ async function resolveAutoCombat(bot, userId, bounty) {
   let totalCrits = 0;
   const maxTurns = 25;
 
-  const maxPossibleEnemyHit = Math.max(1, Math.round(bounty.enemyMaxDmg * (1 - ((str / (str + 60)) * 0.40))));
+  let mitigationRatio = (str / (str + 60)) * 0.40;
+  let maxPossibleEnemyHit = Math.max(1, Math.round(bounty.enemyMaxDmg * (1 - mitigationRatio)));
+  maxPossibleEnemyHit = Math.max(1, maxPossibleEnemyHit - stats.defBonus - (stats.damageBonus * 2));
 
   while (enemyHp > 0 && playerHp > 0 && turns < maxTurns) {
     turns++;
 
     if (playerHp <= maxPossibleEnemyHit && potionsUsedCount < maxCombatPotions) {
-      const preHeal = pickBestPotion(player, player.maxHp - playerHp);
+      const preHeal = pickBestPotion(player, effectiveMaxHp - playerHp);
       if (preHeal) {
         potionsUsedCount++;
-        playerHp = Math.min(player.maxHp, playerHp + preHeal.heal);
+        playerHp = Math.min(effectiveMaxHp, playerHp + preHeal.heal);
         potionsUsedDetails.push(preHeal.name + ' (Turno ' + turns + ' - Preventiva)');
       } else {
         searchedPotionAndFailed = true;
       }
     }
 
-    const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
+    const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3) + (stats.damageBonus * 3);
     const variation = (Math.random() * 0.40) - 0.20;
     let pDmg = Math.round(baseAtk * (1 + variation));
 
-    if (Math.random() < Math.min(0.30, luk * 0.0025)) {
+    const critChance = Math.min(0.30, luk * 0.0025) + stats.extraCritChance;
+    if (Math.random() < critChance) {
       totalCrits++;
       pDmg = Math.round(pDmg * 1.40);
     }
@@ -718,16 +731,19 @@ async function resolveAutoCombat(bot, userId, bounty) {
     if (enemyHp <= 0) break;
 
     const eDmgRaw = Math.floor(Math.random() * (bounty.enemyMaxDmg - bounty.enemyMinDmg + 1)) + bounty.enemyMinDmg;
-    const mitigation = (str / (str + 60)) * 0.40;
-    const finalDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigation)));
+    let finalDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigationRatio)));
+    
+    // Aplicación de bonos de defensa y reducción extra de daño por arma
+    finalDmg = Math.max(1, finalDmg - stats.defBonus - (stats.damageBonus * 2));
+    
     totalDmgTaken += finalDmg;
     playerHp -= finalDmg;
 
-    if (playerHp > 0 && playerHp < Math.round(player.maxHp * 0.40) && potionsUsedCount < maxCombatPotions) {
-      const reactHeal = pickBestPotion(player, player.maxHp - playerHp);
+    if (playerHp > 0 && playerHp < Math.round(effectiveMaxHp * 0.40) && potionsUsedCount < maxCombatPotions) {
+      const reactHeal = pickBestPotion(player, effectiveMaxHp - playerHp);
       if (reactHeal) {
         potionsUsedCount++;
-        playerHp = Math.min(player.maxHp, playerHp + reactHeal.heal);
+        playerHp = Math.min(effectiveMaxHp, playerHp + reactHeal.heal);
         potionsUsedDetails.push(reactHeal.name + ' (Turno ' + turns + ')');
       } else {
         searchedPotionAndFailed = true;
@@ -781,21 +797,21 @@ async function resolveAutoCombat(bot, userId, bounty) {
   await creditReferralBonus(userId, rewardReport.finalGold);
 
   const successMsg = '🎉 *¡OBJETIVO ELIMINADO EN MODO AUTOMÁTICO!*\n\n' +
-                      'Derrotaste a *' + bounty.enemyName + '* tras *' + turns + ' asaltos*.\n\n' +
-                      '⚔️ *Ficha del Combate:*\n' +
-                      '• Daño total infligido: *' + totalDmgDealt + '* (' + totalCrits + ' golpes críticos)\n' +
-                      '• Daño total absorbido: *' + totalDmgTaken + ' HP*\n' +
-                      '• Salud final restante: *' + player.hp + '/' + player.maxHp + ' HP*\n\n' +
-                      '🧪 *Gestión de Pociones:*\n' +
-                      (pathPotionUsed ? '• Auxilio de marcha previo al combate: ' + pathPotionUsed + ' _(Sin contar en cupo)_\n' : '• Marcha: Entraste al combate con tu temple intacto.\n') +
-                      (potionsUsedCount > 0 ? '• Pociones consumidas en combate: ' + potionsUsedDetails.join(', ') + '\n\n' : '• Combate: ¡Victoria limpia sin consumir pociones!\n\n') +
-                      '📊 *Informe Económico y Recompensas:*\n' +
-                      '• Botín base del contrato: *' + bounty.baseGold + 'g*\n' +
-                      (bounty.netGoldBonus !== 0 ? '• Balance de sucesos en ruta: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
-                      (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
-                      '💰 *Total cobrado en bolsa:* *+' + rewardReport.finalGold + 'g*\n' +
-                      '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
-                      (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
+                       'Derrotaste a *' + bounty.enemyName + '* tras *' + turns + ' asaltos*.\n\n' +
+                       '⚔️ *Ficha del Combate:*\n' +
+                       '• Daño total infligido: *' + totalDmgDealt + '* (' + totalCrits + ' golpes críticos)\n' +
+                       '• Daño total absorbido: *' + totalDmgTaken + ' HP*\n' +
+                       '• Salud final restante: *' + player.hp + '/' + effectiveMaxHp + ' HP*\n\n' +
+                       '🧪 *Gestión de Pociones:*\n' +
+                       (pathPotionUsed ? '• Auxilio de marcha previo al combate: ' + pathPotionUsed + ' _(Sin contar en cupo)_\n' : '• Marcha: Entraste al combate con tu temple intacto.\n') +
+                       (potionsUsedCount > 0 ? '• Pociones consumidas en combate: ' + potionsUsedDetails.join(', ') + '\n\n' : '• Combate: ¡Victoria limpia sin consumir pociones!\n\n') +
+                       '📊 *Informe Económico y Recompensas:*\n' +
+                       '• Botín base del contrato: *' + bounty.baseGold + 'g*\n' +
+                       (bounty.netGoldBonus !== 0 ? '• Balance de sucesos en ruta: *' + (bounty.netGoldBonus > 0 ? '+' : '') + bounty.netGoldBonus + 'g*\n' : '') +
+                       (bounty.goldSpentOnMerchant > 0 ? '• ' + rewardReport.merchantPhrase + ': *+' + rewardReport.merchantComp + 'g*\n' : '') +
+                       '💰 *Total cobrado en bolsa:* *+' + rewardReport.finalGold + 'g*\n' +
+                       '🔮 *EXP ganada:* *+' + rewardReport.finalExp + '*\n' +
+                       (rewardReport.leveledUp ? '\n🎉 *¡Subiste a Nivel ' + player.level + '!*' : '');
 
   try {
     await bot.telegram.sendMessage(
@@ -943,16 +959,19 @@ async function executeManualBountyAttack(ctx, bot) {
     return await ctx.answerCbQuery('Necesitas al menos 1⚡ de Energía para golpear.', { show_alert: true });
   }
 
-  player.energy -= 1;
-  const str = player.strength || 0;
-  const luk = player.luck || 0;
+  const stats = typeof player.getCombatStats === 'function' ? player.getCombatStats() : { maxHp: player.maxHp, str: player.strength, luck: player.luck, damageBonus: 0, defBonus: 0, extraCritChance: 0 };
+  const str = stats.str || 0;
+  const luk = stats.luck || 0;
 
-  const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3);
+  player.energy -= 1;
+
+  const baseAtk = 20 + (str * 1.2) + Math.floor(Math.sqrt(str) * 3) + (stats.damageBonus * 3);
   const variation = (Math.random() * 0.40) - 0.20;
   let pDmg = Math.round(baseAtk * (1 + variation));
   let isCrit = false;
 
-  if (Math.random() < Math.min(0.30, luk * 0.0025)) {
+  const critChance = Math.min(0.30, luk * 0.0025) + stats.extraCritChance;
+  if (Math.random() < critChance) {
     isCrit = true;
     pDmg = Math.round(pDmg * 1.40);
   }
@@ -989,7 +1008,11 @@ async function executeManualBountyAttack(ctx, bot) {
 
   const eDmgRaw = Math.floor(Math.random() * (bounty.enemyMaxDmg - bounty.enemyMinDmg + 1)) + bounty.enemyMinDmg;
   const mitigation = (str / (str + 60)) * 0.40;
-  const finalEnemyDmg = Math.max(1, Math.round(eDmgRaw * (1 - mitigation)));
+  let finalEnemyDmg = Math.round(eDmgRaw * (1 - mitigation));
+  
+  // Absorción de defensa plana y armadura extra por ataque rápido
+  finalEnemyDmg = Math.max(1, finalEnemyDmg - stats.defBonus - (stats.damageBonus * 2));
+  
   player.hp = Math.max(0, player.hp - finalEnemyDmg);
 
   if (player.hp === 0) {
@@ -1024,7 +1047,7 @@ async function executeManualBountyAttack(ctx, bot) {
                      (isCrit ? '✨ *¡Golpe Crítico!* (1.4x)\n' : '') +
                      '💥 Daño infligido: *' + pDmg + '*\n' +
                      '🛡️ Daño recibido: *' + finalEnemyDmg + ' HP*\n\n' +
-                     '❤️ Tu salud: *' + player.hp + '/' + player.maxHp + ' HP*\n' +
+                     '❤️ Tu salud: *' + player.hp + '/' + stats.maxHp + ' HP*\n' +
                      '⚡ Tu energía: *' + player.energy + '/' + effectiveMaxEnergy + '*\n' +
                      '❤️ Salud de ' + bounty.enemyName + ': *' + bounty.enemyCurrentHp + '/' + bounty.enemyMaxHp + ' HP*\n\n' +
                      '¿Qué decides hacer?';
