@@ -34,7 +34,6 @@
       display: flex; align-items: center; justify-content: center; flex-direction: column;
       transition: opacity 0.5s;
     }
-    /* Texto ajustado a 28px para que quepa bien en móviles */
     .countdown-text { font-size: 28px; color: #facc15; font-family: var(--pixel-font); text-shadow: 0 0 20px #b45309; text-align: center; margin-bottom: 10px; line-height: 1.4;}
     .pulse-wait { animation: pulseWait 1.5s infinite; }
     @keyframes pulseWait { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
@@ -85,8 +84,11 @@
   <div class="tma-frame">
 
     <div id="countdown-overlay">
-      <div id="cd-text" class="countdown-text pulse-wait">ESPERANDO</div>
-      <div id="cd-subtext" class="text-sm text-slate-400 mt-4 font-bold">Aguardando a que el rival entre a la Arena...</div>
+      <div id="cd-text" class="countdown-text">SALA DE ESPERA</div>
+      <div id="cd-subtext" class="text-sm text-slate-300 font-bold mb-6 text-center px-4">Pulsa el botón cuando estés listo para combatir.</div>
+      <button id="btnReady" onclick="sendReady()" class="bg-gradient-to-r from-amber-500 to-amber-700 text-white font-extrabold py-3 px-8 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.5)] active:scale-95 transition border-2 border-amber-300">
+        ¡ESTOY LISTO!
+      </button>
     </div>
 
     <div class="bg-[#0b0914]/90 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between z-20">
@@ -275,9 +277,6 @@
       none: `<rect x="11" y="14" width="10" height="11" fill="#475569" />`
     };
 
-    // ==========================================
-    // SISTEMA DE SONIDO SFX (Web Audio API)
-    // ==========================================
     let soundEnabled = true;
     let audioCtx = null;
     function playSfx(type) {
@@ -313,9 +312,6 @@
       document.getElementById('soundToggleBtn').innerText = soundEnabled ? '🔊 ON' : '🔇 OFF';
     }
 
-    // ==========================================
-    // LÓGICA DE SINCRONIZACIÓN Y ESTADO
-    // ==========================================
     const urlParams = new URLSearchParams(window.location.search);
     const duelId = urlParams.get('duelId');
     const userId = parseInt(urlParams.get('userId'), 10);
@@ -327,6 +323,7 @@
     let currentHeroHp = -1;
     let currentEnemyHp = -1;
     let cachedWeapon = 'dagger';
+    let iAmReady = false;
 
     window.onload = () => {
       const tg = window.Telegram?.WebApp;
@@ -334,6 +331,23 @@
       loadDuelData(); 
       pollInterval = setInterval(loadDuelData, 2000); 
     };
+
+    async function sendReady() {
+      iAmReady = true;
+      document.getElementById('btnReady').style.display = 'none';
+      document.getElementById('cd-text').innerText = 'ESPERANDO';
+      document.getElementById('cd-text').classList.add('pulse-wait');
+      document.getElementById('cd-subtext').innerText = 'Aguardando a que el rival esté listo...';
+      
+      try {
+        await fetch('/api/pvp/ready', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duelId, userId })
+        });
+      } catch(e) {}
+      loadDuelData();
+    }
 
     function startCountdownVisual() {
       countdownDone = true;
@@ -360,7 +374,6 @@
 
     async function loadDuelData() {
       try {
-        // Se añade un parámetro temporal (&t=Date.now()) para evitar que el navegador guarde la respuesta en caché
         const res = await fetch(`/api/pvp/duel-data?duelId=${duelId}&userId=${userId}&t=${Date.now()}`);
         const data = await res.json();
         
@@ -369,26 +382,26 @@
           document.getElementById('countdown-overlay').style.display = 'flex';
           document.getElementById('cd-text').innerText = 'CANCELADO';
           document.getElementById('cd-text').classList.remove('pulse-wait');
+          document.getElementById('btnReady').style.display = 'none';
           document.getElementById('cd-subtext').innerText = 'Se agotó el tiempo. Cierra la ventana.';
           return;
         }
 
-        if (data.status === 'waiting') {
-          return;
-        }
+        if (data.status === 'waiting') return;
 
-        if (isWaitingForOpponent && data.status === 'active') {
+        if (isWaitingForOpponent && data.status === 'active' && iAmReady) {
           isWaitingForOpponent = false;
           startCountdownVisual();
         }
 
-        if (!isWaitingForOpponent) {
+        if (!isWaitingForOpponent && data.status !== 'waiting') {
           updateUI(data);
         }
-      } catch (err) { console.error(err); }
+      } catch (err) {}
     }
 
     function updateUI(data) {
+      if(!data.hero || !data.enemy) return;
       const hero = data.hero;
       const enemy = data.enemy;
       isMyTurn = (data.turn === userId && data.status === 'active');
@@ -426,7 +439,6 @@
       }
       document.getElementById('manaCountText').innerText = `${hero.mana}/${hero.maxMana}`;
 
-      // Inyectar Equipo Visual
       const wData = WEAPONS[hero.weapon] || WEAPONS.dagger;
       document.getElementById('heroWeaponLayer').innerHTML = wData.svg;
       document.getElementById('heroArmorLayer').innerHTML = ARMORS[hero.armor] || ARMORS.none;
