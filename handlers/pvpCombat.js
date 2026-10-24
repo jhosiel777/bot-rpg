@@ -208,9 +208,9 @@ function registerPvPCombat(bot, { getPlayer }) {
       endTurn = true;
 
     } else if (action === 'accessory') {
-      if (attacker.accessoryUsedThisTurn) return ctx.answerCbQuery('⚠️ Solo puedes usar tu accesorio una vez por turno.', true);
+      if (attacker.accessoryUsedThisTurn) return ctx.answerCbQuery('⚠️ Solo puedes usar un accesorio por turno.', true);
       if (attacker.accessory === 'none') return ctx.answerCbQuery('No tienes ningún accesorio equipado.', true);
-      if (attacker.mana < 3) return ctx.answerCbQuery('Maná insuficiente para el accesorio (requiere 3💧).', true);
+      if (attacker.mana < 3) return ctx.answerCbQuery('Maná insuficiente (requiere 3💧).', true);
 
       attacker.mana -= 3;
       attacker.accessoryUsedThisTurn = true;
