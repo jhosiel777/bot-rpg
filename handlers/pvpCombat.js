@@ -2,39 +2,84 @@ const { Markup } = require('telegraf');
 const { Duel } = require('../duelModel');
 const { Player } = require('../playerModel');
 
+// 1. STATS DE ARMAS POR TIERS Y HERRAMIENTAS
 const WEAPON_STATS = {
-  iron_sword: { baseDmg: 45, crit: 0.15 },
-  khazur_pickaxe: { baseDmg: 32, crit: 0.18, shieldMult: 1.2 },
-  obsidian_blade: { baseDmg: 55, crit: 0.35 },
-  malakor_scepter: { baseDmg: 52, crit: 0.22, lifesteal: 0.30 },
-  dagger: { baseDmg: 20, crit: 0.10 }
+  sword_t1: { name: 'Espada T1', type: 'Cortante', baseDmg: 40, crit: 0.15 },
+  sword_t2: { name: 'Espada T2', type: 'Cortante', baseDmg: 60, crit: 0.18 },
+  sword_t3: { name: 'Espada T3', type: 'Cortante', baseDmg: 85, crit: 0.22 },
+  staff_t1: { name: 'Bastón T1', type: 'Mágico', baseDmg: 42, crit: 0.15 },
+  staff_t2: { name: 'Bastón T2', type: 'Mágico', baseDmg: 63, crit: 0.20 },
+  staff_t3: { name: 'Bastón T3', type: 'Mágico', baseDmg: 90, crit: 0.25 },
+  bow_t1: { name: 'Arco T1', type: 'Distancia', baseDmg: 35, crit: 0.25 },
+  bow_t2: { name: 'Arco T2', type: 'Distancia', baseDmg: 52, crit: 0.32 },
+  bow_t3: { name: 'Arco T3', type: 'Distancia', baseDmg: 75, crit: 0.40 },
+  khazur_pickaxe: { name: 'Pico de Khazur', type: 'Perforante', baseDmg: 25, crit: 0.10 },
+  dagger: { name: 'Cuchillo', type: 'Físico', baseDmg: 18, crit: 0.10 }
 };
 
-const ARMOR_STATS = {
-  cloth_tunic: { reduction: 0.05, startShield: 15 },
-  iron_cuirass: { reduction: 0.12, startShield: 35 },
-  vaelgathar_scales: { reduction: 0.20, startShield: 50 },
-  none: { reduction: 0, startShield: 0 }
-};
+// Limpieza extrema de nombres (Quita #tags, emojis y toma el primer nombre)
+function cleanName(name) {
+  if (!name) return 'Aventurero';
+  let clean = name.replace(/(#|@)\S+/g, ''); // Quita #HoneyAnts, #pixelAFK
+  clean = clean.replace(/[^\p{L}\p{N}\s]/gu, '').trim(); // Quita emojis y símbolos
+  return clean.split(/\s+/)[0] || 'Aventurero'; // Toma solo la primera palabra
+}
 
 function initPlayerStats(playerDoc) {
-  const hp = Math.round(200 + (Math.sqrt(playerDoc.maxHp || 100) * 3.5));
   const eq = playerDoc.equipment || {};
   const wKey = WEAPON_STATS[eq.weapon] ? eq.weapon : 'dagger';
-  const aKey = ARMOR_STATS[eq.armor] ? eq.armor : 'none';
+  const weapon = WEAPON_STATS[wKey];
+
   const strBonus = Math.round(Math.pow((playerDoc.strength || 10), 0.6) * 1.8);
+  let maxHp = Math.round(200 + (Math.sqrt(playerDoc.maxHp || 100) * 3.5));
+  let crit = weapon.crit + ((playerDoc.luck || 0) * 0.002);
+  let armorReduction = 0.05;
+  let startShield = 15;
+
+  // 2. CÁLCULO DE SETS DE ARMADURA
+  const armorPieces = eq.armorPieces || {};
+  const setType = eq.armorSetType; 
+  const tier = eq.armorTier || 1; 
+
+  let piecesCount = Object.values(armorPieces).filter(Boolean).length;
+  if (piecesCount >= 3) {
+    if (setType === 'heavy') {
+      const hpBonuses = { 1: 0.02, 2: 0.05, 3: 0.08 };
+      maxHp = Math.round(maxHp * (1 + (hpBonuses[tier] || 0.02)));
+      armorReduction = 0.15 + (tier * 0.03);
+      startShield = 30 + (tier * 15);
+    } else if (setType === 'mage') {
+      const critBonuses = { 1: 0.03, 2: 0.06, 3: 0.10 };
+      crit += (critBonuses[tier] || 0.03);
+      armorReduction = 0.08;
+      startShield = 20;
+    } else if (setType === 'hunter') {
+      const statBonuses = { 1: 2, 2: 4, 3: 7 };
+      const bonus = statBonuses[tier] || 2;
+      playerDoc.agility = (playerDoc.agility || 0) + bonus;
+      playerDoc.luck = (playerDoc.luck || 0) + bonus;
+      armorReduction = 0.10;
+      startShield = 25;
+    }
+  }
 
   return {
     id: playerDoc.userId,
-    name: playerDoc.name,
-    hp: hp,
-    maxHp: hp,
-    shield: ARMOR_STATS[aKey].startShield,
+    name: cleanName(playerDoc.name),
+    hp: maxHp,
+    maxHp: maxHp,
+    shield: startShield,
     mana: 5,
     maxMana: 5,
-    pvpDmg: WEAPON_STATS[wKey].baseDmg + strBonus,
-    crit: WEAPON_STATS[wKey].crit,
-    reduction: ARMOR_STATS[aKey].reduction
+    pvpDmg: weapon.baseDmg + strBonus,
+    crit: crit,
+    reduction: armorReduction,
+    weaponName: weapon.name,
+    weaponType: weapon.type,
+    accessory: eq.accessory || 'none',
+    accessoryUsedThisTurn: false,
+    burnTurns: 0,
+    attackDebuff: 0
   };
 }
 
@@ -57,62 +102,53 @@ function getCombatInterface(duel) {
 
   text += `Es el turno de: *${activePlayer.name}*`;
 
+  // 3. INTERFAZ ACTUALIZADA CON ACCESORIO
   const buttons = [
     [
       Markup.button.callback('⚔️ Atacar (1💧)', `pvp_act_${duel._id}_basic`),
       Markup.button.callback('🔥 Habilidad (3💧)', `pvp_act_${duel._id}_skill`)
     ],
-    [Markup.button.callback('⏭️ Pasar Turno (+2💧)', `pvp_act_${duel._id}_pass`)]
+    [
+      Markup.button.callback('💍 Usar Accesorio', `pvp_act_${duel._id}_accessory`),
+      Markup.button.callback('⏭️ Pasar Turno (+2💧)', `pvp_act_${duel._id}_pass`)
+    ]
   ];
 
   return { text, buttons };
 }
 
 function registerPvPCombat(bot, { getPlayer }) {
-  
   bot.action(/pvp_accept_([a-f0-9]{24})/, async (ctx) => {
     const duelId = ctx.match[1];
     const opponent = await getPlayer(ctx.from.id, ctx.from.first_name);
-    
     const duel = await Duel.findById(duelId);
-    if (!duel || duel.status !== 'open') return ctx.answerCbQuery('El duelo ya no está disponible.', true);
-    if (duel.creatorId === opponent.userId) return ctx.answerCbQuery('No puedes batirte contra ti mismo.', true);
-    if ((opponent.level || 1) < 5 || !opponent.tonWalletAddress) return ctx.answerCbQuery('Requieres nivel 5 y billetera TON.', true);
-
-    if (duel.mode === 'gold' && (opponent.gold || 0) < duel.betAmount) return ctx.answerCbQuery('Oro insuficiente.', true);
-    if (duel.mode === 'gram' && (opponent.gram || 0) < duel.betAmount) return ctx.answerCbQuery('GRAM insuficiente.', true);
-
-    if (duel.mode === 'gold') opponent.gold -= duel.betAmount;
-    if (duel.mode === 'gram') opponent.gram = Math.max(0, opponent.gram - duel.betAmount);
-    await opponent.save();
+    
+    if (!duel || duel.status !== 'open') return ctx.answerCbQuery('Duelo no disponible.', true);
 
     const creator = await Player.findOne({ userId: duel.creatorId });
-    
     duel.status = 'active';
     duel.opponentId = opponent.userId;
-    duel.opponentName = opponent.name;
-    duel.opponentTitle = opponent.activeTitle;
     duel.gameState = {
       turn: creator.userId,
       p1: initPlayerStats(creator),
       p2: initPlayerStats(opponent),
-      log: ['¡Ambos gladiadores están listos! El combate ha comenzado.']
+      log: ['¡El combate ha comenzado!']
     };
+    await duel.save();
 
     const ui = getCombatInterface(duel);
+    await ctx.deleteMessage().catch(() => {});
     
-    // Sincronizar mensajes en ambos chats
-    const oppMsg = await ctx.editMessageText(ui.text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(ui.buttons) });
-    const creatorMsg = await bot.telegram.sendMessage(creator.userId, ui.text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(ui.buttons) }).catch(()=>{});
+    const oppMsg = await ctx.reply(ui.text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(ui.buttons) });
+    const creatorMsg = await bot.telegram.sendMessage(creator.userId, ui.text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(ui.buttons) }).catch(() => {});
 
     duel.gameState.p1MsgId = creatorMsg ? creatorMsg.message_id : null;
-    duel.gameState.p2MsgId = oppMsg ? oppMsg.message_id : ctx.callbackQuery.message.message_id;
-    
+    duel.gameState.p2MsgId = oppMsg ? oppMsg.message_id : null;
     duel.markModified('gameState');
     await duel.save();
   });
 
-  bot.action(/pvp_act_([a-f0-9]{24})_(basic|skill|pass)/, async (ctx) => {
+  bot.action(/pvp_act_([a-f0-9]{24})_(basic|skill|accessory|pass)/, async (ctx) => {
     const duelId = ctx.match[1];
     const action = ctx.match[2];
     const userId = ctx.from.id;
@@ -127,49 +163,94 @@ function registerPvPCombat(bot, { getPlayer }) {
     const attacker = isP1 ? state.p1 : state.p2;
     const defender = isP1 ? state.p2 : state.p1;
 
-    let dmg = 0; let cost = 0; let logMsg = '';
+    // Daño por quemadura
+    if (attacker.burnTurns > 0) {
+      attacker.hp -= 15;
+      attacker.burnTurns--;
+      state.log.push(`🔥 ${attacker.name} sufre 15 de daño por quemadura.`);
+    }
 
-    if (action === 'basic') { cost = 1; dmg = attacker.pvpDmg; logMsg = `⚔️ ${attacker.name} atacó.`; }
-    if (action === 'skill') { cost = 3; dmg = Math.round(attacker.pvpDmg * 1.5); logMsg = `🔥 ${attacker.name} usó una habilidad.`; }
-    if (action === 'pass') { logMsg = `⏳ ${attacker.name} se defendió.`; }
+    let logMsg = '';
+    let endTurn = false;
 
-    if (attacker.mana < cost) return ctx.answerCbQuery('Maná insuficiente.', true);
-    attacker.mana -= cost;
+    // 4. LÓGICA DE ACCIONES
+    if (action === 'basic' || action === 'skill') {
+      const cost = action === 'basic' ? 1 : 3;
+      if (attacker.mana < cost) return ctx.answerCbQuery(`Maná insuficiente (${cost}💧).`, true);
+      attacker.mana -= cost;
 
-    if (dmg > 0) {
-      if (Math.random() < attacker.crit) { dmg = Math.round(dmg * 1.5); logMsg += ' ¡CRÍTICO!'; }
-      const finalDmg = Math.round(dmg * (1 - defender.reduction));
+      let dmg = action === 'basic' ? attacker.pvpDmg : Math.round(attacker.pvpDmg * 1.5);
       
+      if (attacker.attackDebuff > 0) {
+        dmg = Math.round(dmg * 0.8);
+        attacker.attackDebuff--;
+      }
+
+      if (Math.random() < attacker.crit) {
+        dmg = Math.round(dmg * 1.4);
+        logMsg = action === 'basic' 
+          ? `⚔️ ${attacker.name} atacó con ${attacker.weaponName} ¡CRÍTICO!`
+          : `🔥 ${attacker.name} usó Habilidad Especial ¡CRÍTICO!`;
+      } else {
+        logMsg = action === 'basic' 
+          ? `⚔️ ${attacker.name} atacó con ${attacker.weaponName}.`
+          : `🔥 ${attacker.name} usó Habilidad Especial.`;
+      }
+
+      const finalDmg = Math.round(dmg * (1 - defender.reduction));
       if (defender.shield > 0) {
         if (defender.shield >= finalDmg) {
-          defender.shield -= finalDmg; logMsg += ` (Escudo absorbió el daño)`;
+          defender.shield -= finalDmg;
+          logMsg += ` (Escudo absorbió el daño)`;
         } else {
-          const res = finalDmg - defender.shield; defender.shield = 0; defender.hp -= res; logMsg += ` (Escudo roto)`;
+          const res = finalDmg - defender.shield;
+          defender.shield = 0;
+          defender.hp -= res;
+          logMsg += ` (¡Escudo roto!)`;
         }
       } else {
         defender.hp -= finalDmg;
       }
+      endTurn = true;
+
+    } else if (action === 'accessory') {
+      if (attacker.accessoryUsedThisTurn) return ctx.answerCbQuery('⚠️ Solo puedes usar tu accesorio una vez por turno.', true);
+      if (attacker.accessory === 'none') return ctx.answerCbQuery('No tienes ningún accesorio equipado.', true);
+
+      attacker.accessoryUsedThisTurn = true;
+      const acc = attacker.accessory;
+
+      if (acc === 'shield') { attacker.shield += 20; logMsg = `🛡️ ${attacker.name} activó Escudo (+20).`; } 
+      else if (acc === 'critical') { attacker.crit += 0.25; logMsg = `🎯 ${attacker.name} aumentó su crítico temporalmente.`; } 
+      else if (acc === 'vampiric') { defender.hp -= 30; attacker.hp = Math.min(attacker.maxHp, attacker.hp + 30); logMsg = `🩸 ${attacker.name} drenó 30 HP al rival.`; } 
+      else if (acc === 'fire') { defender.burnTurns = 3; logMsg = `🔥 ${attacker.name} quemó al rival (3 turnos).`; } 
+      else if (acc === 'ice') { defender.attackDebuff = 2; logMsg = `❄️ ${attacker.name} congeló y bajó el ataque rival.`; } 
+      else if (acc === 'abyssal') {
+        if (defender.mana > 0) {
+          defender.mana--; attacker.mana = Math.min(attacker.maxMana, attacker.mana + 1);
+          logMsg = `🌌 ${attacker.name} robó 1 cristal de maná al rival.`;
+        } else {
+          logMsg = `🌌 ${attacker.name} intentó usar Orbe Abisal, pero el rival no tenía maná.`;
+        }
+      }
+
+    } else if (action === 'pass') {
+      logMsg = `⏳ ${attacker.name} pasó su turno.`;
+      endTurn = true;
     }
 
     if (defender.hp <= 0) {
       duel.status = 'completed';
       duel.winnerId = attacker.id;
-      state.log.push(`🏆 ¡${attacker.name} ha destrozado a su rival y ganado!`);
-      
-      const winnerDoc = await Player.findOne({ userId: attacker.id });
-      if (winnerDoc && duel.mode !== 'friendly') {
-          const totalPot = duel.betAmount * 2;
-          if (duel.mode === 'gold') winnerDoc.gold += Math.floor(totalPot * 0.95);
-          else if (duel.mode === 'gram') {
-              let fee = totalPot * 0.08; if (fee < 0.02 && totalPot > 0) fee = 0.02;
-              winnerDoc.gram += (totalPot - fee);
-          }
-          await winnerDoc.save();
-      }
-    } else {
+      state.log.push(`🏆 ¡${attacker.name} ha ganado el duelo!`);
+      // Lógica de recompensa de oro/gram iría aquí
+    } else if (endTurn) {
       state.turn = defender.id;
       defender.mana = Math.min(defender.maxMana, defender.mana + 2);
+      attacker.accessoryUsedThisTurn = false;
       state.log.push(logMsg);
+    } else {
+      state.log.push(logMsg); // Si usó accesorio, el turno continúa
     }
 
     duel.markModified('gameState');
@@ -179,9 +260,8 @@ function registerPvPCombat(bot, { getPlayer }) {
     const opts = { parse_mode: 'Markdown' };
     if (duel.status !== 'completed') opts.reply_markup = Markup.inlineKeyboard(ui.buttons).reply_markup;
 
-    // Actualiza ambas pantallas en tiempo real
-    try { await bot.telegram.editMessageText(state.p1.id, state.p1MsgId, null, ui.text, opts); } catch(e){}
-    try { await bot.telegram.editMessageText(state.p2.id, state.p2MsgId, null, ui.text, opts); } catch(e){}
+    try { await bot.telegram.editMessageText(state.p1.id, state.p1MsgId, null, ui.text, opts); } catch (e) {}
+    try { await bot.telegram.editMessageText(state.p2.id, state.p2MsgId, null, ui.text, opts); } catch (e) {}
   });
 }
 
