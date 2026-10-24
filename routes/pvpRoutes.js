@@ -23,7 +23,7 @@ function calculatePvPStats(playerDoc) {
     ? playerDoc.getCombatStats() 
     : { maxHp: playerDoc.maxHp || 100, str: playerDoc.strength || 10 };
     
-  const pvpHp = Math.round(200 + (Math.sqrt(stats.maxHp || 100) * 3.5));
+  const pvpHp = Math.round(200 + (Math.sqrt(Math.max(0, stats.maxHp || 100)) * 3.5));
   
   const eq = playerDoc.equipment || {};
   let weaponKey = eq.weapon || (eq.tool === 'tool_pickaxe' ? 'khazur_pickaxe' : 'dagger');
@@ -34,7 +34,7 @@ function calculatePvPStats(playerDoc) {
 
   const wStats = WEAPON_STATS[weaponKey];
   const aStats = ARMOR_STATS[armorKey];
-  const strBonus = Math.round(Math.pow(stats.str || 10, 0.6) * 1.8);
+  const strBonus = Math.round(Math.pow(Math.max(0, stats.str || 10), 0.6) * 1.8);
 
   return {
     id: playerDoc.userId,
@@ -58,7 +58,7 @@ function calculatePvPStats(playerDoc) {
 
 module.exports = (bot) => {
   
-  // 1. LECTURA DE DATOS (POLLING)
+  // INICIO AUTOMÁTICO: Sin salas de espera
   router.get('/duel-data', async (req, res) => {
     try {
       const { duelId, userId } = req.query;
@@ -71,34 +71,25 @@ module.exports = (bot) => {
         return res.json({ status: duel.status, gameState: duel.gameState });
       }
 
-      if (duel.acceptedAt && duel.status === 'open') {
-        const timeElapsed = Date.now() - new Date(duel.acceptedAt).getTime();
-        // Aumenté el tiempo a 60 segundos por si tardan en darle al botón
-        if (timeElapsed > 60000 && duel.readyPlayers.length < 2) {
-          duel.status = 'cancelled';
-          await duel.save();
-          
-          const p1 = await Player.findOne({ userId: duel.creatorId });
-          const p2 = await Player.findOne({ userId: duel.opponentId });
-          if (duel.mode === 'gold') {
-            if (p1) { p1.gold = (p1.gold || 0) + duel.betAmount; await p1.save(); }
-            if (p2) { p2.gold = (p2.gold || 0) + duel.betAmount; await p2.save(); }
-          } else if (duel.mode === 'gram') {
-            if (p1) { p1.gram = (p1.gram || 0) + duel.betAmount; await p1.save(); }
-            if (p2) { p2.gram = (p2.gram || 0) + duel.betAmount; await p2.save(); }
-          }
-          
-          try {
-            bot.telegram.sendMessage(duel.creatorId, `⏳ Tu duelo ha sido cancelado porque no estuvieron listos a tiempo.`);
-            bot.telegram.sendMessage(duel.opponentId, `⏳ Se canceló el duelo por no estar listos a tiempo.`);
-          } catch(e) {}
-          
-          return res.json({ status: 'cancelled' });
-        }
-      }
+      // Si el duelo está abierto o le falta el mapa, se crea instantáneamente
+      if (duel.status === 'open' || !duel.gameState) {
+        let creator = await Player.findOne({ userId: Number(duel.creatorId) });
+        let opponent = await Player.findOne({ userId: Number(duel.opponentId) });
+        
+        // Prevención de errores si los IDs se guardaron como texto
+        if (!creator) creator = await Player.findOne({ userId: duel.creatorId.toString() });
+        if (!opponent) opponent = await Player.findOne({ userId: duel.opponentId.toString() });
 
-      if (duel.status === 'open' || duel.status === 'waiting' || !duel.gameState) {
-        return res.json({ status: 'waiting' });
+        duel.status = 'active';
+        duel.gameState = {
+          turn: duel.creatorId,
+          p1: calculatePvPStats(creator || { userId: duel.creatorId, name: 'Jugador 1', maxHp: 100 }),
+          p2: calculatePvPStats(opponent || { userId: duel.opponentId, name: 'Jugador 2', maxHp: 100 }),
+          log: ['⚔️ ¡La batalla ha comenzado!']
+        };
+        
+        duel.markModified('gameState');
+        await duel.save();
       }
 
       const isP1 = uid === duel.gameState.p1.id;
@@ -111,51 +102,11 @@ module.exports = (bot) => {
         log: duel.gameState.log
       });
     } catch (err) {
+      console.error(err);
       res.status(500).json({ error: 'Error del servidor' });
     }
   });
 
-  // 2. BOTÓN "¡ESTOY LISTO!" - COMPLETAMENTE BLINDADO CONTRA CHOQUES
-  router.post('/ready', async (req, res) => {
-    try {
-      const { duelId, userId } = req.body;
-      const uid = parseInt(userId, 10);
-      
-      // $addToSet es una función atómica. Obliga a MongoDB a procesar uno por uno
-      // y jamás meter dos IDs iguales, sin importar cuántos clicks se hagan.
-      const duelActualizado = await Duel.findOneAndUpdate(
-        { _id: duelId, status: 'open' },
-        { $addToSet: { readyPlayers: uid } },
-        { new: true } // Devuelve el documento después de actualizarlo
-      );
-
-      if (!duelActualizado) return res.json({ success: false, error: 'Duelo no válido o ya iniciado' });
-
-      // Verificamos de forma segura si ya llegaron a 2
-      if (duelActualizado.readyPlayers.length >= 2 && duelActualizado.status === 'open') {
-        const creator = await Player.findOne({ userId: Number(duelActualizado.creatorId) });
-        const opponent = await Player.findOne({ userId: Number(duelActualizado.opponentId) });
-
-        duelActualizado.status = 'active';
-        duelActualizado.gameState = {
-          turn: duelActualizado.creatorId,
-          p1: calculatePvPStats(creator || { userId: duelActualizado.creatorId, name: 'P1', maxHp: 100 }),
-          p2: calculatePvPStats(opponent || { userId: duelActualizado.opponentId, name: 'P2', maxHp: 100 }),
-          log: ['⚔️ ¡Ambos jugadores están listos! El duelo comienza.']
-        };
-        
-        duelActualizado.markModified('gameState');
-        await duelActualizado.save();
-      }
-      
-      res.json({ success: true, status: duelActualizado.status });
-    } catch (err) {
-      console.error('Error en /ready:', err);
-      res.json({ success: false });
-    }
-  });
-
-  // 3. ATAQUES Y ACCIONES
   router.post('/action', async (req, res) => {
     try {
       const { duelId, userId, actionType } = req.body;
