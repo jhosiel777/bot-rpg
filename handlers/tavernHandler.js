@@ -1,17 +1,12 @@
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 const { Duel } = require('../duelModel');
-// Mantenemos shortenName para acortar nombres en la UI.
 const { shortenName } = require('../pvpEngine'); 
 
 const ADMIN_ID = 835648800;
-const SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://bot-rpg-wu42.onrender.com';
 
 function registerTavernHandlers(bot, { Player, getPlayer }) {
 
-  // ==========================================
-  // MENÚ PRINCIPAL DE LA TABERNA
-  // ==========================================
   bot.action('menu_tavern', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -31,15 +26,9 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
-  // ==========================================
-  // MERCADER MISTERIOSO (GEMA ANCESTRAL)
-  // ==========================================
   bot.action('tavern_merchant', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -65,9 +54,6 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
   });
 
-  // ==========================================
-  // VISTA PRINCIPAL: ARENA DE DUELOS (PVP)
-  // ==========================================
   bot.action('tavern_pvp', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -91,7 +77,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     }
 
     const text = '⚔️ *ARENA DE DUELOS DE LA TABERNA* ⚔️\n\n' +
-                 'Los gladiadores del reino miden su temple en combates en vivo interactivos (Mini App). Las estadísticas de tus armaduras y armas se aplican directamente en la batalla.\n\n' +
+                 'Los gladiadores del reino miden su temple en combates por turnos interactivos en el chat. Las estadísticas de tus armaduras y armas se aplican directamente en la batalla.\n\n' +
                  '📜 *MODALIDADES DE COMBATE:*\n' +
                  '• 🤝 *Amistoso:* Sin riesgo de monedas. Otorga gloria para el Ranking y títulos honoríficos.\n' +
                  '• 💰 *Oro:* Apuestas de 50 a 500 de Oro (quema el 5% del pozo).\n' +
@@ -106,15 +92,9 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       [Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]
     ];
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
-  // ==========================================
-  // CREACIÓN DE DUELO: SELECCIÓN DE MODO
-  // ==========================================
   bot.action('pvp_create_menu', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
@@ -131,10 +111,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       [Markup.button.callback('⬅️ Volver a la Arena', 'tavern_pvp')]
     ];
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
   bot.action('pvp_create_friendly', async (ctx) => {
@@ -149,7 +126,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     });
 
     await safeAnswerCb(ctx, '¡Desafío amistoso publicado!', true);
-    return await ctx.reply('🤝 *¡Desafío Amistoso creado!*\n\nTu reto ha sido colocado en la lista de duelos abiertos. Cuando otro aventurero acepte, recibirás el enlace para entrar a la Arena Web.');
+    return await ctx.reply('🤝 *¡Desafío Amistoso creado!*\n\nTu reto ha sido colocado en la lista de duelos abiertos. Cuando otro aventurero acepte, el combate iniciará aquí en el chat.');
   });
 
   bot.action('pvp_mode_gold', async (ctx) => {
@@ -162,30 +139,19 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
                  'Elige el monto a apostar:';
 
     const buttons = [
-      [
-        Markup.button.callback('50 Oro', 'pvp_set_gold_50'),
-        Markup.button.callback('100 Oro', 'pvp_set_gold_100')
-      ],
-      [
-        Markup.button.callback('250 Oro', 'pvp_set_gold_250'),
-        Markup.button.callback('500 Oro', 'pvp_set_gold_500')
-      ],
+      [Markup.button.callback('50 Oro', 'pvp_set_gold_50'), Markup.button.callback('100 Oro', 'pvp_set_gold_100')],
+      [Markup.button.callback('250 Oro', 'pvp_set_gold_250'), Markup.button.callback('500 Oro', 'pvp_set_gold_500')],
       [Markup.button.callback('⬅️ Volver', 'pvp_create_menu')]
     ];
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
   bot.action(/pvp_set_gold_(\d+)/, async (ctx) => {
     const bet = parseInt(ctx.match[1], 10);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    if ((player.gold || 0) < bet) {
-      return await safeAnswerCb(ctx, `No posees suficiente Oro (${bet}).`, true);
-    }
+    if ((player.gold || 0) < bet) return await safeAnswerCb(ctx, `No posees suficiente Oro (${bet}).`, true);
 
     player.gold -= bet;
     await player.save();
@@ -215,30 +181,19 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
                  'Elige el monto a apostar:';
 
     const buttons = [
-      [
-        Markup.button.callback('0.05 GRAM', 'pvp_set_gram_0.05'),
-        Markup.button.callback('0.10 GRAM', 'pvp_set_gram_0.10')
-      ],
-      [
-        Markup.button.callback('0.25 GRAM', 'pvp_set_gram_0.25'),
-        Markup.button.callback('0.50 GRAM', 'pvp_set_gram_0.50')
-      ],
+      [Markup.button.callback('0.05 GRAM', 'pvp_set_gram_0.05'), Markup.button.callback('0.10 GRAM', 'pvp_set_gram_0.10')],
+      [Markup.button.callback('0.25 GRAM', 'pvp_set_gram_0.25'), Markup.button.callback('0.50 GRAM', 'pvp_set_gram_0.50')],
       [Markup.button.callback('⬅️ Volver', 'pvp_create_menu')]
     ];
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
   bot.action(/pvp_set_gram_(0\.05|0\.10|0\.25|0\.50)/, async (ctx) => {
     const bet = parseFloat(ctx.match[1]);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    if ((player.gram || 0) < bet) {
-      return await safeAnswerCb(ctx, `Saldo de GRAM insuficiente (${bet} GRAM).`, true);
-    }
+    if ((player.gram || 0) < bet) return await safeAnswerCb(ctx, `Saldo de GRAM insuficiente (${bet} GRAM).`, true);
 
     player.gram = Math.max(0, player.gram - bet);
     await player.save();
@@ -255,18 +210,13 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     return await ctx.reply(`💎 *¡Desafío por ${bet} GRAM publicado!*\n\nTus ${bet} GRAM han quedado congelados en garantía. Si cancelas el reto antes del combate, se te reintegrarán íntegramente.`);
   });
 
-  // ==========================================
-  // LISTA DE DUELOS DISPONIBLES
-  // ==========================================
   bot.action('pvp_list_open', async (ctx) => {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
     const openDuels = await Duel.find({ status: 'open' }).sort({ createdAt: -1 }).limit(8);
 
     if (openDuels.length === 0) {
-      const textEmpty = '📋 *TABLÓN DE DUELOS ABIERTOS*\n\n' +
-                        'No hay desafíos pendientes en este momento. ¡Sé el primero en levantar tu estandarte!';
+      const textEmpty = '📋 *TABLÓN DE DUELOS ABIERTOS*\n\nNo hay desafíos pendientes en este momento. ¡Sé el primero en levantar tu estandarte!';
       const buttons = [
         [Markup.button.callback('➕ Crear Desafío', 'pvp_create_menu')],
         [Markup.button.callback('⬅️ Volver a la Arena', 'tavern_pvp')]
@@ -274,78 +224,41 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
       return await safeEditMessage(ctx, textEmpty, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
     }
 
-    let text = '📋 *TABLÓN DE DUELOS ABIERTOS*\n\n' +
-               'Selecciona un desafío para aceptar la batalla o retirar tu propio reto:\n\n';
-
+    let text = '📋 *TABLÓN DE DUELOS ABIERTOS*\n\nSelecciona un desafío para aceptar la batalla o retirar tu propio reto:\n\n';
     const buttons = [];
 
     for (const d of openDuels) {
-      // Ignorar duelos que ya fueron aceptados por alguien y están contando sus 60s
-      if (d.acceptedAt) continue;
-
       const isCreator = (d.creatorId === player.userId);
       let modeIcon = '🤝';
       let stakeText = 'Amistoso';
 
-      if (d.mode === 'gold') {
-        modeIcon = '💰';
-        stakeText = `${d.betAmount} Oro`;
-      } else if (d.mode === 'gram') {
-        modeIcon = '💎';
-        stakeText = `${d.betAmount} GRAM`;
-      }
-
-      const creatorTitle = d.creatorTitle || 'Aventurero Novato';
-      const cleanCreatorName = shortenName(d.creatorName);
+      if (d.mode === 'gold') { modeIcon = '💰'; stakeText = `${d.betAmount} Oro`; } 
+      else if (d.mode === 'gram') { modeIcon = '💎'; stakeText = `${d.betAmount} GRAM`; }
 
       const label = isCreator
         ? `❌ Cancelar mi reto (${modeIcon} ${stakeText})`
-        : `⚔️ [«${creatorTitle}»] ${cleanCreatorName} (${modeIcon} ${stakeText})`;
+        : `⚔️ [«${d.creatorTitle || 'Aventurero Novato'}»] ${shortenName(d.creatorName)} (${modeIcon} ${stakeText})`;
 
       const actionCb = isCreator ? `pvp_cancel_${d._id}` : `pvp_accept_${d._id}`;
       buttons.push([Markup.button.callback(label, actionCb)]);
     }
 
-    if (buttons.length === 0) {
-      return await safeEditMessage(ctx, '📋 *TABLÓN DE DUELOS ABIERTOS*\n\nTodos los duelos actuales ya están en proceso. ¡Prueba actualizar en un momento!', { 
-        parse_mode: 'Markdown', 
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🔄 Actualizar Lista', 'pvp_list_open')],
-          [Markup.button.callback('⬅️ Volver a la Arena', 'tavern_pvp')]
-        ]) 
-      });
-    }
-
     buttons.push([Markup.button.callback('🔄 Actualizar Lista', 'pvp_list_open')]);
     buttons.push([Markup.button.callback('⬅️ Volver a la Arena', 'tavern_pvp')]);
 
-    return await safeEditMessage(ctx, text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
-  // ==========================================
-  // CANCELAR DUELO PROPIO
-  // ==========================================
   bot.action(/pvp_cancel_([a-f0-9]{24})/, async (ctx) => {
     const duelId = ctx.match[1];
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
-
     const duel = await Duel.findById(duelId);
-    if (!duel || duel.status !== 'open') {
-      return await safeAnswerCb(ctx, 'Este duelo ya no está disponible o ha finalizado.', true);
-    }
+    
+    if (!duel || duel.status !== 'open') return await safeAnswerCb(ctx, 'Este duelo ya no está disponible o ha finalizado.', true);
+    if (duel.creatorId !== player.userId) return await safeAnswerCb(ctx, 'Solo el creador puede cancelar este duelo.', true);
 
-    if (duel.creatorId !== player.userId) {
-      return await safeAnswerCb(ctx, 'Solo el creador puede cancelar este duelo.', true);
-    }
-
-    if (duel.mode === 'gold' && duel.betAmount > 0) {
-      player.gold = (player.gold || 0) + duel.betAmount;
-    } else if (duel.mode === 'gram' && duel.betAmount > 0) {
-      player.gram = (player.gram || 0) + duel.betAmount;
-    }
+    if (duel.mode === 'gold' && duel.betAmount > 0) player.gold = (player.gold || 0) + duel.betAmount;
+    else if (duel.mode === 'gram' && duel.betAmount > 0) player.gram = (player.gram || 0) + duel.betAmount;
 
     duel.status = 'cancelled';
     await duel.save();
@@ -355,91 +268,11 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     return await ctx.reply('✅ *Has cancelado tu desafío.* Los fondos congelados han retornado a tu balance.');
   });
 
-  // ==========================================
-  // ACEPTAR Y PREPARAR COMBATE PVP (WEB APP)
-  // ==========================================
-  bot.action(/pvp_accept_([a-f0-9]{24})/, async (ctx) => {
-    const duelId = ctx.match[1];
-    const opponent = await getPlayer(ctx.from.id, ctx.from.first_name);
-
-    const duel = await Duel.findById(duelId);
-    if (!duel || duel.status !== 'open' || duel.acceptedAt) {
-      return await safeAnswerCb(ctx, 'El duelo ya no está abierto o fue tomado por otro aventurero.', true);
-    }
-
-    if (duel.creatorId === opponent.userId) {
-      return await safeAnswerCb(ctx, 'No puedes batirte en duelo contra ti mismo.', true);
-    }
-
-    if ((opponent.level || 1) < 5 || !opponent.tonWalletAddress) {
-      return await safeAnswerCb(ctx, 'Requieres nivel 5 y billetera TON vinculada para aceptar duelos.', true);
-    }
-
-    if (duel.mode === 'gold' && (opponent.gold || 0) < duel.betAmount) {
-      return await safeAnswerCb(ctx, `No tienes suficiente Oro para aceptar (${duel.betAmount} Oro).`, true);
-    }
-    if (duel.mode === 'gram' && (opponent.gram || 0) < duel.betAmount) {
-      return await safeAnswerCb(ctx, `No tienes suficiente GRAM para aceptar (${duel.betAmount} GRAM).`, true);
-    }
-
-    // Congelar fondos del retador
-    if (duel.mode === 'gold') opponent.gold -= duel.betAmount;
-    if (duel.mode === 'gram') opponent.gram = Math.max(0, opponent.gram - duel.betAmount);
-    await opponent.save();
-
-    const creator = await Player.findOne({ userId: duel.creatorId });
-    if (!creator) {
-      return await safeAnswerCb(ctx, 'El creador del duelo ya no existe en el reino.', true);
-    }
-
-    await safeAnswerCb(ctx, '⚔️ ¡Aceptaste el desafío! Preparando la Arena...');
-
-    // Fijar al oponente e iniciar reloj de 60 segundos
-    duel.opponentId = opponent.userId;
-    duel.opponentName = opponent.name;
-    duel.opponentTitle = opponent.activeTitle || 'Aventurero Novato';
-    duel.acceptedAt = new Date(); // Inicia el reloj de 60 segundos
-    await duel.save();
-
-    const p1Label = `[«${creator.activeTitle || 'Aventurero Novato'}»] *${shortenName(creator.name)}*`;
-    const p2Label = `[«${opponent.activeTitle || 'Aventurero Novato'}»] *${shortenName(opponent.name)}*`;
-
-    const textReady = `⚔️🔥 *¡EL DUELO HA SIDO ACEPTADO!* 🔥⚔️\n\n` +
-                      `🛡️ ${p1Label}\n` +
-                      `⚡ *VS*\n` +
-                      `🛡️ ${p2Label}\n\n` +
-                      `⚠️ *ATENCIÓN:* Los fondos están en garantía. Tienen **60 segundos** para entrar a la Arena. ¡El combate iniciará automáticamente y por turnos apenas abras la aplicación, así que mantente alerta!`;
-
-    const creatorUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${creator.userId}`;
-    const opponentUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${opponent.userId}`;
-
-    // Actualiza el mensaje actual del que aceptó
-    await safeEditMessage(ctx, textReady, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.webApp('🎮 Entrar a la Arena', opponentUrl)]])
-    });
-
-    // Notifica al creador que su duelo fue aceptado
-    try {
-      await bot.telegram.sendMessage(creator.userId, textReady, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.webApp('🎮 Entrar a la Arena', creatorUrl)]])
-      });
-    } catch (e) {}
-  });
-
-  // ==========================================
-  // RANKING DE GLADIADORES (PVP)
-  // ==========================================
   bot.action('tavern_pvp_ranking', async (ctx) => {
     await safeAnswerCb(ctx);
+    const topGladiators = await Player.where('pvpWins').gt(0).sort({ pvpWins: -1, pvpLosses: 1 }).limit(10);
 
-    const topGladiators = await Player.where('pvpWins').gt(0)
-      .sort({ pvpWins: -1, pvpLosses: 1 })
-      .limit(10);
-
-    let text = '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\n' +
-               'Los combatientes más victoriosos de la arena:\n\n';
+    let text = '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\nLos combatientes más victoriosos de la arena:\n\n';
 
     if (topGladiators.length === 0) {
       text += '_Aún ningún guerrero ha grabado su nombre en la arena. ¡Sé el primero en triunfar!_';
@@ -448,71 +281,32 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
         const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🎖️';
         const totalFights = (g.pvpWins || 0) + (g.pvpLosses || 0);
         const winRate = totalFights > 0 ? Math.round((g.pvpWins / totalFights) * 100) : 0;
-        const title = g.activeTitle || 'Aventurero Novato';
-        const cleanName = shortenName(g.name);
-
-        text += `${medal} *#${index + 1} [«${title}»] ${cleanName}*\n` +
-                `   Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
+        text += `${medal} *#${index + 1} [«${g.activeTitle || 'Aventurero Novato'}»] ${shortenName(g.name)}*\n   Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
       });
     }
 
-    const buttons = [
-      [Markup.button.callback('⚔️ Ir a la Arena de Duelos', 'tavern_pvp')]
-    ];
-
-    if (ctx.from.id === ADMIN_ID) {
-      buttons.push([Markup.button.callback('⚠️ Reiniciar Ranking PvP', 'admin_pvp_reset_prompt')]);
-    }
-
+    const buttons = [[Markup.button.callback('⚔️ Ir a la Arena de Duelos', 'tavern_pvp')]];
+    if (ctx.from.id === ADMIN_ID) buttons.push([Markup.button.callback('⚠️ Reiniciar Ranking PvP', 'admin_pvp_reset_prompt')]);
     buttons.push([Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
 
-  // ==========================================
-  // CONFIRMACIÓN DE REINICIO DE RANKING (SOLO ADMIN)
-  // ==========================================
   bot.action('admin_pvp_reset_prompt', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) {
-      return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
-    }
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
     await safeAnswerCb(ctx);
-
-    const text = '⚠️ *CONFIRMACIÓN DE REINICIO DE RANKING PVP* ⚠️\n\n' +
-                 '¿Estás seguro de que deseas reiniciar a cero las victorias y derrotas de todos los gladiadores del reino?\n\n' +
-                 '_Esta acción es irreversible y vaciará el tablón de gladiadores._';
-
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔴 Sí, reiniciar a cero', 'admin_pvp_reset_confirm')],
-      [Markup.button.callback('❌ No, cancelar', 'tavern_pvp_ranking')]
-    ]);
-
+    const text = '⚠️ *CONFIRMACIÓN DE REINICIO DE RANKING PVP* ⚠️\n\n¿Estás seguro de que deseas reiniciar a cero las victorias y derrotas de todos los gladiadores del reino?\n\n_Esta acción es irreversible y vaciará el tablón de gladiadores._';
+    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('🔴 Sí, reiniciar a cero', 'admin_pvp_reset_confirm')], [Markup.button.callback('❌ No, cancelar', 'tavern_pvp_ranking')]]);
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
   });
 
   bot.action('admin_pvp_reset_confirm', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) {
-      return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
-    }
-
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acción no autorizada.', true);
     const setKey = String.fromCharCode(36) + 'set';
-    const resetPayload = {};
-    resetPayload[setKey] = { pvpWins: 0, pvpLosses: 0 };
-
+    const resetPayload = {}; resetPayload[setKey] = { pvpWins: 0, pvpLosses: 0 };
     await Player.updateMany({}, resetPayload);
     await safeAnswerCb(ctx, '🏆 Ranking PvP reiniciado con éxito.', true);
-
-    const text = '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\n' +
-                 'Los combatientes más victoriosos de la arena:\n\n' +
-                 '_Aún ningún guerrero ha grabado su nombre en la arena. ¡Sé el primero en triunfar!_';
-
-    const buttons = [
-      [Markup.button.callback('⚔️ Ir a la Arena de Duelos', 'tavern_pvp')],
-      [Markup.button.callback('⚠️ Reiniciar Ranking PvP', 'admin_pvp_reset_prompt')],
-      [Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]
-    ];
-
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    return await safeEditMessage(ctx, '🏆 *TABLÓN DE GLADIADORES DE ABYSS* 🏆\n\nLos combatientes más victoriosos de la arena:\n\n_Aún ningún guerrero ha grabado su nombre en la arena. ¡Sé el primero en triunfar!_', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('⚔️ Ir a la Arena de Duelos', 'tavern_pvp')], [Markup.button.callback('⚠️ Reiniciar Ranking PvP', 'admin_pvp_reset_prompt')], [Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]]) });
   });
 }
 
