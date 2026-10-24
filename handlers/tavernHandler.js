@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 const { Duel } = require('../duelModel');
-// Mantenemos shortenName para acortar nombres en la UI. simulatePvPDuel se eliminó porque ahora es web.
+// Mantenemos shortenName para acortar nombres en la UI.
 const { shortenName } = require('../pvpEngine'); 
 
 const ADMIN_ID = 835648800;
@@ -280,7 +280,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     const buttons = [];
 
     for (const d of openDuels) {
-      // Ignorar duelos que ya fueron aceptados por alguien y están contando sus 30s
+      // Ignorar duelos que ya fueron aceptados por alguien y están contando sus 60s
       if (d.acceptedAt) continue;
 
       const isCreator = (d.creatorId === player.userId);
@@ -394,11 +394,11 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     await safeAnswerCb(ctx, '⚔️ ¡Aceptaste el desafío! Preparando la Arena...');
 
-    // Fijar al oponente e iniciar reloj de 30 segundos (Sin cambiar a active aún)
+    // Fijar al oponente e iniciar reloj de 60 segundos
     duel.opponentId = opponent.userId;
     duel.opponentName = opponent.name;
     duel.opponentTitle = opponent.activeTitle || 'Aventurero Novato';
-    duel.acceptedAt = new Date(); // Inicia el reloj de 30 segundos
+    duel.acceptedAt = new Date(); // Inicia el reloj de 60 segundos
     await duel.save();
 
     const p1Label = `[«${creator.activeTitle || 'Aventurero Novato'}»] *${shortenName(creator.name)}*`;
@@ -408,7 +408,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
                       `🛡️ ${p1Label}\n` +
                       `⚡ *VS*\n` +
                       `🛡️ ${p2Label}\n\n` +
-                      `⚠️ *ATENCIÓN:* Los fondos están asegurados. Ambos gladiadores tienen exactamente **30 segundos** para pulsar el botón de abajo y entrar a la Arena. Si alguno no entra a tiempo, el duelo se cancelará y los fondos serán devueltos.`;
+                      `⚠️ *ATENCIÓN:* Los fondos están en garantía. Tienen **60 segundos** para entrar a la Arena. ¡El combate iniciará automáticamente y por turnos apenas abras la aplicación, así que mantente alerta!`;
 
     const creatorUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${creator.userId}`;
     const opponentUrl = `${SERVER_URL}/pvp-arena?duelId=${duel._id}&userId=${opponent.userId}`;
@@ -452,7 +452,7 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
         const cleanName = shortenName(g.name);
 
         text += `${medal} *#${index + 1} [«${title}»] ${cleanName}*\n` +
-                `    Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
+                `   Victorias: *${g.pvpWins}* | Derrotas: *${g.pvpLosses || 0}* | Efectividad: *${winRate}% WR*\n\n`;
       });
     }
 
