@@ -4,6 +4,14 @@ const { Duel } = require('../duelModel');
 
 const ADMIN_ID = 835648800;
 
+// Función para limpiar nombres en la interfaz de la taberna y el ranking
+function shortenName(name) {
+  if (!name) return 'Aventurero';
+  let clean = name.replace(/(#|@)\S+/g, ''); 
+  clean = clean.replace(/[^\p{L}\p{N}\s]/gu, '').trim(); 
+  return clean.split(/\s+/)[0] || 'Aventurero'; 
+}
+
 function registerTavernHandlers(bot, { Player, getPlayer }) {
 
   bot.action('menu_tavern', async (ctx) => {
