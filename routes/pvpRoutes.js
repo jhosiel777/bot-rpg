@@ -19,80 +19,93 @@ const ARMOR_STATS = {
 };
 
 function calculatePvPStats(playerDoc) {
-  const stats = typeof playerDoc.getCombatStats === 'function' 
-    ? playerDoc.getCombatStats() 
-    : { maxHp: playerDoc.maxHp || 100, str: playerDoc.strength || 10 };
+  try {
+    const getStats = typeof playerDoc.getCombatStats === 'function' ? playerDoc.getCombatStats : null;
+    const stats = getStats ? getStats.call(playerDoc) : { maxHp: playerDoc.maxHp, str: playerDoc.strength };
     
-  const pvpHp = Math.round(200 + (Math.sqrt(Math.max(0, stats.maxHp || 100)) * 3.5));
-  
-  const eq = playerDoc.equipment || {};
-  let weaponKey = eq.weapon || (eq.tool === 'tool_pickaxe' ? 'khazur_pickaxe' : 'dagger');
-  if (!WEAPON_STATS[weaponKey]) weaponKey = 'dagger';
-  
-  let armorKey = eq.armor || 'none';
-  if (!ARMOR_STATS[armorKey]) armorKey = 'none';
+    // Forzamos números para evitar crasheos de NaN
+    const safeMaxHp = Number(stats.maxHp) || 100;
+    const safeStr = Number(stats.str) || 10;
+    
+    const pvpHp = Math.round(200 + (Math.sqrt(Math.max(0, safeMaxHp)) * 3.5));
+    
+    const eq = playerDoc.equipment || {};
+    let weaponKey = eq.weapon || (eq.tool === 'tool_pickaxe' ? 'khazur_pickaxe' : 'dagger');
+    if (!WEAPON_STATS[weaponKey]) weaponKey = 'dagger';
+    
+    let armorKey = eq.armor || 'none';
+    if (!ARMOR_STATS[armorKey]) armorKey = 'none';
 
-  const wStats = WEAPON_STATS[weaponKey];
-  const aStats = ARMOR_STATS[armorKey];
-  const strBonus = Math.round(Math.pow(Math.max(0, stats.str || 10), 0.6) * 1.8);
+    const wStats = WEAPON_STATS[weaponKey];
+    const aStats = ARMOR_STATS[armorKey];
+    const strBonus = Math.round(Math.pow(Math.max(0, safeStr), 0.6) * 1.8);
 
-  return {
-    id: playerDoc.userId,
-    name: playerDoc.name,
-    level: playerDoc.level || 1,
-    hp: pvpHp,
-    maxHp: pvpHp,
-    shield: aStats.startShield,
-    mana: 5,
-    maxMana: 5,
-    weapon: weaponKey,
-    armor: armorKey,
-    pvpDmg: wStats.baseDmg + strBonus,
-    critChance: wStats.crit,
-    dmgReduction: aStats.reduction,
-    shieldMult: wStats.shieldMult || 1,
-    lifesteal: wStats.lifesteal || 0,
-    accessory: eq.accessory || 'none'
-  };
+    return {
+      id: String(playerDoc.userId), // CRÍTICO: Todo a String para comparaciones perfectas
+      name: playerDoc.name || 'Gladiador',
+      level: Number(playerDoc.level) || 1,
+      hp: pvpHp,
+      maxHp: pvpHp,
+      shield: aStats.startShield || 0,
+      mana: 5,
+      maxMana: 5,
+      weapon: weaponKey,
+      armor: armorKey,
+      pvpDmg: wStats.baseDmg + strBonus,
+      critChance: wStats.crit,
+      dmgReduction: aStats.reduction,
+      shieldMult: wStats.shieldMult || 1,
+      lifesteal: wStats.lifesteal || 0,
+      accessory: eq.accessory || 'none'
+    };
+  } catch(e) {
+    console.error("Error parseando stats:", e);
+    return {
+      id: String(playerDoc.userId || Date.now()), name: 'Gladiador', level: 1, hp: 200, maxHp: 200, shield: 0,
+      mana: 5, maxMana: 5, weapon: 'dagger', armor: 'none', pvpDmg: 25, critChance: 0.1, dmgReduction: 0, shieldMult: 1, lifesteal: 0, accessory: 'none'
+    };
+  }
 }
 
 module.exports = (bot) => {
   
-  // INICIO AUTOMÁTICO: Sin salas de espera
   router.get('/duel-data', async (req, res) => {
     try {
       const { duelId, userId } = req.query;
-      const uid = parseInt(userId, 10);
-      const duel = await Duel.findById(duelId);
+      const uid = String(userId);
       
-      if (!duel) return res.status(404).json({ error: 'Duelo no encontrado' });
+      // lean() extrae datos puros y elimina las bloqueos de Mongoose
+      let duel = await Duel.findById(duelId).lean();
+      if (!duel) return res.status(404).json({ error: 'Duelo no encontrado en la base de datos' });
       
       if (duel.status === 'completed' || duel.status === 'cancelled') {
         return res.json({ status: duel.status, gameState: duel.gameState });
       }
 
-      // Si el duelo está abierto o le falta el mapa, se crea instantáneamente
       if (duel.status === 'open' || !duel.gameState) {
-        let creator = await Player.findOne({ userId: Number(duel.creatorId) });
-        let opponent = await Player.findOne({ userId: Number(duel.opponentId) });
+        let creator = await Player.findOne({ userId: duel.creatorId }).lean().catch(()=>null);
+        if (!creator) creator = await Player.findOne({ userId: Number(duel.creatorId) }).lean().catch(()=>null);
         
-        // Prevención de errores si los IDs se guardaron como texto
-        if (!creator) creator = await Player.findOne({ userId: duel.creatorId.toString() });
-        if (!opponent) opponent = await Player.findOne({ userId: duel.opponentId.toString() });
-
-        duel.status = 'active';
-        duel.gameState = {
+        let opponent = await Player.findOne({ userId: duel.opponentId }).lean().catch(()=>null);
+        if (!opponent) opponent = await Player.findOne({ userId: Number(duel.opponentId) }).lean().catch(()=>null);
+        
+        const newGameState = {
           turn: duel.creatorId,
-          p1: calculatePvPStats(creator || { userId: duel.creatorId, name: 'Jugador 1', maxHp: 100 }),
-          p2: calculatePvPStats(opponent || { userId: duel.opponentId, name: 'Jugador 2', maxHp: 100 }),
-          log: ['⚔️ ¡La batalla ha comenzado!']
+          p1: calculatePvPStats(creator || { userId: duel.creatorId, name: duel.creatorName || 'Retador' }),
+          p2: calculatePvPStats(opponent || { userId: duel.opponentId, name: duel.opponentName || 'Oponente' }),
+          log: ['⚔️ ¡La batalla ha comenzado automáticamente!']
         };
         
-        duel.markModified('gameState');
-        await duel.save();
+        // updateOne fuerza la inserción sin verificar esquemas
+        await Duel.updateOne({ _id: duelId }, {
+          $set: { status: 'active', gameState: newGameState }
+        });
+        
+        duel.status = 'active';
+        duel.gameState = newGameState;
       }
 
-      const isP1 = uid === duel.gameState.p1.id;
+      const isP1 = String(uid) === String(duel.gameState.p1.id);
       res.json({
         duelId: duel._id,
         status: duel.status,
@@ -102,22 +115,22 @@ module.exports = (bot) => {
         log: duel.gameState.log
       });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Error del servidor' });
+      console.error("Error en /duel-data:", err);
+      res.status(500).json({ error: 'Error interno de Arena: ' + err.message });
     }
   });
 
   router.post('/action', async (req, res) => {
     try {
       const { duelId, userId, actionType } = req.body;
-      const duel = await Duel.findById(duelId);
+      const duel = await Duel.findById(duelId).lean();
       
       if (!duel || duel.status !== 'active') return res.status(400).json({ error: 'Duelo inactivo' });
       
       const state = duel.gameState;
-      if (state.turn !== parseInt(userId)) return res.status(403).json({ error: 'No es tu turno' });
+      if (String(state.turn) !== String(userId)) return res.status(403).json({ error: 'No es tu turno' });
 
-      const isP1 = parseInt(userId) === state.p1.id;
+      const isP1 = String(userId) === String(state.p1.id);
       const attacker = isP1 ? state.p1 : state.p2;
       const defender = isP1 ? state.p2 : state.p1;
 
@@ -201,11 +214,16 @@ module.exports = (bot) => {
         state.turn = defender.id; defender.mana = defender.maxMana;
       }
 
-      duel.markModified('gameState');
-      await duel.save();
-      res.json({ success: true, gameState: duel.gameState, status: duel.status });
+      // updateOne forzado para evitar fallos de guardado
+      let updatePayload = { gameState: state, status: duel.status };
+      if (duel.winnerId) updatePayload.winnerId = duel.winnerId;
+
+      await Duel.updateOne({ _id: duelId }, { $set: updatePayload });
+
+      res.json({ success: true, gameState: state, status: duel.status });
     } catch (err) {
-      res.status(500).json({ error: 'Error procesando acción' });
+      console.error("Error procesando acción:", err);
+      res.status(500).json({ error: 'Error procesando ataque: ' + err.message });
     }
   });
 
