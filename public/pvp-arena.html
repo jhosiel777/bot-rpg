@@ -350,6 +350,21 @@
         const res = await fetch(`/api/pvp/duel-data?duelId=${duelId}&userId=${userId}&t=${Date.now()}`);
         const data = await res.json();
         
+        // REVELADOR DE ERRORES: Si el backend falla, lo imprime en pantalla
+        if (data.error) {
+            document.getElementById('cd-text').innerText = 'ERROR';
+            document.getElementById('cd-text').style.color = '#ef4444';
+            let sub = document.getElementById('cd-subtext');
+            if(!sub) {
+                sub = document.createElement('div');
+                sub.id = 'cd-subtext';
+                sub.className = 'text-xs text-rose-300 mt-2 px-4 text-center font-bold font-sans';
+                document.getElementById('countdown-overlay').appendChild(sub);
+            }
+            sub.innerText = data.error;
+            return;
+        }
+
         if (data.status === 'cancelled') {
           clearInterval(pollInterval);
           document.getElementById('countdown-overlay').style.display = 'flex';
