@@ -2,7 +2,6 @@ const { Markup } = require('telegraf');
 const { Duel } = require('../duelModel');
 const { Player } = require('../playerModel');
 
-// 1. STATS DE ARMAS POR TIERS Y HERRAMIENTAS
 const WEAPON_STATS = {
   sword_t1: { name: 'Espada T1', type: 'Cortante', baseDmg: 40, crit: 0.15 },
   sword_t2: { name: 'Espada T2', type: 'Cortante', baseDmg: 60, crit: 0.18 },
@@ -17,12 +16,11 @@ const WEAPON_STATS = {
   dagger: { name: 'Cuchillo', type: 'Físico', baseDmg: 18, crit: 0.10 }
 };
 
-// Limpieza extrema de nombres (Quita #tags, emojis y toma el primer nombre)
 function cleanName(name) {
   if (!name) return 'Aventurero';
-  let clean = name.replace(/(#|@)\S+/g, ''); // Quita #HoneyAnts, #pixelAFK
-  clean = clean.replace(/[^\p{L}\p{N}\s]/gu, '').trim(); // Quita emojis y símbolos
-  return clean.split(/\s+/)[0] || 'Aventurero'; // Toma solo la primera palabra
+  let clean = name.replace(/(#|@)\S+/g, ''); 
+  clean = clean.replace(/[^\p{L}\p{N}\s]/gu, '').trim(); 
+  return clean.split(/\s+/)[0] || 'Aventurero'; 
 }
 
 function initPlayerStats(playerDoc) {
@@ -36,7 +34,6 @@ function initPlayerStats(playerDoc) {
   let armorReduction = 0.05;
   let startShield = 15;
 
-  // 2. CÁLCULO DE SETS DE ARMADURA
   const armorPieces = eq.armorPieces || {};
   const setType = eq.armorSetType; 
   const tier = eq.armorTier || 1; 
@@ -76,7 +73,7 @@ function initPlayerStats(playerDoc) {
     reduction: armorReduction,
     weaponName: weapon.name,
     weaponType: weapon.type,
-    accessory: eq.accessory || 'none',
+    accessory: eq.accessory || playerDoc.equippedAccessory || playerDoc.accessory || 'none',
     accessoryUsedThisTurn: false,
     burnTurns: 0,
     attackDebuff: 0
@@ -102,14 +99,13 @@ function getCombatInterface(duel) {
 
   text += `Es el turno de: *${activePlayer.name}*`;
 
-  // 3. INTERFAZ ACTUALIZADA CON ACCESORIO
   const buttons = [
     [
       Markup.button.callback('⚔️ Atacar (1💧)', `pvp_act_${duel._id}_basic`),
       Markup.button.callback('🔥 Habilidad (3💧)', `pvp_act_${duel._id}_skill`)
     ],
     [
-      Markup.button.callback('💍 Usar Accesorio', `pvp_act_${duel._id}_accessory`),
+      Markup.button.callback('💍 Accesorio (3💧)', `pvp_act_${duel._id}_accessory`),
       Markup.button.callback('⏭️ Pasar Turno (+2💧)', `pvp_act_${duel._id}_pass`)
     ]
   ];
@@ -163,7 +159,6 @@ function registerPvPCombat(bot, { getPlayer }) {
     const attacker = isP1 ? state.p1 : state.p2;
     const defender = isP1 ? state.p2 : state.p1;
 
-    // Daño por quemadura
     if (attacker.burnTurns > 0) {
       attacker.hp -= 15;
       attacker.burnTurns--;
@@ -173,7 +168,6 @@ function registerPvPCombat(bot, { getPlayer }) {
     let logMsg = '';
     let endTurn = false;
 
-    // 4. LÓGICA DE ACCIONES
     if (action === 'basic' || action === 'skill') {
       const cost = action === 'basic' ? 1 : 3;
       if (attacker.mana < cost) return ctx.answerCbQuery(`Maná insuficiente (${cost}💧).`, true);
@@ -216,7 +210,9 @@ function registerPvPCombat(bot, { getPlayer }) {
     } else if (action === 'accessory') {
       if (attacker.accessoryUsedThisTurn) return ctx.answerCbQuery('⚠️ Solo puedes usar tu accesorio una vez por turno.', true);
       if (attacker.accessory === 'none') return ctx.answerCbQuery('No tienes ningún accesorio equipado.', true);
+      if (attacker.mana < 3) return ctx.answerCbQuery('Maná insuficiente para el accesorio (requiere 3💧).', true);
 
+      attacker.mana -= 3;
       attacker.accessoryUsedThisTurn = true;
       const acc = attacker.accessory;
 
@@ -243,14 +239,13 @@ function registerPvPCombat(bot, { getPlayer }) {
       duel.status = 'completed';
       duel.winnerId = attacker.id;
       state.log.push(`🏆 ¡${attacker.name} ha ganado el duelo!`);
-      // Lógica de recompensa de oro/gram iría aquí
     } else if (endTurn) {
       state.turn = defender.id;
       defender.mana = Math.min(defender.maxMana, defender.mana + 2);
       attacker.accessoryUsedThisTurn = false;
       state.log.push(logMsg);
     } else {
-      state.log.push(logMsg); // Si usó accesorio, el turno continúa
+      state.log.push(logMsg); 
     }
 
     duel.markModified('gameState');
