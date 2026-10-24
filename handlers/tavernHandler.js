@@ -1,7 +1,6 @@
 const { Markup } = require('telegraf');
 const { safeAnswerCb, safeEditMessage } = require('../utils/telegramUtils');
 const { Duel } = require('../duelModel');
-const { shortenName } = require('../pvpEngine'); 
 
 const ADMIN_ID = 835648800;
 
