@@ -338,31 +338,27 @@
             setTimeout(() => {
                 document.getElementById('countdown-overlay').style.display = 'none';
                 countdownDone = true;
-                loadDuelData(); // Forzamos carga fresca apenas termina el contador
+                loadDuelData(); 
             }, 500);
           }, 800);
         }
       }, 1000);
     }
 
+    // MODIFICADO: Sistema blindado para capturar errores silenciosos y mostrarlos en pantalla
     async function loadDuelData() {
       try {
         const res = await fetch(`/api/pvp/duel-data?duelId=${duelId}&userId=${userId}&t=${Date.now()}`);
+        
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Error de servidor (${res.status}): ${errText.substring(0, 100)}`);
+        }
+
         const data = await res.json();
         
-        // REVELADOR DE ERRORES: Si el backend falla, lo imprime en pantalla
         if (data.error) {
-            document.getElementById('cd-text').innerText = 'ERROR';
-            document.getElementById('cd-text').style.color = '#ef4444';
-            let sub = document.getElementById('cd-subtext');
-            if(!sub) {
-                sub = document.createElement('div');
-                sub.id = 'cd-subtext';
-                sub.className = 'text-xs text-rose-300 mt-2 px-4 text-center font-bold font-sans';
-                document.getElementById('countdown-overlay').appendChild(sub);
-            }
-            sub.innerText = data.error;
-            return;
+          throw new Error(`Rechazado por Base de Datos: ${data.error}`);
         }
 
         if (data.status === 'cancelled') {
@@ -384,7 +380,21 @@
                 updateUI(data);
             }
         }
-      } catch (err) {}
+      } catch (err) {
+        // DETECTAMOS EL FALLO Y LO IMPRIMIMOS EN PANTALLA EN LUGAR DE QUEDARSE "PREPARANDO"
+        clearInterval(pollInterval);
+        document.getElementById('cd-text').innerText = 'ERROR CRÍTICO';
+        document.getElementById('cd-text').style.color = '#ef4444';
+        
+        let sub = document.getElementById('cd-subtext');
+        if(!sub) {
+            sub = document.createElement('div');
+            sub.id = 'cd-subtext';
+            sub.className = 'text-[10px] text-rose-300 mt-4 px-4 text-center font-sans font-bold break-words w-full';
+            document.getElementById('countdown-overlay').appendChild(sub);
+        }
+        sub.innerText = err.message || "Fallo de conexión interno.";
+      }
     }
 
     function updateUI(data) {
