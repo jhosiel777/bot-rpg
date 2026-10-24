@@ -22,12 +22,10 @@ const duelSchema = new mongoose.Schema({
     default: 'open' 
   },
 
-  readyPlayers: { type: [Number], default: [] },
-  acceptedAt: { type: Date, default: null },
-
   winnerId: { type: Number, default: null },
-  combatLog: { type: [String], default: [] },
-  gameState: { type: Object, default: null },
+  
+  // Mixed permite guardar la vida, maná y los IDs de los mensajes de Telegram
+  gameState: { type: mongoose.Schema.Types.Mixed, default: null }, 
 
   createdAt: { type: Date, default: Date.now, expires: 86400 }
 });
