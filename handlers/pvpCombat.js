@@ -216,18 +216,20 @@ function registerPvPCombat(bot, { getPlayer }) {
       attacker.accessoryUsedThisTurn = true;
       const acc = attacker.accessory;
 
-      if (acc === 'shield') { attacker.shield += 20; logMsg = `🛡️ ${attacker.name} activó Escudo (+20).`; } 
-      else if (acc === 'critical') { attacker.crit += 0.25; logMsg = `🎯 ${attacker.name} aumentó su crítico temporalmente.`; } 
-      else if (acc === 'vampiric') { defender.hp -= 30; attacker.hp = Math.min(attacker.maxHp, attacker.hp + 30); logMsg = `🩸 ${attacker.name} drenó 30 HP al rival.`; } 
-      else if (acc === 'fire') { defender.burnTurns = 3; logMsg = `🔥 ${attacker.name} quemó al rival (3 turnos).`; } 
-      else if (acc === 'ice') { defender.attackDebuff = 2; logMsg = `❄️ ${attacker.name} congeló y bajó el ataque rival.`; } 
-      else if (acc === 'abyssal') {
+      if (acc === 'acc_shield') { attacker.shield += 20; logMsg = `🛡️ ${attacker.name} activó Escudo (+20).`; } 
+      else if (acc === 'acc_crit') { attacker.crit += 0.25; logMsg = `🎯 ${attacker.name} aumentó su crítico temporalmente.`; } 
+      else if (acc === 'acc_vamp') { defender.hp -= 30; attacker.hp = Math.min(attacker.maxHp, attacker.hp + 30); logMsg = `🩸 ${attacker.name} drenó 30 HP al rival.`; } 
+      else if (acc === 'acc_fire') { defender.burnTurns = 3; logMsg = `🔥 ${attacker.name} quemó al rival (3 turnos).`; } 
+      else if (acc === 'acc_ice') { defender.attackDebuff = 2; logMsg = `❄️ ${attacker.name} congeló y bajó el ataque rival.`; } 
+      else if (acc === 'acc_void') {
         if (defender.mana > 0) {
           defender.mana--; attacker.mana = Math.min(attacker.maxMana, attacker.mana + 1);
           logMsg = `🌌 ${attacker.name} robó 1 cristal de maná al rival.`;
         } else {
           logMsg = `🌌 ${attacker.name} intentó usar Orbe Abisal, pero el rival no tenía maná.`;
         }
+      } else {
+        logMsg = `💍 ${attacker.name} usó un accesorio desconocido.`;
       }
 
     } else if (action === 'pass') {
