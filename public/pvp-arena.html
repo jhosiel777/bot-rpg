@@ -34,9 +34,7 @@
       display: flex; align-items: center; justify-content: center; flex-direction: column;
       transition: opacity 0.5s;
     }
-    .countdown-text { font-size: 28px; color: #facc15; font-family: var(--pixel-font); text-shadow: 0 0 20px #b45309; text-align: center; margin-bottom: 10px; line-height: 1.4;}
-    .pulse-wait { animation: pulseWait 1.5s infinite; }
-    @keyframes pulseWait { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .countdown-text { font-size: 32px; color: #facc15; font-family: var(--pixel-font); text-shadow: 0 0 20px #b45309; text-align: center; margin-bottom: 10px; line-height: 1.4;}
 
     .battle-stage {
       position: relative; flex: 1; width: 100%; overflow: hidden;
@@ -65,13 +63,11 @@
     }
     @keyframes heroAttackLunge { 0%, 100% { transform: translate(0, 0); } 35% { transform: translate(28px, -24px) scale(1.08); } }
     @keyframes enemyAttackLunge { 0%, 100% { transform: translate(0, 0) scaleX(-1); } 35% { transform: translate(-28px, 24px) scale(1.08) scaleX(-1); } }
-    @keyframes floatUpFade { 0% { opacity: 1; transform: translateY(0) scale(0.8); } 25% { opacity: 1; transform: translateY(-14px) scale(1.1); } 100% { opacity: 0; transform: translateY(-42px) scale(0.95); } }
 
     .sprite-idle { animation: idleFloat 2.4s ease-in-out infinite; }
     .sprite-hit { animation: hitShake 0.42s ease-in-out !important; }
     .lunge-hero { animation: heroAttackLunge 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important; }
     .lunge-enemy { animation: enemyAttackLunge 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important; }
-    .floating-dmg { position: absolute; pointer-events: none; z-index: 50; font-family: var(--pixel-font); text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; animation: floatUpFade 1.15s ease-out forwards; white-space: nowrap; }
 
     .rpg-btn { position: relative; transition: all 0.12s ease; border-bottom-width: 4px; }
     .rpg-btn:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 2px; }
@@ -84,11 +80,7 @@
   <div class="tma-frame">
 
     <div id="countdown-overlay">
-      <div id="cd-text" class="countdown-text">SALA DE ESPERA</div>
-      <div id="cd-subtext" class="text-sm text-slate-300 font-bold mb-6 text-center px-4">Pulsa el botón cuando estés listo para combatir.</div>
-      <button id="btnReady" onclick="sendReady()" class="bg-gradient-to-r from-amber-500 to-amber-700 text-white font-extrabold py-3 px-8 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.5)] active:scale-95 transition border-2 border-amber-300">
-        ¡ESTOY LISTO!
-      </button>
+      <div id="cd-text" class="countdown-text text-slate-300">PREPARANDO</div>
     </div>
 
     <div class="bg-[#0b0914]/90 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between z-20">
@@ -318,12 +310,11 @@
     
     let isMyTurn = false;
     let pollInterval = null;
-    let isWaitingForOpponent = true;
     let countdownDone = false;
+    let isStarting = false;
     let currentHeroHp = -1;
     let currentEnemyHp = -1;
     let cachedWeapon = 'dagger';
-    let iAmReady = false;
 
     window.onload = () => {
       const tg = window.Telegram?.WebApp;
@@ -332,30 +323,9 @@
       pollInterval = setInterval(loadDuelData, 2000); 
     };
 
-    async function sendReady() {
-      iAmReady = true;
-      document.getElementById('btnReady').style.display = 'none';
-      document.getElementById('cd-text').innerText = 'ESPERANDO';
-      document.getElementById('cd-text').classList.add('pulse-wait');
-      document.getElementById('cd-subtext').innerText = 'Aguardando a que el rival esté listo...';
-      
-      try {
-        await fetch('/api/pvp/ready', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ duelId, userId })
-        });
-      } catch(e) {}
-      loadDuelData();
-    }
-
     function startCountdownVisual() {
-      countdownDone = true;
-      document.getElementById('cd-text').classList.remove('pulse-wait');
       let count = 3;
       const overlayText = document.getElementById('cd-text');
-      const sub = document.getElementById('cd-subtext');
-      sub.innerText = "¡PREPÁRATE!";
       
       const timer = setInterval(() => {
         overlayText.innerText = count;
@@ -363,10 +333,13 @@
         if (count < 0) {
           clearInterval(timer);
           overlayText.innerText = '¡LUCHEN!';
-          sub.innerText = "";
           setTimeout(() => {
             document.getElementById('countdown-overlay').style.opacity = 0;
-            setTimeout(() => document.getElementById('countdown-overlay').style.display = 'none', 500);
+            setTimeout(() => {
+                document.getElementById('countdown-overlay').style.display = 'none';
+                countdownDone = true;
+                loadDuelData(); // Forzamos carga fresca apenas termina el contador
+            }, 500);
           }, 800);
         }
       }, 1000);
@@ -380,22 +353,21 @@
         if (data.status === 'cancelled') {
           clearInterval(pollInterval);
           document.getElementById('countdown-overlay').style.display = 'flex';
+          document.getElementById('countdown-overlay').style.opacity = 1;
           document.getElementById('cd-text').innerText = 'CANCELADO';
-          document.getElementById('cd-text').classList.remove('pulse-wait');
-          document.getElementById('btnReady').style.display = 'none';
-          document.getElementById('cd-subtext').innerText = 'Se agotó el tiempo. Cierra la ventana.';
+          document.getElementById('cd-text').classList.remove('text-slate-300');
+          document.getElementById('cd-text').classList.add('text-rose-500');
           return;
         }
 
-        if (data.status === 'waiting') return;
-
-        if (isWaitingForOpponent && data.status === 'active' && iAmReady) {
-          isWaitingForOpponent = false;
-          startCountdownVisual();
-        }
-
-        if (!isWaitingForOpponent && data.status !== 'waiting') {
-          updateUI(data);
+        if (data.status === 'active') {
+            if (!countdownDone && !isStarting) {
+                isStarting = true;
+                startCountdownVisual();
+            }
+            if (countdownDone) {
+                updateUI(data);
+            }
         }
       } catch (err) {}
     }
@@ -502,16 +474,9 @@
           body: JSON.stringify({ duelId, userId, actionType })
         });
         const data = await res.json();
-        
-        if (data.success) {
-          loadDuelData();
-        } else {
-          alert(data.error);
-          loadDuelData(); 
-        }
-      } catch (err) {
-        lockButtons(false);
-      }
+        if (data.success) { loadDuelData(); } 
+        else { alert(data.error); loadDuelData(); }
+      } catch (err) { lockButtons(false); }
     }
 
     function lockButtons(locked) {
