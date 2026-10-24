@@ -66,6 +66,7 @@ const { registerBossHandlers } = require('./handlers/bossHandler');
 const { registerTavernHandlers } = require('./handlers/tavernHandler');
 const { registerHomeHandlers } = require('./handlers/homeHandler');
 const { registerBlacksmithHandlers } = require('./handlers/blacksmithHandler');
+const { registerPvPCombat } = require('./handlers/pvpCombat'); // Añadido para el nuevo sistema PvP nativo
 const { startBackgroundSchedulers } = require('./utils/schedulers');
 
 const ADMIN_ID = 835648800;
@@ -165,9 +166,9 @@ bot.use(async (ctx, next) => {
   }
 
   const maintMsg = '🚧 *REINO EN RECONSTRUCCIÓN* 🚧\n\n' +
-                    'Las puertas de Abyss están cerradas en este momento debido a labores de reconstrucción.\n\n' +
-                    '⏳ *No puedes acceder en este instante. Por favor, regresa más tarde.*\n' +
-                    '🛡️ _Tus datos y progresos se encuentran totalmente a salvo._';
+                   'Las puertas de Abyss están cerradas en este momento debido a labores de reconstrucción.\n\n' +
+                   '⏳ *No puedes acceder en este instante. Por favor, regresa más tarde.*\n' +
+                   '🛡️ _Tus datos y progresos se encuentran totalmente a salvo._';
 
   if (ctx.callbackQuery) {
     try {
@@ -241,6 +242,12 @@ registerHomeHandlers(bot, {
 });
 
 registerBlacksmithHandlers(bot, {
+  Player,
+  getPlayer
+});
+
+// Registro del nuevo sistema PvP nativo en Telegram
+registerPvPCombat(bot, {
   Player,
   getPlayer
 });
@@ -726,8 +733,8 @@ bot.on('text', async (ctx, next) => {
   if (userId === ADMIN_ID && adminFlags.broadcastWaiting) {
     adminFlags.broadcastWaiting = false;
     const broadcastMsg = `⚡🌌 *Súbitamente, un estruendo sacude los confines de Abyss...*\n` +
-                          `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
-                          `"${textMsg}"`;
+                         `📜 _Una presencia ancestral desciende y el Creador proclama:_\n\n` +
+                         `"${textMsg}"`;
     await broadcastToAll(bot, Player, broadcastMsg);
     return await ctx.reply('✅ Mensaje transmitido a todos.');
   }
