@@ -124,19 +124,6 @@ function startServer(bot) {
   app.use(express.static(path.join(__dirname, 'public')));
 
   // ==========================================
-  // RUTAS Y API DE LA MINI APP PVP
-  // ==========================================
-  app.use('/api/pvp', require('./routes/pvpRoutes'));
-
-  app.get('/', (req, res) => res.send('Servidor del bot RPG activo.'));
-  app.get('/ping', (req, res) => res.status(200).send('pong'));
-
-  // Ruta directa para servir la Mini App de la Arena PvP
-  app.get('/pvp-arena', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'pvp-arena.html'));
-  });
-
-  // ==========================================
   // CONECTAR WALLET (TON CONNECT)
   // ==========================================
   app.get('/connect-wallet', async (req, res) => {
