@@ -1,6 +1,10 @@
 const { Markup } = require('telegraf');
 const { Duel } = require('../duelModel');
 const { Player } = require('../playerModel');
+const { mnemonicToPrivateKey } = require('@ton/crypto');
+const { TonClient, WalletContractV4, internal, toNano } = require('@ton/ton');
+
+const ADMIN_WALLET_ADDRESS = 'UQACsFyGAD7F82-ta84_iLKmCyHsL3809ZmzRqHYZGTdXC1O';
 
 const WEAPON_STATS = {
   sword_t1: { name: 'Espada T1', type: 'Cortante', baseDmg: 40, crit: 0.15 },
@@ -15,6 +19,43 @@ const WEAPON_STATS = {
   khazur_pickaxe: { name: 'Pico de Khazur', type: 'Perforante', baseDmg: 25, crit: 0.10 },
   dagger: { name: 'Cuchillo', type: 'Físico', baseDmg: 18, crit: 0.10 }
 };
+
+// Función auxiliar para transferir comisiones desde la billetera del bot
+async function transferFeeFromBot(toAddress, amountTon, bodyText) {
+  const mnemonic = process.env.BOT_WALLET_MNEMONIC;
+  if (!mnemonic) return false;
+
+  try {
+    const client = new TonClient({
+      endpoint: 'https://toncenter.com/api/v2/jsonRPC',
+      apiKey: 'a251c1477baa2d17ace0208040e6e630ae127e0ed6bb319afc0c6245abd813dc'
+    });
+
+    const words = mnemonic.trim().split(/\s+/);
+    const keyPair = await mnemonicToPrivateKey(words);
+    const wallet = WalletContractV4.create({ workchain: 0, publicKey: keyPair.publicKey });
+
+    const walletContract = client.open(wallet);
+    const seqno = await walletContract.getSeqno();
+
+    await walletContract.sendTransfer({
+      secretKey: keyPair.secretKey,
+      seqno: seqno,
+      messages: [
+        internal({
+          to: toAddress,
+          value: toNano(amountTon.toString()),
+          bounce: false,
+          body: bodyText || 'Comisión de Arena PvP - Abyss RPG'
+        })
+      ]
+    });
+    return true;
+  } catch (err) {
+    console.error('Error enviando comisión PvP al creador:', err.message);
+    return false;
+  }
+}
 
 function cleanName(name) {
   if (!name) return 'Aventurero';
@@ -122,7 +163,6 @@ function registerPvPCombat(bot, { getPlayer }) {
     if (!duel || duel.status !== 'open') return ctx.answerCbQuery('Duelo no disponible.', true);
     if (duel.creatorId === opponent.userId) return ctx.answerCbQuery('No puedes retarte a ti mismo.', true);
 
-    // Validación y cobro al oponente
     if (duel.mode === 'gold' && (opponent.gold || 0) < duel.betAmount) {
       return ctx.answerCbQuery(`Oro insuficiente (${duel.betAmount}g).`, true);
     }
@@ -258,7 +298,6 @@ function registerPvPCombat(bot, { getPlayer }) {
       duel.winnerId = attacker.id;
       state.log.push(`🏆 ¡${attacker.name} ha ganado el duelo!`);
 
-      // Entrega de premios y actualización de Ranking
       const winnerDoc = await Player.findOne({ userId: attacker.id });
       const loserDoc = await Player.findOne({ userId: defender.id });
 
@@ -276,8 +315,19 @@ function registerPvPCombat(bot, { getPlayer }) {
           let fee = totalPot * 0.08;
           if (fee < 0.02) fee = 0.02;
           const reward = totalPot - fee;
+          
           winnerDoc.gram = (winnerDoc.gram || 0) + reward;
           state.log.push(`💎 Se lleva el pozo de ${reward.toFixed(3)} GRAM.`);
+
+          // Envío automático de la comisión de GRAM a la wallet del admin tras 15 segundos
+          setTimeout(async () => {
+            try {
+              await transferFeeFromBot(ADMIN_WALLET_ADDRESS, fee, 'Comisión Arena PvP - Abyss RPG');
+              console.log(`✅ Comisión PvP de ${fee} GRAM enviada exitosamente al administrador.`);
+            } catch (feeErr) {
+              console.error('Error enviando comisión PvP de GRAM:', feeErr.message);
+            }
+          }, 15000);
         }
 
         await winnerDoc.save();
