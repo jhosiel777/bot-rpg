@@ -12,6 +12,16 @@ function shortenName(name) {
   return clean.split(/\s+/)[0] || 'Aventurero'; 
 }
 
+// Función para obtener la fecha de inicio del lunes actual (00:00 UTC)
+function getStartOfWeekUtc() {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff));
+  monday.setUTCHours(0, 0, 0, 0);
+  return monday.toISOString().slice(0, 10);
+}
+
 function registerTavernHandlers(bot, { Player, getPlayer }) {
 
   bot.action('menu_tavern', async (ctx) => {
@@ -24,14 +34,10 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     const buttons = [
       [Markup.button.callback('⚔️ Arena de Duelos (PvP)', 'tavern_pvp')],
-      [Markup.button.callback('🏆 Ranking de Gladiadores', 'tavern_pvp_ranking')]
+      [Markup.button.callback('🏆 Ranking de Gladiadores', 'tavern_pvp_ranking')],
+      [Markup.button.callback('👤 Hablar con el Mercader Misterioso', 'tavern_merchant')],
+      [Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]
     ];
-
-    if (!player.hasAncestralGem) {
-      buttons.push([Markup.button.callback('👤 Hablar con el Mercader Misterioso', 'tavern_merchant')]);
-    }
-
-    buttons.push([Markup.button.callback('⬅️ Volver a Explorar', 'menu_explore')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
   });
@@ -40,25 +46,50 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     await safeAnswerCb(ctx);
     const player = await getPlayer(ctx.from.id, ctx.from.first_name);
 
-    if (player.hasAncestralGem) {
-      return await safeAnswerCb(ctx, 'El mercader no tiene nada más que ofrecerte por ahora.', true);
+    const currentWeek = getStartOfWeekUtc();
+    if (player.lastGoldPurchaseWeek !== currentWeek) {
+      player.weeklyGoldPurchases = 0;
+      player.lastGoldPurchaseWeek = currentWeek;
+      await player.save();
     }
 
-    const text = '👤 *MERCADER MISTERIOSO*\n\n' +
-                 '— *"Poseo reliquias que la moneda ordinaria no puede pagar..."*\n\n' +
-                 '• 🔮 *Gema Ancestral de Resistencia*\n' +
-                 '  _Aumenta permanentemente tu energía máxima en +2 ⚡ y confiere el título honorífico «Mecenas de Abyss»._\n' +
-                 '  Precio: *0.15 TON*\n\n' +
-                 'Conecta tu billetera para sellar el pacto:';
+    const weeklyBought = player.weeklyGoldPurchases || 0;
 
-    const miniAppUrl = 'https://bot-rpg-wu42.onrender.com/buy-web3?purpose=ancestral_gem&userId=' + player.userId;
+    let text = '👤 *MERCADER MISTERIOSO*\n\n' +
+               '— *"Poseo reliquias que la moneda ordinaria no puede pagar..."*\n\n';
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.webApp('💎 Comprar con TON (0.15)', miniAppUrl)],
-      [Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]
-    ]);
+    if (!player.hasAncestralGem) {
+      text += '• 🔮 *Gema Ancestral de Resistencia*\n' +
+              '  _Aumenta permanentemente tu energía máxima en +2 ⚡ y confiere el título honorífico «Mecenas de Abyss»._\n' +
+              '  Precio: *0.15 TON*\n\n';
+    }
 
-    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...keyboard });
+    text += '• 💰 *Bolsa de 1.100 de Oro*\n' +
+            '  _Inyección inmediata de riqueza real. Confiere el título «Mecenas de Abyss» si aún no lo posees._\n' +
+            '  Precio: *0.10 TON* | Compras esta semana: *' + weeklyBought + '/6*\n\n' +
+            'Conecta tu billetera para sellar el pacto:';
+
+    const buttons = [];
+
+    if (!player.hasAncestralGem) {
+      const gemUrl = 'https://bot-rpg-wu42.onrender.com/buy-web3?purpose=ancestral_gem&userId=' + player.userId;
+      buttons.push([Markup.button.webApp('💎 Gema Ancestral (0.15 TON)', gemUrl)]);
+    }
+
+    if (weeklyBought < 6) {
+      const goldUrl = 'https://bot-rpg-wu42.onrender.com/buy-web3?purpose=gold_pack&userId=' + player.userId;
+      buttons.push([Markup.button.webApp('💰 1.100 Oro (0.10 TON) [' + weeklyBought + '/6]', goldUrl)]);
+    } else {
+      buttons.push([Markup.button.callback('🚫 Límite semanal de Oro alcanzado (6/6)', 'merchant_limit_info')]);
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]);
+
+    return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  bot.action('merchant_limit_info', async (ctx) => {
+    return await safeAnswerCb(ctx, '⚠️ Alcanzaste el límite de 6 compras semanales. Se reinicia el lunes a las 00:00 UTC.', true);
   });
 
   bot.action('tavern_pvp', async (ctx) => {
