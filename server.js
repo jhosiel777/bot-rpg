@@ -19,6 +19,16 @@ const LOGS_GROUP_ID = -1004496297432;
 
 let cachedBotWalletAddress = process.env.BOT_WALLET_ADDRESS || null;
 
+// Obtiene la fecha de inicio de la semana actual en UTC (Lunes a las 00:00 UTC)
+function getStartOfWeekUtc() {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff));
+  monday.setUTCHours(0, 0, 0, 0);
+  return monday.toISOString().slice(0, 10);
+}
+
 // Obtiene o deriva automáticamente la dirección pública v4R2 de la billetera del bot
 async function getBotAddress() {
   if (cachedBotWalletAddress) return cachedBotWalletAddress;
@@ -441,10 +451,21 @@ function startServer(bot) {
   });
 
   // ==========================================
-  // COMPRA DE GEMA ANCESTRAL (/buy-web3) -> LLEGA A TU WALLET ADMIN
+  // COMPRAS MERCADER MISTERIOSO (/buy-web3) -> LLEGA A TU WALLET ADMIN
   // ==========================================
   app.get('/buy-web3', async (req, res) => {
     const userId = req.query.userId || '';
+    const purpose = req.query.purpose || 'ancestral_gem';
+
+    const isGoldPack = purpose === 'gold_pack';
+    const titleText = isGoldPack ? 'Bolsa de 1.100 de Oro' : 'Gema Ancestral';
+    const iconText = isGoldPack ? '💰✨' : '🔮✨';
+    const tagText = isGoldPack ? 'RECURSOS REALES DEL REINO' : 'ARTEFACTO LEGENDARIO ÚNICO';
+    const priceText = isGoldPack ? '0.10' : '0.15';
+    const nanoAmount = isGoldPack ? '100000000' : '150000000';
+    const descText = isGoldPack
+      ? 'Añade inmediatamente <b>1.100 de Oro</b> a tu bolsa personal y te confiere el título honorífico <b>«Mecenas de Abyss»</b> (si aún no lo posees).'
+      : 'Aumenta permanentemente tu límite a <b>+2 Energía Máxima ⚡</b> y te otorga el título exclusivo <b>«Mecenas de Abyss»</b>.';
 
     const html = `
     <!DOCTYPE html>
@@ -452,7 +473,7 @@ function startServer(bot) {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Mercader Misterioso - Gema Ancestral</title>
+      <title>Mercader Misterioso - ${titleText}</title>
       <script src="https://telegram.org/js/telegram-web-app.js"></script>
       <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
       <style>
@@ -472,19 +493,20 @@ function startServer(bot) {
     </head>
     <body>
       <div class="card">
-        <div class="icon">🔮✨</div>
-        <h2>Gema Ancestral</h2>
-        <div class="tag">ARTEFACTO LEGENDARIO ÚNICO</div>
-        <p>Aumenta permanentemente tu límite a <b>+2 Energía Máxima ⚡</b> y te otorga el título exclusivo <b>«Mecenas de Abyss»</b>.</p>
-        <div class="price-badge">💎 0.15 TON</div>
+        <div class="icon">${iconText}</div>
+        <h2>${titleText}</h2>
+        <div class="tag">${tagText}</div>
+        <p>${descText}</p>
+        <div class="price-badge">💎 ${priceText} TON</div>
         <div id="ton-connect-btn"></div>
-        <button id="buyBtn" class="btn-buy" onclick="sendPayment()">Adquirir Gema Ancestral</button>
+        <button id="buyBtn" class="btn-buy" onclick="sendPayment()">Adquirir ${titleText}</button>
         <div id="statusText" class="status-box">Conecta tu billetera para continuar.</div>
       </div>
       <script>
         const tg = window.Telegram?.WebApp;
         if (tg) tg.expand();
         let userId = '${userId}';
+        const purpose = '${purpose}';
         if (!userId && tg?.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
         const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
@@ -514,7 +536,7 @@ function startServer(bot) {
             messages: [
               {
                 address: '${ADMIN_WALLET_ADDRESS}',
-                amount: '150000000'
+                amount: '${nanoAmount}'
               }
             ]
           };
@@ -524,13 +546,14 @@ function startServer(bot) {
             statusText.innerText = 'Transacción firmada. Verificando en el reino...';
             const userWallet = tonConnectUI.account?.address || '';
 
-            const res = await fetch('/confirm-ancestral-gem', {
+            const res = await fetch('/confirm-merchant-purchase', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 userId: userId,
+                purpose: purpose,
                 boc: result.boc,
-                amount: '0.15',
+                amount: '${priceText}',
                 walletAddress: userWallet
               })
             });
@@ -556,52 +579,133 @@ function startServer(bot) {
     res.send(html);
   });
 
-  app.post('/confirm-ancestral-gem', async (req, res) => {
+  app.post('/confirm-merchant-purchase', async (req, res) => {
     try {
-      const { userId, boc, amount, walletAddress } = req.body;
+      const { userId, purpose, boc, amount, walletAddress } = req.body;
       if (!userId) return res.status(400).json({ success: false, msg: 'ID de usuario ausente.' });
 
       const uid = parseInt(userId, 10);
       const player = await Player.findOne({ userId: uid });
       if (!player) return res.status(404).json({ success: false, msg: 'Aventurero no encontrado.' });
 
-      if (player.hasAncestralGem) return res.status(400).json({ success: false, msg: 'Ya posees la Gema Ancestral.' });
-
       if (walletAddress) player.tonWalletAddress = walletAddress;
 
-      player.hasAncestralGem = true;
-      player.maxEnergy = (player.maxEnergy || 10) + 2;
-      player.energy = player.maxEnergy;
-
+      // Desbloquear título honorífico Mecenas de Abyss
       if (!player.unlockedTitles) player.unlockedTitles = ['Aventurero Novato'];
       if (!player.unlockedTitles.includes('Mecenas de Abyss')) {
         player.unlockedTitles.push('Mecenas de Abyss');
       }
       player.activeTitle = 'Mecenas de Abyss';
-      await player.save();
 
-      await sendPaymentLog(bot, {
-        player,
-        productName: 'Gema Ancestral (Pago a Creador)',
-        amount: amount || '0.15',
-        txHash: boc ? boc.slice(0, 32) + '...' : null
-      });
+      if (purpose === 'gold_pack') {
+        const currentWeek = getStartOfWeekUtc();
+        if (player.lastGoldPurchaseWeek !== currentWeek) {
+          player.weeklyGoldPurchases = 0;
+          player.lastGoldPurchaseWeek = currentWeek;
+        }
 
-      try {
-        await bot.telegram.sendMessage(
-          uid,
-          '🔮✨ *¡FELICITACIONES, AVENTURERO!*\n\n' +
-          'Has adquirido la legendaria *Gema Ancestral*.\n\n' +
-          '⚡ Tu energía máxima ha aumentado en *+2* (Ahora tienes *' + player.maxEnergy + ' ⚡*).\n' +
-          '🎖️ Se te ha conferido el título honorífico: «*Mecenas de Abyss*».\n\n' +
-          '_El reino recuerda con gratitud a sus protectores y benefactores._',
-          { parse_mode: 'Markdown' }
-        );
-      } catch (e) {}
+        if ((player.weeklyGoldPurchases || 0) >= 6) {
+          return res.status(400).json({ success: false, msg: 'Alcanzaste el límite de 6 compras de Oro esta semana.' });
+        }
 
-      return res.json({ success: true, msg: '¡Éxito! Gema Ancestral activada (+2 ⚡). Tu energía máxima ahora es ' + player.maxEnergy + ' y recibiste el título «Mecenas de Abyss».' });
+        player.weeklyGoldPurchases = (player.weeklyGoldPurchases || 0) + 1;
+        player.gold = (player.gold || 0) + 1100;
+        await player.save();
+
+        await sendPaymentLog(bot, {
+          player,
+          productName: '1.100 de Oro (Mercader - Pago Directo Web3)',
+          amount: amount || '0.10',
+          txHash: boc ? boc.slice(0, 32) + '...' : null
+        });
+
+        try {
+          await bot.telegram.sendMessage(
+            uid,
+            '💰✨ *¡FELICITACIONES, AVENTURERO!*\n\n' +
+            'Has adquirido la *Bolsa de 1.100 de Oro* del Mercader Misterioso.\n\n' +
+            '🪙 +1.100 de Oro añadidos a tu bolsa personal.\n' +
+            '🎖️ Título honorífico concedido: «*Mecenas de Abyss*».\n\n' +
+            '_El reino reconoce tu generosa contribución._',
+            { parse_mode: 'Markdown' }
+          );
+        } catch (e) {}
+
+        return res.json({ success: true, msg: '¡Éxito! Recibiste 1.100 de Oro y el título «Mecenas de Abyss». Compras semanales: ' + player.weeklyGoldPurchases + '/6.' });
+
+      } else { // purpose === 'ancestral_gem'
+        if (player.hasAncestralGem) return res.status(400).json({ success: false, msg: 'Ya posees la Gema Ancestral.' });
+
+        player.hasAncestralGem = true;
+        player.maxEnergy = (player.maxEnergy || 10) + 2;
+        player.energy = player.maxEnergy;
+        await player.save();
+
+        await sendPaymentLog(bot, {
+          player,
+          productName: 'Gema Ancestral (Mercader - Pago Directo Web3)',
+          amount: amount || '0.15',
+          txHash: boc ? boc.slice(0, 32) + '...' : null
+        });
+
+        try {
+          await bot.telegram.sendMessage(
+            uid,
+            '🔮✨ *¡FELICITACIONES, AVENTURERO!*\n\n' +
+            'Has adquirido la legendaria *Gema Ancestral*.\n\n' +
+            '⚡ Tu energía máxima ha aumentado en *+2* (Ahora tienes *' + player.maxEnergy + ' ⚡*).\n' +
+            '🎖️ Se te ha conferido el título honorífico: «*Mecenas de Abyss*».\n\n' +
+            '_El reino recuerda con gratitud a sus protectores y benefactores._',
+            { parse_mode: 'Markdown' }
+          );
+        } catch (e) {}
+
+        return res.json({ success: true, msg: '¡Éxito! Gema Ancestral activada (+2 ⚡). Tu energía máxima ahora es ' + player.maxEnergy + ' y recibiste el título «Mecenas de Abyss».' });
+      }
     } catch (err) {
       return res.status(500).json({ success: false, msg: 'Error procesando la entrega.' });
+    }
+  });
+
+  // Alias para mantener compatibilidad antigua
+  app.post('/confirm-ancestral-gem', async (req, res) => {
+    req.body.purpose = 'ancestral_gem';
+    return app._router.handle(req, res);
+  });
+
+  // ==========================================
+  // TRANSFERENCIA DE FONDOS DEL MERCADER (SALDO BOT -> ADMIN WALLET)
+  // ==========================================
+  app.post('/send-merchant-fee', async (req, res) => {
+    try {
+      const { userId, amount, playerName } = req.body;
+      const feeAmount = parseFloat(amount) || 0.10;
+
+      await transferTonFromBot([
+        {
+          to: ADMIN_WALLET_ADDRESS,
+          amount: feeAmount,
+          body: 'Pago Mercader Oro - Abyss RPG'
+        }
+      ]);
+
+      console.log(`✅ ${feeAmount} GRAM transferidos al Administrador por compra de Oro de ${playerName || userId}.`);
+
+      const uid = parseInt(userId, 10);
+      const player = await Player.findOne({ userId: uid });
+      if (player) {
+        await sendPaymentLog(bot, {
+          player,
+          productName: '1.100 de Oro (Mercader - Saldo Bot enviado a Admin)',
+          amount: feeAmount.toString(),
+          txHash: null
+        });
+      }
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('Error enviando fondos del mercader al creador:', err.message);
+      return res.status(500).json({ success: false, msg: err.message });
     }
   });
 
