@@ -54,9 +54,11 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     }
 
     const weeklyBought = player.weeklyGoldPurchases || 0;
+    const userGram = Number(player.gram || 0);
 
     let text = '👤 *MERCADER MISTERIOSO*\n\n' +
-               '— *"Poseo reliquias que la moneda ordinaria no puede pagar..."*\n\n';
+               '— *"Poseo reliquias que la moneda ordinaria no puede pagar..."*\n\n' +
+               `💎 *Tu Saldo Interno:* ${userGram.toFixed(3)} GRAM / TON\n\n`;
 
     if (!player.hasAncestralGem) {
       text += '• 🔮 *Gema Ancestral de Resistencia*\n' +
@@ -66,19 +68,22 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
 
     text += '• 💰 *Bolsa de 1.100 de Oro*\n' +
             '  _Inyección inmediata de riqueza real. Confiere el título «Mecenas de Abyss» si aún no lo posees._\n' +
-            '  Precio: *0.10 TON* | Compras esta semana: *' + weeklyBought + '/6*\n\n' +
-            'Conecta tu billetera para sellar el pacto:';
+            '  Precio: *0.10 TON / GRAM* | Compras esta semana: *' + weeklyBought + '/6*\n\n' +
+            'Selecciona el método de pago:';
 
     const buttons = [];
 
+    // Opción Gema Ancestral
     if (!player.hasAncestralGem) {
       const gemUrl = 'https://bot-rpg-wu42.onrender.com/buy-web3?purpose=ancestral_gem&userId=' + player.userId;
-      buttons.push([Markup.button.webApp('💎 Gema Ancestral (0.15 TON)', gemUrl)]);
+      buttons.push([Markup.button.webApp('🔮 Gema Ancestral (0.15 TON Web3)', gemUrl)]);
     }
 
+    // Opciones para Bolsa de Oro
     if (weeklyBought < 6) {
       const goldUrl = 'https://bot-rpg-wu42.onrender.com/buy-web3?purpose=gold_pack&userId=' + player.userId;
-      buttons.push([Markup.button.webApp('💰 1.100 Oro (0.10 TON) [' + weeklyBought + '/6]', goldUrl)]);
+      buttons.push([Markup.button.callback('💰 Comprar 1.100 Oro (0.10 Saldo Bot)', 'buy_gold_internal')]);
+      buttons.push([Markup.button.webApp('💳 Comprar 1.100 Oro (0.10 Wallet Web3)', goldUrl)]);
     } else {
       buttons.push([Markup.button.callback('🚫 Límite semanal de Oro alcanzado (6/6)', 'merchant_limit_info')]);
     }
@@ -86,6 +91,79 @@ function registerTavernHandlers(bot, { Player, getPlayer }) {
     buttons.push([Markup.button.callback('⬅️ Volver a la Taberna', 'menu_tavern')]);
 
     return await safeEditMessage(ctx, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+
+  bot.action('buy_gold_internal', async (ctx) => {
+    const player = await getPlayer(ctx.from.id, ctx.from.first_name);
+
+    // Validar reinicio semanal
+    const currentWeek = getStartOfWeekUtc();
+    if (player.lastGoldPurchaseWeek !== currentWeek) {
+      player.weeklyGoldPurchases = 0;
+      player.lastGoldPurchaseWeek = currentWeek;
+    }
+
+    if ((player.weeklyGoldPurchases || 0) >= 6) {
+      return await safeAnswerCb(ctx, '⚠️ Has alcanzado el límite de 6 compras semanales.', true);
+    }
+
+    // Verificar si el jugador tiene saldo interno de GRAM / TON
+    const price = 0.10;
+    if ((player.gram || 0) < price) {
+      await safeAnswerCb(ctx, '⚠️ Saldo de GRAM insuficiente.', true);
+      
+      const depositUrl = 'https://bot-rpg-wu42.onrender.com/deposit-gram?userId=' + player.userId;
+      return await ctx.reply(
+        `⚠️ *SALDO INSUFICIENTE*\n\nNecesitas tener al menos *${price} GRAM/TON* en tu saldo interno del bot para realizar esta compra.\nTu saldo actual es: *${Number(player.gram || 0).toFixed(3)} GRAM*.\n\n` +
+        `Puedes recargar tu saldo presionando el botón de abajo:`,
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.webApp('💎 Recargar Saldo', depositUrl)]
+          ])
+        }
+      );
+    }
+
+    // Descontar saldo y acreditar recompensas
+    player.gram = Math.max(0, player.gram - price);
+    player.gold = (player.gold || 0) + 1100;
+    player.weeklyGoldPurchases = (player.weeklyGoldPurchases || 0) + 1;
+
+    if (!player.unlockedTitles) player.unlockedTitles = ['Aventurero Novato'];
+    if (!player.unlockedTitles.includes('Mecenas de Abyss')) {
+      player.unlockedTitles.push('Mecenas de Abyss');
+    }
+    player.activeTitle = 'Mecenas de Abyss';
+
+    await player.save();
+
+    await safeAnswerCb(ctx, '🎉 ¡Compra realizada con éxito!', true);
+    await ctx.reply(
+      '💰✨ *¡COMPRA REALIZADA!*\n\n' +
+      'Has adquirido la *Bolsa de 1.100 de Oro* utilizando tu saldo interno del bot.\n\n' +
+      '🪙 +1.100 de Oro añadidos a tu bolsa.\n' +
+      '🎖️ Título asignado: «*Mecenas de Abyss*».\n\n' +
+      `Compras esta semana: *${player.weeklyGoldPurchases}/6*.`
+    );
+
+    // Emitir transferencia de los 0.10 recaudados desde la wallet del bot a la wallet del admin
+    setTimeout(async () => {
+      try {
+        const fetch = (await import('node-fetch')).default;
+        await fetch('https://bot-rpg-wu42.onrender.com/send-merchant-fee', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: player.userId,
+            amount: price,
+            playerName: player.name
+          })
+        });
+      } catch (err) {
+        console.error('Error enviando comisión del mercader al admin:', err.message);
+      }
+    }, 1000);
   });
 
   bot.action('merchant_limit_info', async (ctx) => {
