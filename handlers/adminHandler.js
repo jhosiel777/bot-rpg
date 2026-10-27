@@ -32,6 +32,7 @@ function registerAdminHandlers(bot, deps) {
         Markup.button.callback('💰 +10.000g Oro', 'adm_give_gold_10k'),
         Markup.button.callback('💰 +50.000g Oro', 'adm_give_gold_50k')
       ],
+      [Markup.button.callback('🎁 Enviar Oro Masivo', 'adm_mass_gold_prompt')],
       [Markup.button.callback('🐲 Gestión del Jefe Mundial', 'adm_boss_panel')],
       [Markup.button.callback('📊 Estadísticas de Drops', 'adm_drops')],
       [Markup.button.callback('🛡️ Aspirantes No Verificados', 'adm_unverified')],
@@ -139,6 +140,7 @@ function registerAdminHandlers(bot, deps) {
     adminFlags.targetLevelChangeId = null;
     adminFlags.whitelistAddWaiting = false;
     adminFlags.maintenanceEndWaiting = false;
+    adminFlags.massGoldWaiting = false;
     const view = getAdminHomeView();
     await ctx.reply(view.text, { parse_mode: 'Markdown', ...view.keyboard });
   });
@@ -150,6 +152,7 @@ function registerAdminHandlers(bot, deps) {
     adminFlags.targetLevelChangeId = null;
     adminFlags.whitelistAddWaiting = false;
     adminFlags.maintenanceEndWaiting = false;
+    adminFlags.massGoldWaiting = false;
     const view = getAdminHomeView();
     return await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', ...view.keyboard });
   });
@@ -168,6 +171,22 @@ function registerAdminHandlers(bot, deps) {
     p.gold = (p.gold || 0) + 50000;
     await p.save();
     await safeAnswerCb(ctx, '💰 ¡Te agregaste +50.000g de oro! (Total: ' + p.gold + 'g)', true);
+  });
+
+  bot.action('adm_mass_gold_prompt', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return await safeAnswerCb(ctx, 'Acceso denegado.', true);
+    await safeAnswerCb(ctx);
+    adminFlags.massGoldWaiting = true;
+
+    const text = '🎁 *ENVÍO MASIVO DE ORO* 🎁\n\n' +
+                 'Escribe en el chat la cantidad exacta de *Oro* que deseas regalar a **todos los aventureros** registrados en el reino.\n\n' +
+                 'Ejemplo: `500` o `1000`\n\n' +
+                 '_Para cancelar, pulsa el botón de abajo._';
+
+    return await safeEditMessage(ctx, text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Cancelar', 'adm_home')]])
+    });
   });
 
   bot.action('adm_toggle_maint', async (ctx) => {
@@ -508,6 +527,52 @@ function registerAdminHandlers(bot, deps) {
     p.potionsDragonBlood = (p.potionsDragonBlood || 0) + 1;
     await p.save();
     await safeAnswerCb(ctx, '🩸 Te añadiste 1x Elixir de Sangre de Dragón (Total: ' + p.potionsDragonBlood + ')', true);
+  });
+
+  bot.on('text', async (ctx, next) => {
+    if (ctx.from.id !== ADMIN_ID) return next();
+
+    if (adminFlags.massGoldWaiting) {
+      const textInput = ctx.message.text.trim();
+
+      if (textInput.startsWith('/')) {
+        adminFlags.massGoldWaiting = false;
+        await ctx.reply('❌ Operación cancelada.');
+        return next();
+      }
+
+      const goldAmount = parseInt(textInput, 10);
+
+      if (isNaN(goldAmount) || goldAmount <= 0) {
+        return await ctx.reply('⚠️ Por favor ingresa un número entero válido mayor a 0 (ejemplo: `500`).');
+      }
+
+      adminFlags.massGoldWaiting = false;
+
+      await ctx.reply(`⌛ Iniciando entrega masiva de *+${goldAmount} de Oro* a todos los aventureros...`, { parse_mode: 'Markdown' });
+
+      try {
+        const result = await Player.updateMany({}, { $inc: { gold: goldAmount } });
+        const count = result.modifiedCount || result.nModified || 0;
+
+        await ctx.reply(
+          '🎉 *¡ENVÍO MASIVO COMPLETADO!* 🎉\n\n' +
+          `• *Oro otorgado:* +${goldAmount}\n` +
+          `• *Aventureros beneficiados:* ${count}\n\n` +
+          '¡Todos los perfiles han sido actualizados con éxito!',
+          {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([[Markup.button.callback('⬅️ Volver al Panel Admin', 'adm_home')]])
+          }
+        );
+      } catch (err) {
+        console.error('Error enviando oro masivo:', err);
+        await ctx.reply(`❌ Ocurrió un error al procesar el envío masivo: ${err.message}`);
+      }
+      return;
+    }
+
+    return next();
   });
 }
 
