@@ -120,6 +120,22 @@ function registerPvPCombat(bot, { getPlayer }) {
     const duel = await Duel.findById(duelId);
     
     if (!duel || duel.status !== 'open') return ctx.answerCbQuery('Duelo no disponible.', true);
+    if (duel.creatorId === opponent.userId) return ctx.answerCbQuery('No puedes retarte a ti mismo.', true);
+
+    // Validación y cobro al oponente
+    if (duel.mode === 'gold' && (opponent.gold || 0) < duel.betAmount) {
+      return ctx.answerCbQuery(`Oro insuficiente (${duel.betAmount}g).`, true);
+    }
+    if (duel.mode === 'gram' && (opponent.gram || 0) < duel.betAmount) {
+      return ctx.answerCbQuery(`GRAM insuficiente (${duel.betAmount} GRAM).`, true);
+    }
+
+    if (duel.mode === 'gold' && duel.betAmount > 0) {
+      opponent.gold -= duel.betAmount;
+    } else if (duel.mode === 'gram' && duel.betAmount > 0) {
+      opponent.gram = Math.max(0, opponent.gram - duel.betAmount);
+    }
+    await opponent.save();
 
     const creator = await Player.findOne({ userId: duel.creatorId });
     duel.status = 'active';
@@ -241,6 +257,33 @@ function registerPvPCombat(bot, { getPlayer }) {
       duel.status = 'completed';
       duel.winnerId = attacker.id;
       state.log.push(`🏆 ¡${attacker.name} ha ganado el duelo!`);
+
+      // Entrega de premios y actualización de Ranking
+      const winnerDoc = await Player.findOne({ userId: attacker.id });
+      const loserDoc = await Player.findOne({ userId: defender.id });
+
+      if (winnerDoc && loserDoc) {
+        winnerDoc.pvpWins = (winnerDoc.pvpWins || 0) + 1;
+        loserDoc.pvpLosses = (loserDoc.pvpLosses || 0) + 1;
+
+        if (duel.mode === 'gold' && duel.betAmount > 0) {
+          const totalPot = duel.betAmount * 2;
+          const reward = Math.floor(totalPot * 0.95);
+          winnerDoc.gold = (winnerDoc.gold || 0) + reward;
+          state.log.push(`💰 Se lleva el pozo de ${reward} Oro.`);
+        } else if (duel.mode === 'gram' && duel.betAmount > 0) {
+          const totalPot = duel.betAmount * 2;
+          let fee = totalPot * 0.08;
+          if (fee < 0.02) fee = 0.02;
+          const reward = totalPot - fee;
+          winnerDoc.gram = (winnerDoc.gram || 0) + reward;
+          state.log.push(`💎 Se lleva el pozo de ${reward.toFixed(3)} GRAM.`);
+        }
+
+        await winnerDoc.save();
+        await loserDoc.save();
+      }
+
     } else if (endTurn) {
       state.turn = defender.id;
       defender.mana = Math.min(defender.maxMana, defender.mana + 2);
