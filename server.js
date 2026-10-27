@@ -232,7 +232,7 @@ function startServer(bot) {
   // ==========================================
   app.get('/deposit-gram', async (req, res) => {
     const userId = req.query.userId || '';
-    const depositTargetWallet = await getBotWalletAddress();
+    const depositTargetWallet = 'UQC9vNVV2Hg6xNynhN7QranOhZ3lT0Pkk4GDxYSdg6z_7fGV';
 
     const html = `
     <!DOCTYPE html>
